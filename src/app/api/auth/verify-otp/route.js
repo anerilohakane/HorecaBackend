@@ -16,7 +16,7 @@ export async function POST(req) {
     }
 
     // 1️⃣ Create or fetch customer
-    const customerRes = await fetch("http://localhost:3000/api/customers/create", {
+    const customerRes = await fetch("https://horeca-backend-six.vercel.app/api/customers/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone }),

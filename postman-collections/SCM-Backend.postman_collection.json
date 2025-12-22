@@ -6,7 +6,7 @@
     "description": "Comprehensive Postman collection for SCM backend APIs discovered under src/app/api. Update variables as needed."
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "baseUrl", "value": "https://horeca-backend-six.vercel.app/" },
     { "key": "supplierId", "value": "664000000000000000000001" },
     { "key": "productId", "value": "664000000000000000000002" },
     { "key": "categoryId", "value": "664000000000000000000003" },
