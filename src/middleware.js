@@ -276,9 +276,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:3001",
-  "https://yourdomain.com",
-  "https://www.yourdomain.com",
-  "https://horeca-user-end.vercel.app/"
+  "https://horeca-user-end.vercel.app"
 ];
 
 // Allow only real frontends
