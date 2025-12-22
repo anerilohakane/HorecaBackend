@@ -1,0 +1,65 @@
+Test ID,Module,Test Case Description,Test Steps,Expected Result,Priority,Status
+
+AUTH-001,Authentication,User Login with Valid Credentials,"1. Navigate to /auth/login
+2. Enter valid username and password
+3. Click on Login button",User should be successfully logged in and redirected to appropriate dashboard based on role,High,Not Started
+
+AUTH-002,Authentication,User Login with Invalid Credentials,"1. Navigate to /auth/login
+2. Enter invalid username or password
+3. Click on Login button",Error message should be displayed and user should remain on login page,High,Not Started
+
+AUTH-003,Authentication,Session Management,"1. Login successfully
+2. Wait for extended period
+3. Try to perform actions",Session should be maintained appropriately and user should be prompted to re-login when session expires,Medium,Not Started
+
+PAY-001,Payroll,Employee Creation,"1. Navigate to /payroll/employees/new
+2. Fill all mandatory fields
+3. Submit the form",New employee should be created successfully with all entered details,High,Not Started
+
+PAY-002,Payroll,Attendance Management,"1. Navigate to /payroll/attendance
+2. View attendance dashboard
+3. Mark attendance for an employee",Attendance should be recorded correctly and reflected in the dashboard,High,Not Started
+
+PAY-003,Payroll,Leave Application,"1. Navigate to /payroll/leaves/apply
+2. Fill leave application form
+3. Submit application",Leave application should be submitted and pending approval status should be shown,Medium,Not Started
+
+PAY-004,Payroll,Payslip Generation,"1. Navigate to /payroll/payslip/generate
+2. Select employee and period
+3. Generate payslip",Payslip should be generated with correct calculations and available for download,High,Not Started
+
+PAY-005,Payroll,Tax Calculation,"1. Navigate to /payroll/tax-calculations
+2. Enter required financial details
+3. Calculate tax",Tax should be calculated accurately according to current tax rules,High,Not Started
+
+TASK-001,Task Management,Create New Task,"1. Navigate to /tasks/create
+2. Fill task details
+3. Submit task",New task should be created and visible in task list,Medium,Not Started
+
+TASK-002,Task Management,Task Calendar View,"1. Navigate to /tasks/calendar
+2. View task calendar
+3. Click on different dates",Calendar should show all tasks on their scheduled dates correctly,Medium,Not Started
+
+TASK-003,Task Management,My Tasks View,"1. Navigate to /tasks/my-tasks
+2. View assigned tasks
+3. Update task status",Tasks should be filtered correctly for logged-in user and status updates should be saved,Medium,Not Started
+
+COMP-001,Compliance,Generate Compliance Report,"1. Navigate to /payroll/compliance/generate
+2. Select report type and period
+3. Generate report",Compliance report should be generated with accurate data and correct format,High,Not Started
+
+COMP-002,Compliance,View Compliance Reports,"1. Navigate to /payroll/compliance
+2. View list of generated reports
+3. Download report",Reports should be listed correctly and downloadable in appropriate format,Medium,Not Started
+
+UI-001,UI Components,Responsive Design,"1. Access application from different devices
+2. Test various screen sizes
+3. Check component layouts",All pages should be responsive and properly formatted across different screen sizes,High,Not Started
+
+UI-002,UI Components,Form Validations,"1. Test all form inputs
+2. Try submitting with invalid data
+3. Check error messages",Forms should show appropriate validation messages and prevent invalid submissions,High,Not Started
+
+PERF-001,Performance,Page Load Time,"1. Navigate to different pages
+2. Monitor load times
+3. Check network requests",Pages should load within acceptable time limits (< 3 seconds),Medium,Not Started

@@ -1,0 +1,159 @@
+{
+  "info": {
+    "_postman_id": "8b3a83b0-9b6d-4a2a-b6d0-2c9796a0d111",
+    "name": "SCM Backend - Full API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Comprehensive Postman collection for SCM backend APIs discovered under src/app/api. Update variables as needed."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "supplierId", "value": "664000000000000000000001" },
+    { "key": "productId", "value": "664000000000000000000002" },
+    { "key": "categoryId", "value": "664000000000000000000003" },
+    { "key": "taskId", "value": "664000000000000000000004" },
+    { "key": "employeeId", "value": "664000000000000000000005" },
+    { "key": "payslipId", "value": "664000000000000000000006" },
+    { "key": "taxId", "value": "664000000000000000000007" },
+    { "key": "complianceId", "value": "664000000000000000000008" },
+    { "key": "jwt", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api","auth","login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Session",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/auth/session", "host": ["{{baseUrl}}"], "path": ["api","auth","session"] }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api","auth","logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        { "name": "List Products", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api","products"] } } },
+        { "name": "Create Product", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api","products"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"Sample Product\",\n  \"price\": 100,\n  \"category\": \"{{categoryId}}\"\n}" } } },
+        { "name": "Get Product", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api","products","{{productId}}"] } } },
+        { "name": "Update Product (PUT)", "request": { "method": "PUT", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api","products","{{productId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Name\",\n  \"price\": 120\n}" } } },
+        { "name": "Patch Product", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api","products","{{productId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"price\": 130\n}" } } },
+        { "name": "Delete Product", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api","products","{{productId}}"] } } }
+      ]
+    },
+    {
+      "name": "Categories",
+      "item": [
+        { "name": "List Categories", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/categories", "host": ["{{baseUrl}}"], "path": ["api","categories"] } } },
+        { "name": "Create Category", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/categories", "host": ["{{baseUrl}}"], "path": ["api","categories"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"Beverages\"\n}" } } },
+        { "name": "Get Category", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["api","categories","{{categoryId}}"] } } },
+        { "name": "Patch Category", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["api","categories","{{categoryId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Category\"\n}" } } },
+        { "name": "Delete Category", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["api","categories","{{categoryId}}"] } } }
+      ]
+    },
+    {
+      "name": "Cart",
+      "item": [
+        { "name": "Get Cart", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/cart", "host": ["{{baseUrl}}"], "path": ["api","cart"] } } },
+        { "name": "Add To Cart", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/cart", "host": ["{{baseUrl}}"], "path": ["api","cart"] }, "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 2\n}" } } },
+        { "name": "Update Cart Item Quantity", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/cart", "host": ["{{baseUrl}}"], "path": ["api","cart"] }, "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 3\n}" } } },
+        { "name": "Clear/Remove From Cart", "request": { "method": "DELETE", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/cart", "host": ["{{baseUrl}}"], "path": ["api","cart"] }, "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Wishlist",
+      "item": [
+        { "name": "Get Wishlist", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/wishlist", "host": ["{{baseUrl}}"], "path": ["api","wishlist"] } } },
+        { "name": "Add To Wishlist", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/wishlist", "host": ["{{baseUrl}}"], "path": ["api","wishlist"] }, "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\"\n}" } } },
+        { "name": "Remove From Wishlist", "request": { "method": "DELETE", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/wishlist", "host": ["{{baseUrl}}"], "path": ["api","wishlist"] }, "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Suppliers",
+      "item": [
+        { "name": "Create Supplier", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/supplier", "host": ["{{baseUrl}}"], "path": ["api","supplier"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"Supplier A\",\n  \"email\": \"supplier@example.com\"\n}" } } },
+        { "name": "List Suppliers", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/supplier", "host": ["{{baseUrl}}"], "path": ["api","supplier"] } } },
+        { "name": "Approved Suppliers", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/supplier/approved", "host": ["{{baseUrl}}"], "path": ["api","supplier","approved"] } } },
+        { "name": "Pending Suppliers", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/supplier/pending", "host": ["{{baseUrl}}"], "path": ["api","supplier","pending"] } } },
+        { "name": "Get Supplier By ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}"] } } },
+        { "name": "Update Supplier (PATCH)", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"Supplier A Updated\"\n}" } } },
+        { "name": "Delete Supplier", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}"] } } },
+        { "name": "Verify Supplier (PUT)", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}/verify", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}","verify"] } } },
+        { "name": "Update Supplier Status (PATCH)", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}/status", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}","status"] }, "body": { "mode": "raw", "raw": "{\n  \"status\": \"approved\"\n}" } } },
+        { "name": "Supplier Documents - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}/documents", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}","documents"] } } },
+        { "name": "Supplier Documents - Create", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}/documents", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}","documents"] }, "body": { "mode": "raw", "raw": "{\n  \"type\": \"license\",\n  \"url\": \"https://example.com/doc.pdf\"\n}" } } },
+        { "name": "Supplier Documents - Update (PATCH)", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}/documents", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}","documents"] }, "body": { "mode": "raw", "raw": "{\n  \"docId\": \"665000000000000000000001\",\n  \"url\": \"https://example.com/new.pdf\"\n}" } } },
+        { "name": "Supplier Documents - Delete", "request": { "method": "DELETE", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/supplier/{{supplierId}}/documents", "host": ["{{baseUrl}}"], "path": ["api","supplier","{{supplierId}}","documents"] }, "body": { "mode": "raw", "raw": "{\n  \"docId\": \"665000000000000000000001\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        { "name": "List Tasks", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/tasks", "host": ["{{baseUrl}}"], "path": ["api","tasks"] } } },
+        { "name": "Create Task", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/tasks", "host": ["{{baseUrl}}"], "path": ["api","tasks"] }, "body": { "mode": "raw", "raw": "{\n  \"title\": \"Task 1\",\n  \"description\": \"Do something\",\n  \"dueDate\": \"2025-12-31\"\n}" } } },
+        { "name": "Get Task", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/tasks/{{taskId}}", "host": ["{{baseUrl}}"], "path": ["api","tasks","{{taskId}}"] } } },
+        { "name": "Update Task (PUT)", "request": { "method": "PUT", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/tasks/{{taskId}}", "host": ["{{baseUrl}}"], "path": ["api","tasks","{{taskId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"title\": \"Task 1 updated\"\n}" } } },
+        { "name": "Delete Task", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/tasks/{{taskId}}", "host": ["{{baseUrl}}"], "path": ["api","tasks","{{taskId}}"] } } }
+      ]
+    },
+    {
+      "name": "Payroll",
+      "item": [
+        { "name": "Approvals - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/approvals", "host": ["{{baseUrl}}"], "path": ["api","payroll","approvals"] } } },
+        { "name": "Attendance - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/attendance", "host": ["{{baseUrl}}"], "path": ["api","payroll","attendance"] } } },
+        { "name": "Attendance - Create/Upsert", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/attendance", "host": ["{{baseUrl}}"], "path": ["api","payroll","attendance"] }, "body": { "mode": "raw", "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"date\": \"2025-01-01\",\n  \"status\": \"present\"\n}" } } },
+        { "name": "Attendance - Patch", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/attendance", "host": ["{{baseUrl}}"], "path": ["api","payroll","attendance"] }, "body": { "mode": "raw", "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"date\": \"2025-01-02\",\n  \"status\": \"absent\"\n}" } } },
+        { "name": "Attendance - Export", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/attendance/export", "host": ["{{baseUrl}}"], "path": ["api","payroll","attendance","export"] } } },
+        { "name": "Compliance - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/compliance", "host": ["{{baseUrl}}"], "path": ["api","payroll","compliance"] } } },
+        { "name": "Compliance - Create", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/compliance", "host": ["{{baseUrl}}"], "path": ["api","payroll","compliance"] }, "body": { "mode": "raw", "raw": "{\n  \"title\": \"PF Filing\",\n  \"period\": \"2025-01\"\n}" } } },
+        { "name": "Compliance - Get By ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/compliance/{{complianceId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","compliance","{{complianceId}}"] } } },
+        { "name": "Compliance - Update (PATCH)", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/compliance/{{complianceId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","compliance","{{complianceId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"status\": \"completed\"\n}" } } },
+        { "name": "Compliance - Delete", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/payroll/compliance/{{complianceId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","compliance","{{complianceId}}"] } } },
+        { "name": "Employees - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/employees", "host": ["{{baseUrl}}"], "path": ["api","payroll","employees"] } } },
+        { "name": "Employees - Create", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/employees", "host": ["{{baseUrl}}"], "path": ["api","payroll","employees"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\"\n}" } } },
+        { "name": "Employees - Get By ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/employees/{{employeeId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","employees","{{employeeId}}"] } } },
+        { "name": "Employees - Update (PUT)", "request": { "method": "PUT", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/employees/{{employeeId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","employees","{{employeeId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"John D Updated\"\n}" } } },
+        { "name": "Employees - Delete", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/payroll/employees/{{employeeId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","employees","{{employeeId}}"] } } },
+        { "name": "Leaves - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/leaves", "host": ["{{baseUrl}}"], "path": ["api","payroll","leaves"] } } },
+        { "name": "Leaves - Create", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/leaves", "host": ["{{baseUrl}}"], "path": ["api","payroll","leaves"] }, "body": { "mode": "raw", "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"from\": \"2025-01-10\",\n  \"to\": \"2025-01-11\",\n  \"reason\": \"Personal\"\n}" } } },
+        { "name": "Payslip - List/Check", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/payslip", "host": ["{{baseUrl}}"], "path": ["api","payroll","payslip"] } } },
+        { "name": "Payslip - Create", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/payslip", "host": ["{{baseUrl}}"], "path": ["api","payroll","payslip"] }, "body": { "mode": "raw", "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"month\": \"2025-01\"\n}" } } },
+        { "name": "Payslip - Get By ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/payslip/{{payslipId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","payslip","{{payslipId}}"] } } },
+        { "name": "Payslip - Update (PUT)", "request": { "method": "PUT", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/payslip/{{payslipId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","payslip","{{payslipId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"notes\": \"Updated\"\n}" } } },
+        { "name": "Payslip - Delete", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/payroll/payslip/{{payslipId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","payslip","{{payslipId}}"] } } },
+        { "name": "Taxes - List", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/taxes", "host": ["{{baseUrl}}"], "path": ["api","payroll","taxes"] } } },
+        { "name": "Taxes - Create", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/taxes", "host": ["{{baseUrl}}"], "path": ["api","payroll","taxes"] }, "body": { "mode": "raw", "raw": "{\n  \"employeeId\": \"{{employeeId}}\",\n  \"year\": 2025\n}" } } },
+        { "name": "Taxes - Get By ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/taxes/{{taxId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","taxes","{{taxId}}"] } } },
+        { "name": "Taxes - Update (PATCH)", "request": { "method": "PATCH", "header": [ { "key": "Content-Type", "value": "application/json" } ], "url": { "raw": "{{baseUrl}}/api/payroll/taxes/{{taxId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","taxes","{{taxId}}"] }, "body": { "mode": "raw", "raw": "{\n  \"rebate\": 10000\n}" } } },
+        { "name": "Taxes - Delete", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/payroll/taxes/{{taxId}}", "host": ["{{baseUrl}}"], "path": ["api","payroll","taxes","{{taxId}}"] } } },
+        { "name": "Reports - Statutory", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/payroll/reports/statutory", "host": ["{{baseUrl}}"], "path": ["api","payroll","reports","statutory"] } } }
+      ]
+    },
+    {
+      "name": "Debug",
+      "item": [
+        { "name": "Debug Info", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/debug", "host": ["{{baseUrl}}"], "path": ["api","debug"] } } },
+        { "name": "Decode Token", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{jwt}}" } ], "url": { "raw": "{{baseUrl}}/api/debug/decode", "host": ["{{baseUrl}}"], "path": ["api","debug","decode"] } } }
+      ]
+    }
+  ]
+}
