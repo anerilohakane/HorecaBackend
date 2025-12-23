@@ -6,7 +6,7 @@ export async function GET(req, { params }) {
   await dbConnect();
 
   try {
-    const { id } = params;
+    const { id } = await params;
 
     const customer = await Customer.findById(id).lean();
 
