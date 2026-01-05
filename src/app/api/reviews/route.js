@@ -4,6 +4,7 @@ import dbConnect from "@/lib/db/connect";
 import Review from "@/lib/db/models/review";
 import Order from "@/lib/db/models/order";
 // import Product from "@/lib/db/models/product"; // If needed to update avg rating
+import User from "@/lib/db/models/User";
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload), {
