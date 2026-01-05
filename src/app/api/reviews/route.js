@@ -153,11 +153,10 @@ export async function GET(request) {
 
     const query = {};
 
-    /* ---------------- FILTERING ---------------- */
     if (productId) query.product = productId;
     if (userId) query.user = userId;
 
-    /* ---------------- FETCH REVIEWS ---------------- */
+
     const reviews = await Review.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
