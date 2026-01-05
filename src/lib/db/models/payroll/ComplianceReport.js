@@ -74,7 +74,7 @@ const complianceReportSchema = new mongoose.Schema({
   timestamps: true
 });
 
-complianceReportSchema.index({ reportId: 1 });
+// complianceReportSchema.index({ reportId: 1 }); // unique: true handles this
 complianceReportSchema.index({ reportType: 1 });
 complianceReportSchema.index({ 'period.from': 1, 'period.to': 1 });
 delete mongoose.models.ComplianceReport
