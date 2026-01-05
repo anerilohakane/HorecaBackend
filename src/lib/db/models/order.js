@@ -167,7 +167,7 @@ const OrderSchema = new Schema(
 );
 
 /* Indexes */
-OrderSchema.index({ orderNumber: 1 });
+// // OrderSchema.index({ orderNumber: 1 }); // Duplicate: unique:true handles this // Already indexed by unique: true
 OrderSchema.index({ user: 1 });
 OrderSchema.index({ supplier: 1 });
 OrderSchema.index({ status: 1 });

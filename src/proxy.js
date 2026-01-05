@@ -287,7 +287,7 @@ function getAllowedOrigin(origin) {
     : ALLOWED_ORIGINS[0];
 }
 
-export async function middleware(req) {
+export default async function proxy(req) {
   const { pathname } = req.nextUrl;
   const method = req.method;
   const requestOrigin = req.headers.get("origin");
