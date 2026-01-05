@@ -98,42 +98,88 @@ export async function POST(request) {
   }
 }
 
+// export async function GET(request) {
+//   try {
+//     await dbConnect();
+//     const url = new URL(request.url);
+//     const productId = url.searchParams.get("productId");
+//     const userId = url.searchParams.get("userId");
+//     const limit = parseInt(url.searchParams.get("limit") || "20");
+//     const page = parseInt(url.searchParams.get("page") || "1");
+//     const skip = (page - 1) * limit;
+
+//     const query = {};
+//     if (productId) query.product = productId;
+//     if (userId) query.user = userId;
+    
+//     // Default: find approved reviews only, unless searching by own user? 
+//     // Usually public API shows approved reviews.
+//     // query.isApproved = true; 
+
+//     // If both are missing, maybe return error or all reviews (admin?)
+//     if (!productId && !userId) {
+//        // Allow fetching all if admin logic exists, otherwise restricted default.
+//        // For now, allow listing recent reviews.
+//     }
+
+//     const reviews = await Review.find(query)
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limit)
+//       .populate("user", "name") // Show reviewer name
+//       .lean();
+    
+//     const total = await Review.countDocuments(query);
+
+//     return json({ success: true, count: total, reviews });
+//   } catch (error) {
+//     console.error("GET /api/reviews error:", error);
+//     return json({ success: false, error: "Server Error" }, 500);
+//   }
+// }
+
 export async function GET(request) {
   try {
     await dbConnect();
+
     const url = new URL(request.url);
+
     const productId = url.searchParams.get("productId");
     const userId = url.searchParams.get("userId");
-    const limit = parseInt(url.searchParams.get("limit") || "20");
+
     const page = parseInt(url.searchParams.get("page") || "1");
+    const limit = parseInt(url.searchParams.get("limit") || "10");
     const skip = (page - 1) * limit;
 
     const query = {};
+
+    /* ---------------- FILTERING ---------------- */
     if (productId) query.product = productId;
     if (userId) query.user = userId;
-    
-    // Default: find approved reviews only, unless searching by own user? 
-    // Usually public API shows approved reviews.
-    // query.isApproved = true; 
 
-    // If both are missing, maybe return error or all reviews (admin?)
-    if (!productId && !userId) {
-       // Allow fetching all if admin logic exists, otherwise restricted default.
-       // For now, allow listing recent reviews.
-    }
-
+    /* ---------------- FETCH REVIEWS ---------------- */
     const reviews = await Review.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("user", "name") // Show reviewer name
+      .populate("user", "name")
       .lean();
-    
+
     const total = await Review.countDocuments(query);
 
-    return json({ success: true, count: total, reviews });
+    return json({
+      success: true,
+      total,
+      page,
+      limit,
+      reviews,
+    });
   } catch (error) {
     console.error("GET /api/reviews error:", error);
-    return json({ success: false, error: "Server Error" }, 500);
+    return json(
+      { success: false, error: "Server error" },
+      500
+    );
   }
 }
+
