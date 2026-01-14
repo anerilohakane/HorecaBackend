@@ -227,6 +227,7 @@ export async function POST(request) {
         unitPrice,
         totalPrice,
         supplier: product.supplierId || product.supplier || null,
+        image: it.image || product.image || null, // ✅ Added image persistence
         attributes: it.attributes || null,
       });
     }
