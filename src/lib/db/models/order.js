@@ -49,6 +49,7 @@ const OrderItemSchema = new Schema(
     unitPrice: { type: Number, required: true },
     totalPrice: { type: Number, required: true },
     supplier: { type: Schema.Types.ObjectId, ref: "Supplier" }, // helpful for multi-supplier scenarios
+    image: { type: String }, // Store product image URL (http or relative)
     attributes: { type: Schema.Types.Mixed }, // e.g., color/size selected
   },
   { _id: false }
