@@ -9,7 +9,7 @@ export async function POST(req) {
     try {
         await dbConnect();
         const body = await req.json();
-        const { userId, productId, quantity, frequency, preferredDay, preferredTime } = body;
+        const { userId, productId, quantity, frequency, preferredDay, preferredTime, timezoneOffset } = body;
 
         // Basic validation
         if (!userId || !productId || !frequency) {
@@ -38,24 +38,42 @@ export async function POST(req) {
 
         // Calculate Initial Next Order Date
         if (body.startDate) {
-            // User provided specific start date
-            nextDate = new Date(body.startDate);
-            // Apply preferred Time
-            let hours = 9;
-            let minutes = 0;
-            if (preferredTime) {
-                const [h, m] = preferredTime.split(':').map(Number);
-                if (!isNaN(h)) hours = h;
-                if (!isNaN(m)) minutes = m;
-            }
-            nextDate.setHours(hours, minutes, 0, 0);
+            // ROBUST CALCULATION:
+            // 1. Extract YMD from startDate (parsed as UTC midnight by default for ISO date strings)
+            // 2. Extract HM from preferredTime
+            // 3. Construct a specific timestamp using Date.UTC(...) as if it were the User's Local Time
+            // 4. Apply the Offset to shift it to true UTC.
 
-            // If selected time has passed today, logic is tricky:
-            // "Auto Reorder" implies executes "From now on". 
-            // If user selects "Today" and time is *past*, user probably expects it to run *now* or *next occurence*?
-            // Usually "Start Date" implies the first anchor.
-            // If the user wants it to run *now*, and they pick Today + Past Time, the Cron (<= now) will pick it up immediately.
-            // This is arguably correct behavior for "Force run today".
+            const sDate = new Date(body.startDate);
+            const y = sDate.getUTCFullYear();
+            const mo = sDate.getUTCMonth();
+            const d = sDate.getUTCDate();
+
+            let h = 9;
+            let m = 0;
+            if (preferredTime) {
+                const parts = preferredTime.split(':').map(Number);
+                if (!isNaN(parts[0])) h = parts[0];
+                if (!isNaN(parts[1])) m = parts[1];
+            }
+
+            // This timestamp represents "17:55" in UTC namespace.
+            // If the user meant "17:55 IST", we need to shift this.
+            // IST is UTC+5.5. Offset is -330.
+            // 17:55 IST = 12:25 UTC.
+            // 17:55 UTC + (-5.5h) = 12:25 UTC. Correct.
+            const baseTimestamp = Date.UTC(y, mo, d, h, m, 0);
+            let finalTimestamp = baseTimestamp;
+
+            if (timezoneOffset !== undefined) {
+                 finalTimestamp = baseTimestamp + (Number(timezoneOffset) * 60000);
+            } else {
+                 // Fallback: If no offset provided, assume Server Local Time? 
+                 // Or just treat as UTC. Treating as UTC is safer for Vercel.
+                 // Ideally frontend always sends offset.
+            }
+            
+            nextDate = new Date(finalTimestamp);
             
         } else {
              // Fallback to legacy logic (calculating from 'preferredDay' number)
