@@ -10,6 +10,9 @@ export async function POST(req) {
         await dbConnect();
         const body = await req.json();
         const { userId, productId, quantity, frequency, preferredDay, preferredTime, timezoneOffset } = body;
+        
+        console.log("Creating Subscription Body:", JSON.stringify(body, null, 2));
+        console.log("Timezone Offset Received:", timezoneOffset, typeof timezoneOffset);
 
         // Basic validation
         if (!userId || !productId || !frequency) {
