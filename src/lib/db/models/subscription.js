@@ -40,6 +40,12 @@ const SubscriptionSchema = new Schema(
     lastOrderDate: {
       type: Date,
     },
+    preferredTime: {
+      type: String, // "HH:MM" 24h format
+    },
+    preferredDay: {
+      type: Number, // 1-31 (For Monthly) or 0-6 (For Weekly, 0=Sun)
+    },
     // Snapshot of product details for display if product is deleted
     productName: { type: String },
     productImage: { type: String },

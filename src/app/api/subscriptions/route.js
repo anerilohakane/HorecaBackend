@@ -1,53 +1,82 @@
+
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/db/connect';
 import Subscription from '@/lib/db/models/subscription';
 import Product from '@/lib/db/models/product';
 import User from '@/lib/db/models/User';
-import mongoose from 'mongoose';
-
-// Helper to validate and get user from request NOT IMPLEMENTED - Assuming userId is passed for now or auth middleware handles it
-// Ideally this should decode JWT from headers.
-// For now, we will expect 'userId' in query params for GET and body for POST for simplicity/consistency with current flow, 
-// OR we should implement proper auth check.
-// Given strict instructions not to modify existing auth or middleware unless asked, 
-// I will implement basic ID check or assume the frontend sends the correct ID.
-// IMPORTANT: In production, this must use req.headers.get('authorization').
 
 export async function POST(req) {
     try {
         await dbConnect();
         const body = await req.json();
-        const { userId, productId, quantity, frequency, startDate } = body;
+        const { userId, productId, quantity, frequency, preferredDay, preferredTime } = body;
 
-        if (!userId || !productId || !frequency || !startDate) {
+        // Basic validation
+        if (!userId || !productId || !frequency) {
             return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
         }
 
-        // Verify product exists and get details
+        // Verify product
         const product = await Product.findById(productId);
         if (!product) {
             return NextResponse.json({ success: false, error: 'Product not found' }, { status: 404 });
         }
 
-        // Calculate next order date
-        const start = new Date(startDate);
-        let nextDate = new Date(start);
-        
-        // If start date is in the past, calculate next interval
-        // For simplicity, we just set nextOrderDate to startDate if it's future, 
-        // or today if it's today. 
-        // Real logic might need to handle specific logic.
-        
+        // --- Calculate Initial Start Date / Next Order Date ---
+        const now = new Date();
+        let nextDate = new Date();
+
+        // Parse Time (HH:MM)
+        let hours = 9; // Default 9 AM
+        let minutes = 0;
+        if (preferredTime) {
+            const [h, m] = preferredTime.split(':').map(Number);
+            if (!isNaN(h)) hours = h;
+            if (!isNaN(m)) minutes = m;
+        }
+        nextDate.setHours(hours, minutes, 0, 0);
+
+        // Calculate Date based on Frequency
+        if (frequency === 'Monthly') {
+            // Use preferredDay (1-31)
+            const pDay = preferredDay || now.getDate();
+            nextDate.setDate(pDay);
+
+            // If the calculated date is in the past (e.g., today is 20th, preferred is 10th), move to next month
+            if (nextDate <= now) {
+                nextDate.setMonth(nextDate.getMonth() + 1);
+            }
+        } else if (frequency === 'Weekly') {
+             // For simplicity, if Weekly, start "next week" on the same day OR user provides specific day
+             // If preferredDay (0-6) is provided:
+             if (preferredDay !== undefined) {
+                 const currentDay = now.getDay();
+                 const daysUntil = (preferredDay + 7 - currentDay) % 7;
+                 // If daysUntil is 0 (today) and time passed, add 7 days. If time not passed, do today.
+                 // Simplification: Always schedule for the upcoming instance
+                 let addDays = daysUntil;
+                 if (daysUntil === 0 && nextDate <= now) {
+                     addDays = 7;
+                 }
+                 nextDate.setDate(now.getDate() + addDays);
+             } else {
+                 // Default to 7 days from now
+                 nextDate.setDate(now.getDate() + 7);
+             }
+        }
+
         const newSubscription = await Subscription.create({
             user: userId,
             product: productId,
             quantity: quantity || 1,
             frequency,
             status: 'Active',
-            startDate: start,
-            nextOrderDate: start, // First order is the start date
+            startDate: now, // When the subscription was created
+            nextOrderDate: nextDate, // The first scheduled order
+            preferredDay,
+            preferredTime,
             productName: product.name,
-            productImage: product.images?.[0]?.url || '', // Fallback image
+            productImage: product.image || (product.images && product.images[0]?.url) || '',
         });
 
         return NextResponse.json({ success: true, data: newSubscription }, { status: 201 });
@@ -69,8 +98,8 @@ export async function GET(req) {
         }
 
         const subscriptions = await Subscription.find({ user: userId })
-            .sort({ createdAt: -1 })
-            .lean(); // Return plain JS objects
+            .populate('product') // Populate product to get latest details
+            .sort({ createdAt: -1 });
 
         return NextResponse.json({ success: true, data: subscriptions }, { status: 200 });
 
@@ -84,15 +113,24 @@ export async function PATCH(req) {
     try {
         await dbConnect();
         const body = await req.json();
-        const { subscriptionId, status } = body;
+        const { subscriptionId, status, quantity, preferredDay, preferredTime } = body;
 
-        if (!subscriptionId || !status) {
-            return NextResponse.json({ success: false, error: 'SubscriptionId and status are required' }, { status: 400 });
+        if (!subscriptionId) {
+            return NextResponse.json({ success: false, error: 'SubscriptionId is required' }, { status: 400 });
         }
+
+        const updates = {};
+        if (status) updates.status = status;
+        if (quantity) updates.quantity = quantity;
+        if (preferredDay) updates.preferredDay = preferredDay;
+        if (preferredTime) updates.preferredTime = preferredTime;
+        
+        // Recalculating nextOrderDate on update is complex, 
+        // skipping for now unless specifically requested to reschedule immediately.
 
         const updated = await Subscription.findByIdAndUpdate(
             subscriptionId,
-            { status },
+            { $set: updates },
             { new: true }
         );
 

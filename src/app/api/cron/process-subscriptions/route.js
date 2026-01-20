@@ -1,125 +1,178 @@
+
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/db/connect';
 import Subscription from '@/lib/db/models/subscription';
 import Order from '@/lib/db/models/order';
 import Product from '@/lib/db/models/product';
-import User from '@/lib/db/models/User';
-import mongoose from 'mongoose';
 
-// Simple API Key security (Optional, but recommended)
-// Pass ?key=YOUR_SECRET_KEY in the URL
-const CRON_SECRET = process.env.CRON_SECRET || 'dev_cron_secret';
+// Mark as dynamic to avoid static generation
+export const dynamic = 'force-dynamic';
 
 export async function GET(req) {
     try {
         await dbConnect();
         
-        // 1. Security Check
-        const { searchParams } = new URL(req.url);
-        // if (searchParams.get('key') !== CRON_SECRET) {
-        //     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-        // }
-
         const now = new Date();
-        // today.setHours(23, 59, 59, 999); // REMOVED: Precision required
+        console.log(`[CRON] Starting subscription processing at ${now.toISOString()}`);
 
-        // 2. Find Due Subscriptions
-        // nextOrderDate is less than or equal to NOW AND status is Active
+        // 1. Find due subscriptions
         const dueSubscriptions = await Subscription.find({
-            nextOrderDate: { $lte: now },
-            status: 'Active'
+            status: 'Active',
+            nextOrderDate: { $lte: now }
         }).populate('product');
 
-        if (dueSubscriptions.length === 0) {
-            return NextResponse.json({ success: true, message: 'No subscriptions due today', processed: 0 });
-        }
+        console.log(`[CRON] Found ${dueSubscriptions.length} due subscriptions.`);
 
-        const stats = {
-            total: dueSubscriptions.length,
-            created: 0,
+        const results = {
+            processed: 0,
+            ordersCreated: 0,
             failed: 0,
             errors: []
         };
 
-        // 3. Process Each Subscription
+        if (dueSubscriptions.length === 0) {
+            return NextResponse.json({ success: true, results });
+        }
+
+        // 2. Group by User + Frequency + PreferredTime (Approx)
+        // We want to bundle items that are due together for the same user.
+        // Key: "userId_frequency_preferredDay_preferredTime"
+        const groups = {};
+
         for (const sub of dueSubscriptions) {
+            if (!sub.product) {
+                 results.failed++;
+                 continue;
+            }
+
+            // Create a grouping key
+            // Note: If frequency/time differs significantly, they should be separate orders.
+            const key = `${sub.user._id}_${sub.frequency}_${sub.preferredDay || 'x'}_${sub.preferredTime || 'x'}`;
+            
+            if (!groups[key]) {
+                groups[key] = {
+                    user: sub.user,
+                    subs: []
+                };
+            }
+            groups[key].subs.push(sub);
+        }
+
+        console.log(`[CRON] Consolidated into ${Object.keys(groups).length} order groups.`);
+
+        // 3. Process Groups
+        for (const key in groups) {
+            const group = groups[key];
+            const userId = group.user._id;
+            const subs = group.subs;
+
             try {
-                if (!sub.product) {
-                    throw new Error(`Product not found for subscription ${sub._id}`);
+                // Fetch Last Address
+                const lastOrder = await Order.findOne({ user: userId })
+                    .sort({ createdAt: -1 })
+                    .select('shippingAddress');
+
+                if (!lastOrder || !lastOrder.shippingAddress) {
+                    console.error(`[CRON] User ${userId} has no previous orders/address. Skipping group.`);
+                    results.failed += subs.length;
+                    continue;
                 }
 
-                // A. Get User's Default/Last Address from their last Order
-                // (Since we don't store address in Subscription, we assume repeat purchase uses last address)
-                const lastOrder = await Order.findOne({ user: sub.user })
-                                            .sort({ createdAt: -1 })
-                                            .select('shippingAddress b2b');
+                // Build Items Array & Total
+                const items = [];
+                let orderTotal = 0;
+                let subtotal = 0;
 
-                if (!lastOrder) {
-                    throw new Error(`No previous order found for user ${sub.user} to fetch address`);
+                for (const sub of subs) {
+                    const price = sub.product.price || 0;
+                    const total = price * sub.quantity;
+                    
+                    items.push({
+                        product: sub.product._id,
+                        name: sub.product.name,
+                        quantity: sub.quantity,
+                        unitPrice: price,
+                        totalPrice: total,
+                        image: sub.product.images?.[0]?.url || sub.product.image
+                    });
+
+                    subtotal += total;
                 }
+                
+                // Add shipping/tax logic here if needed (skipping for simplicity)
+                orderTotal = subtotal;
 
-                // B. Order Number Generator
-                const uniqueSuffix = Date.now() + '-' + Math.floor(Math.random() * 1000);
-                const orderNumber = `ORD-SUB-${uniqueSuffix}`;
+                // Create Consolidated Order
+                const uniqueSuffix = Date.now().toString(36).toUpperCase();
+                const random = Math.floor(Math.random() * 1000);
+                const orderNumber = `ORD-AUTO-${uniqueSuffix}-${random}`;
 
-                // C. Calculate Totals
-                const unitPrice = sub.product.price;
-                const quantity = sub.quantity;
-                const total = unitPrice * quantity;
-
-                // D. Create Order
                 const newOrder = await Order.create({
                     orderNumber,
-                    orderId: `ORD-SUB-ID-${uniqueSuffix}`, // Required for legacy DB index
-                    user: sub.user,
-                    items: [{
-                        product: sub.product._id,
-                        name: sub.product.name || sub.productName,
-                        quantity: quantity,
-                        unitPrice: unitPrice,
-                        totalPrice: total,
-                        image: sub.product.image || sub.productImage
-                    }],
+                    user: userId,
+                    items: items,
                     shippingAddress: lastOrder.shippingAddress,
-                    b2b: lastOrder.b2b, // Carry over B2B details if any
-                    subtotal: total,
-                    total: total,
+                    subtotal: subtotal,
+                    total: orderTotal,
                     status: 'pending',
-                    payment: {
-                        method: 'cod', // Default to COD for auto-orders
-                        status: 'pending'
-                    },
-                    metadata: {
-                        subscriptionId: sub._id,
-                        isAutoOrder: true
+                    payment: { method: 'cash_on_delivery', status: 'pending' },
+                    metadata: { 
+                        isAutoOrder: true, 
+                        subscriptionIds: subs.map(s => s._id), // Store array of sub IDs
+                        triggeredAt: now
                     }
                 });
 
-                // E. Update Next Order Date
-                const nextDate = new Date(sub.nextOrderDate);
-                if (sub.frequency === 'Weekly') {
-                    nextDate.setDate(nextDate.getDate() + 7);
-                } else if (sub.frequency === 'Monthly') {
-                    nextDate.setMonth(nextDate.getMonth() + 1);
-                }
-                
-                sub.nextOrderDate = nextDate;
-                sub.lastOrderDate = new Date();
-                await sub.save();
+                console.log(`[CRON] Order ${newOrder.orderNumber} created for User ${userId}`);
+                results.ordersCreated++;
 
-                stats.created++;
+                // 4. Update ALL Subscriptions in this group
+                for (const sub of subs) {
+                    const currentNextDate = new Date(sub.nextOrderDate);
+                    let nextDate = new Date(currentNextDate);
+
+                    if (sub.frequency === 'Weekly') {
+                        nextDate.setDate(nextDate.getDate() + 7);
+                    } else if (sub.frequency === 'Monthly') {
+                        // Logic to advance month
+                         let targetMonth = currentNextDate.getMonth() + 1;
+                         let targetYear = currentNextDate.getFullYear();
+                         if (targetMonth > 11) {
+                             targetMonth = 0;
+                             targetYear++;
+                         }
+                         
+                         const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+                         // Use preferredDay if available, else clamp current date
+                         const preferredDay = sub.preferredDay || currentNextDate.getDate();
+                         const dayToSet = Math.min(preferredDay, daysInTargetMonth);
+                         
+                         nextDate = new Date(targetYear, targetMonth, dayToSet);
+                         
+                         // Restore time
+                         if (sub.preferredTime) {
+                             const [h, m] = sub.preferredTime.split(':').map(Number);
+                             nextDate.setHours(h, m, 0, 0);
+                         }
+                    }
+
+                    sub.nextOrderDate = nextDate;
+                    sub.lastOrderDate = now;
+                    await sub.save();
+                    results.processed++;
+                }
 
             } catch (err) {
-                console.error(`Failed to process subscription ${sub._id}:`, err);
-                stats.failed++;
-                stats.errors.push({ id: sub._id, error: err.message });
+                 console.error(`[CRON] Error processing group ${key}:`, err);
+                 results.failed += subs.length;
+                 results.errors.push(err.message);
             }
         }
 
-        return NextResponse.json({ success: true, stats }, { status: 200 });
+        return NextResponse.json({ success: true, results });
 
     } catch (error) {
-        console.error('Cron Job Error:', error);
+        console.error('CRON API Error:', error);
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }
