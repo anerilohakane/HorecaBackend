@@ -38,11 +38,8 @@ export async function POST(req) {
 
         // Calculate Initial Next Order Date
         if (body.startDate) {
-            // ROBUST CALCULATION:
-            // 1. Extract YMD from startDate (parsed as UTC midnight by default for ISO date strings)
-            // 2. Extract HM from preferredTime
-            // 3. Construct a specific timestamp using Date.UTC(...) as if it were the User's Local Time
-            // 4. Apply the Offset to shift it to true UTC.
+            // --- Enhanced Date Calculation with Debugging ---
+            console.log(`[SUB-CREATE] Input: StartDate=${body.startDate}, Time=${preferredTime}, Offset=${timezoneOffset}`);
 
             const sDate = new Date(body.startDate);
             const y = sDate.getUTCFullYear();
@@ -57,24 +54,32 @@ export async function POST(req) {
                 if (!isNaN(parts[1])) m = parts[1];
             }
 
-            // This timestamp represents "17:55" in UTC namespace.
-            // If the user meant "17:55 IST", we need to shift this.
-            // IST is UTC+5.5. Offset is -330.
-            // 17:55 IST = 12:25 UTC.
-            // 17:55 UTC + (-5.5h) = 12:25 UTC. Correct.
+            // Construct Base Timestamp as strictly User's Local Time in UTC namespace
             const baseTimestamp = Date.UTC(y, mo, d, h, m, 0);
+            
             let finalTimestamp = baseTimestamp;
-
             if (timezoneOffset !== undefined) {
                  finalTimestamp = baseTimestamp + (Number(timezoneOffset) * 60000);
-            } else {
-                 // Fallback: If no offset provided, assume Server Local Time? 
-                 // Or just treat as UTC. Treating as UTC is safer for Vercel.
-                 // Ideally frontend always sends offset.
             }
-            
+
             nextDate = new Date(finalTimestamp);
-            
+            console.log(`[SUB-CREATE] Result: ${nextDate.toISOString()} (UTC)`);
+
+            // Past Check
+            if (nextDate <= now) {
+                console.log(`[SUB-CREATE] Date is in past (${nextDate.toISOString()} <= ${now.toISOString()}). Advancing...`);
+                if (frequency === 'Daily') {
+                    nextDate.setDate(nextDate.getDate() + 1);
+                } else if (frequency === 'Weekly') {
+                    nextDate.setDate(nextDate.getDate() + 7);
+                } else if (frequency === 'Monthly') {
+                    nextDate.setMonth(nextDate.getMonth() + 1);
+                }
+                console.log(`[SUB-CREATE] New Date: ${nextDate.toISOString()}`);
+            } else {
+                 console.log(`[SUB-CREATE] Date is in future. Keeping.`);
+            }
+
         } else {
              // Fallback to legacy logic (calculating from 'preferredDay' number)
             if (frequency === 'Monthly') {
@@ -102,6 +107,7 @@ export async function POST(req) {
                  }
             }
         }
+
 
         const newSubscription = await Subscription.create({
             user: userId,
