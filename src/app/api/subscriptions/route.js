@@ -47,7 +47,7 @@ export async function POST(req) {
             startDate: start,
             nextOrderDate: start, // First order is the start date
             productName: product.name,
-            productImage: product.images?.[0] || '', // Fallback image
+            productImage: product.images?.[0]?.url || '', // Fallback image
         });
 
         return NextResponse.json({ success: true, data: newSubscription }, { status: 201 });
