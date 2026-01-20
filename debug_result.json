@@ -1,0 +1,12 @@
+{
+  "now": "2026-01-20T12:50:50.201Z",
+  "sub": {
+    "id": "696f5ca2f494b13629c159b3",
+    "status": "Cancelled",
+    "nextOrderDate": "2026-01-24T18:15:00.000Z",
+    "startDate": "2026-01-20T10:44:50.888Z",
+    "preferredTime": "16:12",
+    "frequency": "Weekly",
+    "isDue": false
+  }
+}

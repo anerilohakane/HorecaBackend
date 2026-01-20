@@ -183,3 +183,27 @@ export async function PATCH(req) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }
+
+export async function DELETE(req) {
+    try {
+        await dbConnect();
+        const { searchParams } = new URL(req.url);
+        const subscriptionId = searchParams.get('id');
+
+        if (!subscriptionId) {
+            return NextResponse.json({ success: false, error: 'SubscriptionId is required' }, { status: 400 });
+        }
+
+        const deleted = await Subscription.findByIdAndDelete(subscriptionId);
+
+        if (!deleted) {
+            return NextResponse.json({ success: false, error: 'Subscription not found' }, { status: 404 });
+        }
+
+        return NextResponse.json({ success: true, message: 'Subscription deleted successfully' }, { status: 200 });
+
+    } catch (error) {
+        console.error('DELETE /api/subscriptions error:', error);
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+}

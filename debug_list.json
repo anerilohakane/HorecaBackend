@@ -1,0 +1,38 @@
+{
+  "now": "2026-01-20T12:51:54.022Z",
+  "subs": [
+    {
+      "id": "696f5ca2f494b13629c159b3",
+      "user": "693fb21c7b2b7ea2f4e162a3",
+      "created": "2026-01-20T10:44:50.889Z",
+      "status": "Cancelled",
+      "nextOrderDate": "2026-01-24T18:15:00.000Z",
+      "startDate": "2026-01-20T10:44:50.888Z",
+      "preferredTime": "16:12",
+      "frequency": "Weekly",
+      "pt": "16:12"
+    },
+    {
+      "id": "696f5ca1f494b13629c159b0",
+      "user": "693fb21c7b2b7ea2f4e162a3",
+      "created": "2026-01-20T10:44:49.521Z",
+      "status": "Active",
+      "nextOrderDate": "2026-01-24T18:15:00.000Z",
+      "startDate": "2026-01-20T10:44:49.520Z",
+      "preferredTime": "16:12",
+      "frequency": "Weekly",
+      "pt": "16:12"
+    },
+    {
+      "id": "696f5c9ff494b13629c159a6",
+      "user": "693fb21c7b2b7ea2f4e162a3",
+      "created": "2026-01-20T10:44:47.277Z",
+      "status": "Active",
+      "nextOrderDate": "2026-01-24T18:15:00.000Z",
+      "startDate": "2026-01-20T10:44:47.269Z",
+      "preferredTime": "16:12",
+      "frequency": "Weekly",
+      "pt": "16:12"
+    }
+  ]
+}
