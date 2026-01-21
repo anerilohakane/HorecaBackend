@@ -211,10 +211,10 @@ export async function POST(request) {
         detectedSupplier = product.supplierId || product.supplier;
       }
 
-      if (typeof product.stock === "number" && product.stock < qty) {
+      if (typeof product.stockQuantity === "number" && product.stockQuantity < qty) {
         stockErrors.push({
           product: product._id,
-          available: product.stock,
+          available: product.stockQuantity,
           requested: qty,
         });
       }
@@ -382,13 +382,13 @@ export async function POST(request) {
     // 10) Save
     await orderDoc.save();
 
-    // 11) Optional stock decrement
-    if (body.decrementStock) {
+    // 11) Optional stock decrement (Default to TRUE unless explicitly false)
+    if (body.decrementStock !== false) {
       for (const it of builtItems) {
         if (typeof it.quantity === "number" && it.quantity > 0) {
           await Product.updateOne(
             { _id: it.product },
-            { $inc: { stock: -it.quantity } }
+            { $inc: { stockQuantity: -it.quantity } }
           );
         }
       }
@@ -712,7 +712,7 @@ export async function PATCH(request) {
             if (it.product && it.quantity) {
               return Product.updateOne(
                 { _id: it.product },
-                { $inc: { stock: Number(it.quantity) } }
+                { $inc: { stockQuantity: Number(it.quantity) } }
               );
             }
             return null;
