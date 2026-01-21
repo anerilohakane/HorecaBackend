@@ -1,4 +1,4 @@
-const https = require('https');
+const http = require('http');
 
 const data = JSON.stringify({
   userId: '693fb21c7b2b7ea2f4e162a3', // Using ID from user logs
@@ -11,7 +11,8 @@ const data = JSON.stringify({
 });
 
 const options = {
-  hostname: 'horeca-backend-six.vercel.app',
+  hostname: 'localhost',
+  port: 3001,
   path: '/api/subscriptions',
   method: 'POST',
   headers: {
@@ -20,7 +21,7 @@ const options = {
   }
 };
 
-const req = https.request(options, (res) => {
+const req = http.request(options, (res) => {
   console.log(`STATUS: ${res.statusCode}`);
   let body = '';
   res.on('data', (chunk) => body += chunk);
