@@ -32,14 +32,14 @@ export async function GET(request, { params }) {
 
     // 1️⃣ Try Mongo ObjectId
     if (isValidObjectIdString(id)) {
-      product = await Product.findById(id).lean();
+      product = await Product.findById(id).lean({ virtuals: true });
     }
 
     // 2️⃣ Fallback to slug / sku
     if (!product) {
       product = await Product.findOne({
         $or: [{ slug: id }, { sku: id }],
-      }).lean();
+      }).lean({ virtuals: true });
     }
 
     if (!product) {
