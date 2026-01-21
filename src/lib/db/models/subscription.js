@@ -21,17 +21,20 @@ const SubscriptionSchema = new Schema(
     },
     frequency: {
       type: String,
-      enum: ["Weekly", "Monthly"],
+      enum: ["Weekly", "Monthly", "Once"],
       required: true,
     },
     status: {
       type: String,
-      enum: ["Active", "Paused", "Cancelled"],
+      enum: ["Active", "Paused", "Cancelled", "Completed"],
       default: "Active",
     },
     startDate: {
       type: Date,
       required: true,
+    },
+    endDate: {
+      type: Date, // Optional end date
     },
     nextOrderDate: {
       type: Date,

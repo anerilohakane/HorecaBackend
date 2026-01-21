@@ -131,29 +131,47 @@ export async function GET(req) {
                     const currentNextDate = new Date(sub.nextOrderDate);
                     let nextDate = new Date(currentNextDate);
 
-                    if (sub.frequency === 'Weekly') {
-                        nextDate.setDate(nextDate.getDate() + 7);
-                    } else if (sub.frequency === 'Monthly') {
-                        // Logic to advance month
-                         let targetMonth = currentNextDate.getMonth() + 1;
-                         let targetYear = currentNextDate.getFullYear();
-                         if (targetMonth > 11) {
-                             targetMonth = 0;
-                             targetYear++;
-                         }
-                         
-                         const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-                         // Use preferredDay if available, else clamp current date
-                         const preferredDay = sub.preferredDay || currentNextDate.getDate();
-                         const dayToSet = Math.min(preferredDay, daysInTargetMonth);
-                         
-                         nextDate = new Date(targetYear, targetMonth, dayToSet);
-                         
-                         // Restore time
-                         if (sub.preferredTime) {
-                             const [h, m] = sub.preferredTime.split(':').map(Number);
-                             nextDate.setHours(h, m, 0, 0);
-                         }
+                    // --- RECURRENCE LOGIC ---
+                    // --- RECURRENCE LOGIC ---
+                    if (sub.frequency === 'Once') {
+                        // One-time order completed.
+                        sub.status = 'Completed';
+                        // Keep nextOrderDate as is (history) or clear it? Keeping it as record.
+                    } else {
+                        // RECURRING (Weekly/Monthly/Daily)
+                        if (sub.frequency === 'Daily') {
+                            nextDate.setDate(nextDate.getDate() + 1);
+                        } else if (sub.frequency === 'Weekly') {
+                            nextDate.setDate(nextDate.getDate() + 7);
+                        } else if (sub.frequency === 'Monthly') {
+                             // Logic to advance month while PRESERVING TIME (Avoid Timezone Shift)
+                             // 1. Determine target month/year
+                             let targetMonth = nextDate.getMonth() + 1; 
+                             
+                             // Create a temp date to inspect the Target Month
+                             const tempDate = new Date(nextDate);
+                             tempDate.setDate(1); // Reset to 1st
+                             tempDate.setMonth(tempDate.getMonth() + 1); // Advance 1 month
+                             
+                             const daysInTargetMonth = new Date(tempDate.getFullYear(), tempDate.getMonth() + 1, 0).getDate();
+                             
+                             // 2. Determine target day (Preferred vs Max)
+                             const preferredDay = sub.preferredDay || nextDate.getDate(); // fallback to current day
+                             const dayToSet = Math.min(preferredDay, daysInTargetMonth);
+                             
+                             // 3. Apply changes to nextDate
+                             nextDate.setDate(1); 
+                             nextDate.setMonth(nextDate.getMonth() + 1);
+                             nextDate.setDate(dayToSet);
+                        }
+
+                        // Check End Date
+                        if (sub.endDate && nextDate > new Date(sub.endDate)) {
+                            console.log(`[CRON] Subscription ${sub._id} reached end date. marking Completed.`);
+                            sub.status = 'Completed';
+                        }
+                        
+                        sub.nextOrderDate = nextDate;
                     }
 
                     sub.nextOrderDate = nextDate;

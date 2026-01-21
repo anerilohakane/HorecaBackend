@@ -9,7 +9,7 @@ export async function POST(req) {
     try {
         await dbConnect();
         const body = await req.json();
-        const { userId, productId, quantity, frequency, preferredDay, preferredTime, timezoneOffset } = body;
+        const { userId, productId, quantity, frequency, preferredDay, preferredTime, timezoneOffset, startDate, endDate } = body;
 
         // Basic validation
         if (!userId || !productId || !frequency) {
@@ -34,54 +34,36 @@ export async function POST(req) {
             if (!isNaN(h)) hours = h;
             if (!isNaN(m)) minutes = m;
         }
-        nextDate.setHours(hours, minutes, 0, 0);
 
-        // Calculate Initial Next Order Date
-        if (body.startDate) {
-            // --- Enhanced Date Calculation with Debugging ---
-            console.log(`[SUB-CREATE] Input: StartDate=${body.startDate}, Time=${preferredTime}, Offset=${timezoneOffset}`);
+        if (startDate) {
+            // User provided specific start date (e.g. 2026-01-23)
+            console.log(`[SUB-CREATE] Input: StartDate=${startDate}, Time=${preferredTime}, Offset=${timezoneOffset}`);
 
-            const sDate = new Date(body.startDate);
+            const sDate = new Date(startDate);
+            // new Date("YYYY-MM-DD") parses as UTC, so we extract components
             const y = sDate.getUTCFullYear();
             const mo = sDate.getUTCMonth();
             const d = sDate.getUTCDate();
 
-            let h = 9;
-            let m = 0;
-            if (preferredTime) {
-                const parts = preferredTime.split(':').map(Number);
-                if (!isNaN(parts[0])) h = parts[0];
-                if (!isNaN(parts[1])) m = parts[1];
-            }
+            // Construct Timestamp as if it were UTC (mirroring Local time components)
+            // e.g. User wants 09:00 Local. We create 09:00 UTC timestamp first.
+            const localAsUtc = Date.UTC(y, mo, d, hours, minutes, 0);
 
-            // Construct Base Timestamp as strictly User's Local Time in UTC namespace
-            const baseTimestamp = Date.UTC(y, mo, d, h, m, 0);
-            
-            let finalTimestamp = baseTimestamp;
-            if (timezoneOffset !== undefined) {
-                 finalTimestamp = baseTimestamp + (Number(timezoneOffset) * 60000);
-            }
+            // Apply Offset to get real UTC
+            // India Offset is -330 (minutes). 
+            // 09:00 UTC + (-330m) = 03:30 UTC. Correct.
+            // If offset is missing, we assume inputs are already effectively in server time (UTC) or rely on auto-conversion.
+            // Defaulting offset to 0 if missing.
+            const offset = timezoneOffset !== undefined ? Number(timezoneOffset) : 0;
+            const finalTimestamp = localAsUtc + (offset * 60000);
 
             nextDate = new Date(finalTimestamp);
             console.log(`[SUB-CREATE] Result: ${nextDate.toISOString()} (UTC)`);
 
-            // Past Check
-            if (nextDate <= now) {
-                console.log(`[SUB-CREATE] Date is in past (${nextDate.toISOString()} <= ${now.toISOString()}). Advancing...`);
-                if (frequency === 'Daily') {
-                    nextDate.setDate(nextDate.getDate() + 1);
-                } else if (frequency === 'Weekly') {
-                    nextDate.setDate(nextDate.getDate() + 7);
-                } else if (frequency === 'Monthly') {
-                    nextDate.setMonth(nextDate.getMonth() + 1);
-                }
-                console.log(`[SUB-CREATE] New Date: ${nextDate.toISOString()}`);
-            } else {
-                 console.log(`[SUB-CREATE] Date is in future. Keeping.`);
-            }
-
         } else {
              // Fallback to legacy logic (calculating from 'preferredDay' number)
+            nextDate.setHours(hours, minutes, 0, 0); // Base on today + time
+
             if (frequency === 'Monthly') {
                 // Use preferredDay (1-31)
                 const pDay = preferredDay || now.getDate();
@@ -108,7 +90,6 @@ export async function POST(req) {
             }
         }
 
-
         const newSubscription = await Subscription.create({
             user: userId,
             product: productId,
@@ -117,6 +98,7 @@ export async function POST(req) {
             status: 'Active',
             startDate: now, // When the subscription was created
             nextOrderDate: nextDate, // The first scheduled order
+            endDate: endDate ? new Date(endDate) : undefined,
             preferredDay,
             preferredTime,
             productName: product.name,
