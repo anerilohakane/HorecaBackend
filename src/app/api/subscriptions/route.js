@@ -58,7 +58,15 @@ export async function POST(req) {
             const finalTimestamp = localAsUtc + (offset * 60000);
 
             nextDate = new Date(finalTimestamp);
-            console.log(`[SUB-CREATE] Result: ${nextDate.toISOString()} (UTC)`);
+            
+            // Fix for TC-OM-018 (Drift): Save the preferred day from the start date if not provided
+            if (!preferredDay) {
+                // We use the day from the input string 'YYYY-MM-DD' which is reliable local day
+                const [y, m, d] = startDate.split('-').map(Number);
+                preferredDay = d; 
+            }
+
+            console.log(`[SUB-CREATE] Result: ${nextDate.toISOString()} (UTC), PreferredDay: ${preferredDay}`);
 
         } else {
              // Fallback to legacy logic (calculating from 'preferredDay' number)

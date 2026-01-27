@@ -72,10 +72,13 @@ export async function GET(req) {
                     .sort({ createdAt: -1 })
                     .select('shippingAddress');
 
-                if (!lastOrder || !lastOrder.shippingAddress) {
-                    console.error(`[CRON] User ${userId} has no previous orders/address. Skipping group.`);
+                // --- TC-OM-016: Address Deletion/Validation ---
+                // We rely on the snapshot in lastOrder. 
+                // Enhanced check: Ensure all required fields exist.
+                if (!lastOrder || !lastOrder.shippingAddress || !lastOrder.shippingAddress.addressLine1 || !lastOrder.shippingAddress.pincode) {
+                    console.error(`[CRON] User ${userId} has INVALID previous address. Skipping group.`);
                     results.failed += subs.length;
-                    continue;
+                    continue; // Skip this group, requires user intervention
                 }
 
                 // Build Items Array & Total
@@ -84,6 +87,20 @@ export async function GET(req) {
                 let subtotal = 0;
 
                 for (const sub of subs) {
+                    // --- TC-OM-014: Out of Stock Handling ---
+                    // Check stock. If insufficient, skip adding to items.
+                    if (sub.product.stockQuantity < sub.quantity) {
+                         console.warn(`[CRON] Subscription ${sub._id} SKIPPED due to Out of Stock. (Stock: ${sub.product.stockQuantity}, Req: ${sub.quantity})`);
+                         continue;
+                    }
+
+                    // --- TC-OM-017: Max Quantity Limit ---
+                    const MAX_QTY = 100;
+                    if (sub.quantity > MAX_QTY) {
+                        console.warn(`[CRON] Subscription ${sub._id} has excessive quantity (${sub.quantity}). Capped at ${MAX_QTY} or skipped? Skipping.`);
+                        continue;
+                    }
+
                     const price = sub.product.price || 0;
                     const total = price * sub.quantity;
                     
@@ -97,6 +114,11 @@ export async function GET(req) {
                     });
 
                     subtotal += total;
+                }
+
+                if (items.length === 0) {
+                    console.log(`[CRON] Group ${key} has no valid items (OOS or other issue). Skipping order creation.`);
+                    continue; 
                 }
                 
                 // Add shipping/tax logic here if needed (skipping for simplicity)
@@ -115,7 +137,8 @@ export async function GET(req) {
                     subtotal: subtotal,
                     total: orderTotal,
                     status: 'pending',
-                    payment: { method: 'cash_on_delivery', status: 'pending' },
+                    // --- TC-OM-019: Payment Method Persistence ---
+                    payment: { method: lastOrder.payment?.method || 'cash_on_delivery', status: 'pending' },
                     metadata: { 
                         isAutoOrder: true, 
                         subscriptionIds: subs.map(s => s._id), // Store array of sub IDs
@@ -144,24 +167,27 @@ export async function GET(req) {
                         } else if (sub.frequency === 'Weekly') {
                             nextDate.setDate(nextDate.getDate() + 7);
                         } else if (sub.frequency === 'Monthly') {
-                             // Logic to advance month while PRESERVING TIME (Avoid Timezone Shift)
-                             // 1. Determine target month/year
-                             let targetMonth = nextDate.getMonth() + 1; 
+                             // TC-OM-018: Robust End-of-Month Logic
+                             // Logic: Advance Month. Then clamp day to valid range.
+                             // Example: Jan 31 -> Feb 1 (if simple add) -> Feb 28 (if clamped)
+
+                             // 1. Get current month details
+                             const nextDateCurrent = new Date(nextDate); // clone
+                             const currentMonth = nextDateCurrent.getMonth();
+                             const targetMonth = currentMonth + 1; 
                              
-                             // Create a temp date to inspect the Target Month
-                             const tempDate = new Date(nextDate);
-                             tempDate.setDate(1); // Reset to 1st
-                             tempDate.setMonth(tempDate.getMonth() + 1); // Advance 1 month
+                             // 2. Determine target day
+                             const targetDay = sub.preferredDay || nextDate.getDate();
                              
-                             const daysInTargetMonth = new Date(tempDate.getFullYear(), tempDate.getMonth() + 1, 0).getDate();
-                             
-                             // 2. Determine target day (Preferred vs Max)
-                             const preferredDay = sub.preferredDay || nextDate.getDate(); // fallback to current day
-                             const dayToSet = Math.min(preferredDay, daysInTargetMonth);
-                             
-                             // 3. Apply changes to nextDate
+                             // 3. Set to 1st of target month first
                              nextDate.setDate(1); 
-                             nextDate.setMonth(nextDate.getMonth() + 1);
+                             nextDate.setMonth(targetMonth);
+
+                             // 4. Find max days in this new target month
+                             const daysInTargetMonth = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
+                             
+                             // 5. Clamp target day
+                             const dayToSet = Math.min(targetDay, daysInTargetMonth);
                              nextDate.setDate(dayToSet);
                         }
 
