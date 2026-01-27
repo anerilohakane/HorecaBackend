@@ -21,7 +21,7 @@ const SubscriptionSchema = new Schema(
     },
     frequency: {
       type: String,
-      enum: ["Weekly", "Monthly", "Once"],
+      enum: ["Daily", "Weekly", "Monthly", "Once"],
       required: true,
     },
     status: {
