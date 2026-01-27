@@ -10,7 +10,9 @@ const Subscription = mongoose.model('Subscription', new Schema({
     status: String, 
     nextOrderDate: Date, 
     frequency: String,
-    productName: String
+    productName: String,
+    failureReason: String,
+    lastRunStatus: String
 }, { strict: false }));
 
 async function runTest() {
@@ -33,6 +35,8 @@ async function runTest() {
             console.log(`Product: ${s.productName}`);
             console.log(`NextOrderDate: ${s.nextOrderDate.toISOString()}`);
             console.log(`Is Due? ${isDue ? "YES ✅" : "NO ❌"} (Diff: ${diff/60000} mins)`);
+            console.log(`Status: ${s.status} | Last Run: ${s.lastRunStatus || 'N/A'}`);
+            if(s.failureReason) console.log(`Reason: ${s.failureReason}`);
         });
 
     } catch (err) {
