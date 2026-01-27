@@ -4,6 +4,7 @@ import dbConnect from '@/lib/db/connect';
 import Subscription from '@/lib/db/models/subscription';
 import Order from '@/lib/db/models/order';
 import Product from '@/lib/db/models/product';
+import Notification from '@/lib/db/models/notification';
 
 // Mark as dynamic to avoid static generation
 export const dynamic = 'force-dynamic';
@@ -87,24 +88,68 @@ export async function GET(req) {
                     continue; // Skip this group, requires user intervention
                 }
 
-                // Build Items Array & Total
+                // --- STRICT VALIDATION PHASE ---
+                // Check ALL items for availability first. If ANY is OOS, fail the whole group.
+                const failedItems = [];
+                for (const sub of subs) {
+                    if (sub.product.stockQuantity < sub.quantity) {
+                        failedItems.push(`${sub.product.name} (Stock: ${sub.product.stockQuantity})`);
+                    }
+                }
+
+                if (failedItems.length > 0) {
+                    const reason = `Order blocked. Out of Stock: ${failedItems.join(', ')}`;
+                    console.warn(`[CRON] Blocking Group ${key}. ${reason}`);
+                    
+                    // 1. Notify User
+                    await Notification.create({
+                        user: userId,
+                        title: 'Scheduled Order Failed',
+                        message: `Your scheduled order could not be placed because the following items are out of stock: ${failedItems.join(', ')}. Please update your subscription or try again later.`,
+                        type: 'subscription_alert'
+                    });
+
+                    // 2. Mark Subscriptions as Failed (but keep Active)
+                    for (const sub of subs) {
+                         sub.lastRunStatus = 'Failed';
+                         sub.failureReason = reason;
+                         // We probably should NOT advance the date? Or should we?
+                         // If we don't advance, it will retry immediately on next run (e.g. 1 min later).
+                         // If stock is still 0, it will spam notifications.
+                         // BETTER: Advance the date to 'tomorrow' or 'next Retry'?
+                         // User requirement: "Block the order". 
+                         // To prevent spam, we will NOT advance the date implies it stays 'Due'.
+                         // But to prevent loop spam in a real cron (every minute), we ideally should have a 'retryAfter' or just rely on 'lastRunStatus'.
+                         // For now, to be safe and avoid infinite loops if the cron runs typically daily, we leave date alone?
+                         // NO, if I leave date alone, it's still <= Now. It will run again in 1 min.
+                         // Solution: Advance date by 1 day (Retry tomorrow).
+                         // OR: Just mark failure and let user fix?
+                         // Let's Advance Date by 1 Day as a "Retry Delay".
+                         
+                         // Logic: simple +1 day for retry
+                         const currentNext = new Date(sub.nextOrderDate);
+                         const retryDate = new Date(currentNext);
+                         retryDate.setDate(retryDate.getDate() + 1);
+                         sub.nextOrderDate = retryDate;
+                         
+                         await sub.save();
+                    }
+                    
+                    results.failed += subs.length;
+                    continue; // BLOCK THE ORDER
+                }
+
+                // --- BUILD ITEMS PHASE (All Valid) ---
                 const items = [];
                 let orderTotal = 0;
                 let subtotal = 0;
 
                 for (const sub of subs) {
-                    // --- TC-OM-014: Out of Stock Handling ---
-                    // Check stock. If insufficient, skip adding to items.
-                    if (sub.product.stockQuantity < sub.quantity) {
-                         console.warn(`[CRON] Subscription ${sub._id} SKIPPED due to Out of Stock. (Stock: ${sub.product.stockQuantity}, Req: ${sub.quantity})`);
-                         continue;
-                    }
-
                     // --- TC-OM-017: Max Quantity Limit ---
                     const MAX_QTY = 100;
                     if (sub.quantity > MAX_QTY) {
-                        console.warn(`[CRON] Subscription ${sub._id} has excessive quantity (${sub.quantity}). Capped at ${MAX_QTY} or skipped? Skipping.`);
-                        continue;
+                         console.warn(`[CRON] Subscription ${sub._id} capped at ${MAX_QTY} (Req: ${sub.quantity})`);
+                         sub.quantity = MAX_QTY;
                     }
 
                     const price = sub.product.price || 0;
@@ -120,11 +165,10 @@ export async function GET(req) {
                     });
 
                     subtotal += total;
-                }
-
-                if (items.length === 0) {
-                    console.log(`[CRON] Group ${key} has no valid items (OOS or other issue). Skipping order creation.`);
-                    continue; 
+                    
+                    // Clear failure status on success
+                    sub.lastRunStatus = 'Success';
+                    sub.failureReason = null;
                 }
                 
                 // Add shipping/tax logic here if needed (skipping for simplicity)
