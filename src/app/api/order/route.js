@@ -384,14 +384,19 @@ export async function POST(request) {
 
     // 11) Optional stock decrement (Default to TRUE unless explicitly false)
     if (body.decrementStock !== false) {
+      console.log("Starting stock decrement for order:", orderDoc._id);
       for (const it of builtItems) {
         if (typeof it.quantity === "number" && it.quantity > 0) {
-          await Product.updateOne(
+          console.log(`Decrementing stock for product ${it.product} by ${it.quantity}`);
+          const updateRes = await Product.updateOne(
             { _id: it.product },
             { $inc: { stockQuantity: -it.quantity } }
           );
+          console.log(`Stock update result for ${it.product}:`, updateRes);
         }
       }
+    } else {
+      console.log("Stock decrement skipped (decrementStock === false)");
     }
 
     return json({ success: true, order: orderDoc }, 201);
