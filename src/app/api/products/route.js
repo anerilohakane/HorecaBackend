@@ -129,7 +129,6 @@
 
 // src/app/api/products/route.js
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
@@ -199,7 +198,7 @@ export async function GET(request) {
     ]);
 
     // populate category info client-side friendly (map)
-    const categoryIds = Array.from(new Set(items.map(i => String(i.categoryId)).filter(id => isValidObjectIdString(id))));
+    const categoryIds = Array.from(new Set(items.map(i => String(i.categoryId)).filter(Boolean)));
     const categories = categoryIds.length ? await Category.find({ _id: { $in: categoryIds } }).select('_id name image slug').lean() : [];
     const categoryMap = new Map(categories.map(c => [String(c._id), c]));
 

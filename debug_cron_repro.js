@@ -44,17 +44,16 @@ async function runTest() {
             createdAt: new Date()
         });
         
-        // Product (ALL IN STOCK)
+        // Product (IN STOCK)
         const p1 = await Product.create({ name: "P1_InStock", stockQuantity: 100, price: 50 });
-        const p2 = await Product.create({ name: "P2_InStock", stockQuantity: 100, price: 50 });
 
-        // Create Subscriptions (DUE NOW)
+        // Create Subscriptions (DUE NOW - 10 mins ago)
+        // Ensure nextOrderDate is definitely in the past relative to now
         const subs = await Subscription.insertMany([
-            { user: user._id, product: p1._id, quantity: 1, frequency: 'Daily', status: 'Active', nextOrderDate: new Date(Date.now() - 60000), preferredTime: '09:00', preferredDay: 1 },
-            { user: user._id, product: p2._id, quantity: 1, frequency: 'Daily', status: 'Active', nextOrderDate: new Date(Date.now() - 60000), preferredTime: '09:00', preferredDay: 1 }
+            { user: user._id, product: p1._id, quantity: 1, frequency: 'Daily', status: 'Active', nextOrderDate: new Date(Date.now() - 10 * 60000), preferredTime: '09:00', preferredDay: 1 }
         ]);
 
-        console.log(`[SETUP] Created User ${user._id} and 2 subs (ALL IN STOCK). Expecting SUCCESS.`);
+        console.log(`[SETUP] Created User ${user._id} and 1 valid sub (P1 In Stock).`);
 
         // 2. TRIGGER CRON
         console.log("🚀 Triggering Cron...");

@@ -73,12 +73,5 @@ categorySchema.methods.getPath = async function () {
   return path;
 };
 
-console.log("[DEBUG] Registering Category Model. Schema is:", !!categorySchema);
-
-// Prevent "OverwriteModelError" in dev, but allow re-registration
-if (mongoose.models.Category) {
-    delete mongoose.models.Category;
-}
-
-const Category = mongoose.model("Category", categorySchema);
+const Category = mongoose.models.Category || mongoose.model("Category", categorySchema);
 export default Category;

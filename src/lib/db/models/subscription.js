@@ -53,14 +53,6 @@ const SubscriptionSchema = new Schema(
     productName: { type: String },
     productImage: { type: String },
     deviceToken: { type: String }, // For push notifications
-    
-    // Status tracking for automated runs
-    lastRunStatus: { 
-        type: String, 
-        enum: ['Success', 'Failed'],
-        default: 'Success'
-    },
-    failureReason: { type: String } // Details if last run failed
   },
   {
     timestamps: true,
