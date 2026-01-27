@@ -74,9 +74,15 @@ export async function GET(req) {
 
                 // --- TC-OM-016: Address Deletion/Validation ---
                 // We rely on the snapshot in lastOrder. 
+                // Debug Log
+                console.log(`[CRON] Validating Last Order for User ${userId}. Found:`, lastOrder ? "Yes" : "No");
+                if (lastOrder && lastOrder.shippingAddress) {
+                    console.log(`[CRON] Address Check: Line1=${lastOrder.shippingAddress.addressLine1}, Pin=${lastOrder.shippingAddress.pincode}`);
+                }
+
                 // Enhanced check: Ensure all required fields exist.
                 if (!lastOrder || !lastOrder.shippingAddress || !lastOrder.shippingAddress.addressLine1 || !lastOrder.shippingAddress.pincode) {
-                    console.error(`[CRON] User ${userId} has INVALID previous address. Skipping group.`);
+                    console.error(`[CRON] User ${userId} has INVALID previous address. Skipping group. LastOrder ID: ${lastOrder?._id}`);
                     results.failed += subs.length;
                     continue; // Skip this group, requires user intervention
                 }
