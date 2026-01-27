@@ -155,6 +155,21 @@ export async function GET(req) {
                 console.log(`[CRON] Order ${newOrder.orderNumber} created for User ${userId}`);
                 results.ordersCreated++;
 
+                // --- STOCK UPDATE LOGIC ---
+                console.log(`[CRON] Decrementing stock for Order ${newOrder.orderNumber}`);
+                for (const item of items) {
+                    try {
+                        await Product.updateOne(
+                            { _id: item.product },
+                            { $inc: { stockQuantity: -item.quantity } }
+                        );
+                        console.log(`[CRON] Decremented stock for product ${item.product} by ${item.quantity}`);
+                    } catch (stockErr) {
+                        console.error(`[CRON] Failed to decrement stock for product ${item.product}:`, stockErr);
+                        // Continue even if one fails, but log it critical
+                    }
+                }
+
                 // 4. Update ALL Subscriptions in this group
                 for (const sub of subs) {
                     const currentNextDate = new Date(sub.nextOrderDate);
