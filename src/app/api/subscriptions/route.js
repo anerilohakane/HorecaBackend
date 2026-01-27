@@ -9,7 +9,8 @@ export async function POST(req) {
     try {
         await dbConnect();
         const body = await req.json();
-        const { userId, productId, quantity, frequency, preferredDay, preferredTime, timezoneOffset, startDate, endDate } = body;
+        const { userId, productId, quantity, frequency, preferredTime, timezoneOffset, startDate, endDate } = body;
+        let { preferredDay } = body;
 
         // Basic validation
         if (!userId || !productId || !frequency) {
