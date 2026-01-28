@@ -16,12 +16,51 @@ export async function GET(req) {
         console.log(`[CRON] Starting subscription processing at ${now.toISOString()}`);
 
         // 1. Find due subscriptions
-        const dueSubscriptions = await Subscription.find({
+        // We fetch candidates, but we MUST lock them before processing to avoid race conditions.
+        const dueCandidates = await Subscription.find({
             status: 'Active',
-            nextOrderDate: { $lte: now }
-        }).populate('product');
+            nextOrderDate: { $lte: now },
+            // Ensure we don't pick up locked items (lock timeout 5 mins)
+            $or: [
+                { lockedAt: null },
+                { lockedAt: { $lt: new Date(now.getTime() - 5 * 60000) } }
+            ]
+        });
 
-        console.log(`[CRON] Found ${dueSubscriptions.length} due subscriptions.`);
+        console.log(`[CRON] Found ${dueCandidates.length} candidate subscriptions.`);
+
+        const dueSubscriptions = [];
+
+        // Attempt to lock each candidate
+        for (const candidate of dueCandidates) {
+            const lockedSub = await Subscription.findOneAndUpdate(
+                {
+                    _id: candidate._id,
+                    // Double check condition in atomic update
+                    $or: [
+                        { lockedAt: null },
+                        { lockedAt: { $lt: new Date(now.getTime() - 5 * 60000) } }
+                    ]
+                },
+                { $set: { lockedAt: now } },
+                { new: true }
+            ).populate('product');
+
+            if (lockedSub) {
+                if (lockedSub.product) {
+                    dueSubscriptions.push(lockedSub);
+                } else {
+                    console.warn(`[CRON] Subscription ${lockedSub._id} locked but product missing.`);
+                    // Release lock or duplicate behavior? Just fail it later.
+                    // Ideally unlock, but we let it fail in processing.
+                    dueSubscriptions.push(lockedSub); 
+                }
+            } else {
+                 console.log(`[CRON] Race condition: Subscription ${candidate._id} was locked by another process.`);
+            }
+        }
+
+        console.log(`[CRON] Successfully locked and processing ${dueSubscriptions.length} subscriptions.`);
 
         const results = {
             processed: 0,
@@ -29,11 +68,7 @@ export async function GET(req) {
             failed: 0,
             errors: []
         };
-
-        if (dueSubscriptions.length === 0) {
-            return NextResponse.json({ success: true, results });
-        }
-
+        
         // 2. Group by User + Frequency + PreferredTime (Approx)
         // We want to bundle items that are due together for the same user.
         // Key: "userId_frequency_preferredDay_preferredTime"
@@ -223,6 +258,7 @@ export async function GET(req) {
 
                     sub.nextOrderDate = nextDate;
                     sub.lastOrderDate = now;
+                    sub.lockedAt = null; // Release lock
                     await sub.save();
                     results.processed++;
                 }
@@ -231,6 +267,14 @@ export async function GET(req) {
                  console.error(`[CRON] Error processing group ${key}:`, err);
                  results.failed += subs.length;
                  results.errors.push(err.message);
+                 
+                 // Release locks for failed group so they can be retried (or handled manually)
+                 // Or keep locked to prevent infinite loop?
+                 // Let's release so they retry, but maybe with backoff?
+                 // For now, release.
+                 for (const sub of subs) {
+                     await Subscription.updateOne({ _id: sub._id }, { $set: { lockedAt: null } });
+                 }
             }
         }
 
