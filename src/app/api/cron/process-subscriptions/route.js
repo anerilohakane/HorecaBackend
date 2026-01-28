@@ -4,6 +4,7 @@ import dbConnect from '@/lib/db/connect';
 import Subscription from '@/lib/db/models/subscription';
 import Order from '@/lib/db/models/order';
 import Product from '@/lib/db/models/product';
+import Customer from '@/lib/db/models/customer';
 
 // Mark as dynamic to avoid static generation
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,8 @@ export async function GET(req) {
             processed: 0,
             ordersCreated: 0,
             failed: 0,
-            errors: []
+            errors: [],
+            logs: []
         };
 
         if (dueSubscriptions.length === 0) {
@@ -47,7 +49,8 @@ export async function GET(req) {
 
             // Create a grouping key
             // Note: If frequency/time differs significantly, they should be separate orders.
-            const key = `${sub.user._id}_${sub.frequency}_${sub.preferredDay || 'x'}_${sub.preferredTime || 'x'}`;
+            // Handle both populated and unpopulated user field
+            const key = `${sub.user._id || sub.user}_${sub.frequency}_${sub.preferredDay || 'x'}_${sub.preferredTime || 'x'}`;
             
             if (!groups[key]) {
                 groups[key] = {
@@ -58,35 +61,55 @@ export async function GET(req) {
             groups[key].subs.push(sub);
         }
 
-        console.log(`[CRON] Consolidated into ${Object.keys(groups).length} order groups.`);
+        results.logs.push(`Found ${dueSubscriptions.length} due subs. Groups: ${Object.keys(groups)}.`);
 
         // 3. Process Groups
         for (const key in groups) {
             const group = groups[key];
-            const userId = group.user._id;
+            // Safe access to ID
+            const userId = group.user._id || group.user;
             const subs = group.subs;
 
             try {
                 // Fetch Last Address
+                let shippingAddress = null;
                 const lastOrder = await Order.findOne({ user: userId })
                     .sort({ createdAt: -1 })
-                    .select('shippingAddress');
+                    .select('shippingAddress payment');
 
-                // --- TC-OM-016: Address Deletion/Validation ---
-                // We rely on the snapshot in lastOrder. 
-                // Debug Log
                 console.log(`[CRON] Validating Last Order for User ${userId}. Found:`, lastOrder ? "Yes" : "No");
-                if (lastOrder && lastOrder.shippingAddress) {
-                    console.log(`[CRON] Address Check: Line1=${lastOrder.shippingAddress.addressLine1}, Pin=${lastOrder.shippingAddress.pincode}`);
+
+                if (lastOrder && lastOrder.shippingAddress && lastOrder.shippingAddress.addressLine1 && lastOrder.shippingAddress.pincode) {
+                     console.log(`[CRON] Using LastOrder address.`);
+                     shippingAddress = lastOrder.shippingAddress;
+                } else {
+                    // Fallback to Customer Profile
+                    console.log(`[CRON] Checking Customer Profile fallback...`);
+                    const customer = await Customer.findById(userId);
+                    
+                    if (customer && customer.address && customer.pincode) {
+                         console.log(`[CRON] Using Customer Profile address.`);
+                         shippingAddress = {
+                             fullName: customer.name || "Valued Customer",
+                             addressLine1: customer.address,
+                             addressLine2: "", // Customer model is simple string
+                             city: customer.city || "",
+                             state: customer.state || "",
+                             pincode: customer.pincode,
+                             phone: customer.phone || ""
+                         };
+                    }
                 }
 
                 // Enhanced check: Ensure all required fields exist.
-                if (!lastOrder || !lastOrder.shippingAddress || !lastOrder.shippingAddress.addressLine1 || !lastOrder.shippingAddress.pincode) {
-                    console.error(`[CRON] User ${userId} has INVALID previous address. Skipping group. LastOrder ID: ${lastOrder?._id}`);
+                if (!shippingAddress || !shippingAddress.addressLine1 || !shippingAddress.pincode) {
+                    const msg = `User ${userId} has NO valid address (Order or Profile). Skipping.`;
+                    console.error(msg);
+                    results.logs.push(msg); // Keep critical errors in logs
                     results.failed += subs.length;
                     continue; // Skip this group, requires user intervention
                 }
-
+                
                 // Build Items Array & Total
                 const items = [];
                 let orderTotal = 0;
@@ -96,7 +119,9 @@ export async function GET(req) {
                     // --- TC-OM-014: Out of Stock Handling ---
                     // Check stock. If insufficient, skip adding to items.
                     if (sub.product.stockQuantity < sub.quantity) {
-                         console.warn(`[CRON] Subscription ${sub._id} SKIPPED due to Out of Stock. (Stock: ${sub.product.stockQuantity}, Req: ${sub.quantity})`);
+                         const msg = `[CRON] Subscription ${sub._id} SKIPPED due to Out of Stock. (Stock: ${sub.product.stockQuantity}, Req: ${sub.quantity})`;
+                         console.warn(msg);
+                         results.logs.push(msg);
                          continue;
                     }
 
@@ -121,9 +146,11 @@ export async function GET(req) {
 
                     subtotal += total;
                 }
+                
+                results.logs.push(`Generated ${items.length} items from subs.`);
 
                 if (items.length === 0) {
-                    console.log(`[CRON] Group ${key} has no valid items (OOS or other issue). Skipping order creation.`);
+                    console.log(`[CRON] Group ${key} has no valid items. Skipping.`);
                     continue; 
                 }
                 
@@ -139,12 +166,12 @@ export async function GET(req) {
                     orderNumber,
                     user: userId,
                     items: items,
-                    shippingAddress: lastOrder.shippingAddress,
+                    shippingAddress: shippingAddress,
                     subtotal: subtotal,
                     total: orderTotal,
                     status: 'pending',
                     // --- TC-OM-019: Payment Method Persistence ---
-                    payment: { method: lastOrder.payment?.method || 'cash_on_delivery', status: 'pending' },
+                    payment: { method: (lastOrder && lastOrder.payment && lastOrder.payment.method) || 'cash_on_delivery', status: 'pending' },
                     metadata: { 
                         isAutoOrder: true, 
                         subscriptionIds: subs.map(s => s._id), // Store array of sub IDs
