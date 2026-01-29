@@ -1,0 +1,16 @@
+name: Trigger Order Scheduler
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # Every 10 minutes
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  cron-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call API Endpoint
+        run: |
+          echo "Triggering Subscription Processor..."
+          # Replace with your actual production URL
+          curl -X GET https://horeca-backend.vercel.app/api/cron/process-subscriptions || echo "Failed to trigger"
