@@ -1,7 +1,7 @@
 const { exec } = require('child_process');
 
 // Config
-const CRON_URL = 'http://localhost:3001/api/cron/process-subscriptions'; // Adjust port if needed
+const CRON_URL = 'https://horeca-backend-six.vercel.app/api/cron/process-subscriptions'; // Production URL
 const INTERVAL_MS = 1000 * 60 * 10; // 10 Minutes
 
 console.log(`[LOCAL-SCHEDULER] Starting...`);
