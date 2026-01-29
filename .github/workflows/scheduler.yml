@@ -13,4 +13,4 @@ jobs:
         run: |
           echo "Triggering Subscription Processor..."
           # Replace with your actual production URL
-          curl -X GET https://horeca-backend.vercel.app/api/cron/process-subscriptions || echo "Failed to trigger"
+          curl -X GET https://horeca-backend-six.vercel.app/api/cron/process-subscriptions || echo "Failed to trigger"
