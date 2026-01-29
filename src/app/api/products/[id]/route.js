@@ -133,7 +133,7 @@ export async function PUT(request, { params }) {
 export async function PATCH(request, { params }) {
   await dbConnect();
   try {
-    const { id } = params;
+    const { id } = await params; // Fix: Await params
 
     if (!isValidObjectIdString(id)) {
       return NextResponse.json({ success: false, error: "Invalid product id" }, { status: 400 });
@@ -151,13 +151,16 @@ export async function PATCH(request, { params }) {
     }
 
     // --- AUTO-RESUME PAUSED SUBSCRIPTIONS ---
-    // If stock increased, find paused subs that can now be fulfilled
     if (updated.stockQuantity > 0) {
         try {
+            // Explicitly cast ID
+            const mongoose = require('mongoose');
+            const productIdObj = new mongoose.Types.ObjectId(id);
+
             const pausedSubs = await Subscription.find({
-                product: id,
+                product: productIdObj,
                 status: 'Paused',
-                quantity: { $lte: updated.stockQuantity } // Only if we have enough stock
+                quantity: { $lte: updated.stockQuantity }
             });
 
             if (pausedSubs.length > 0) {
