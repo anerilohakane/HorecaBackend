@@ -1,9 +1,9 @@
-name: Trigger Order Scheduler
+name: Trigger Order Scheduler (Offset 2)
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Every 5 minutes (0, 5, 10...)
-  workflow_dispatch: # Allow manual trigger
+    - cron: '2-59/5 * * * *' # Minute 2, 7, 12, etc.
+  workflow_dispatch:
 
 jobs:
   cron-job:
@@ -11,6 +11,5 @@ jobs:
     steps:
       - name: Call API Endpoint
         run: |
-          echo "Triggering Subscription Processor..."
-          # Replace with your actual production URL
+          echo "Triggering Subscription Processor (Offset 2)..."
           curl -X GET https://horeca-backend-six.vercel.app/api/cron/process-subscriptions || echo "Failed to trigger"
