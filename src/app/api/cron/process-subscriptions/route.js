@@ -117,11 +117,16 @@ export async function GET(req) {
 
                 for (const sub of subs) {
                     // --- TC-OM-014: Out of Stock Handling ---
-                    // Check stock. If insufficient, skip adding to items.
+                    // Check stock. If insufficient, PAUSE subscription.
                     if (sub.product.stockQuantity < sub.quantity) {
-                         const msg = `[CRON] Subscription ${sub._id} SKIPPED due to Out of Stock. (Stock: ${sub.product.stockQuantity}, Req: ${sub.quantity})`;
+                         const msg = `[CRON] Subscription ${sub._id} PAUSED due to Out of Stock. (Stock: ${sub.product.stockQuantity}, Req: ${sub.quantity})`;
                          console.warn(msg);
                          results.logs.push(msg);
+                         
+                         // Update Status to Paused
+                         sub.status = 'Paused';
+                         await sub.save(); // Save immediately so it doesn't get picked up again
+                         
                          continue;
                     }
 
@@ -170,7 +175,7 @@ export async function GET(req) {
                     subtotal: subtotal,
                     total: orderTotal,
                     status: 'pending',
-                    // --- TC-OM-019: Payment Method Persistence ---
+                 
                     payment: { method: (lastOrder && lastOrder.payment && lastOrder.payment.method) || 'cash_on_delivery', status: 'pending' },
                     metadata: { 
                         isAutoOrder: true, 
@@ -199,6 +204,9 @@ export async function GET(req) {
 
                 // 4. Update ALL Subscriptions in this group
                 for (const sub of subs) {
+                    // Skip updates for Paused/Cancelled items (e.g. OOS ones)
+                    if (sub.status !== 'Active') continue;
+
                     const currentNextDate = new Date(sub.nextOrderDate);
                     let nextDate = new Date(currentNextDate);
 
