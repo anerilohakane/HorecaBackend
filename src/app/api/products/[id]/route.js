@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
+import Subscription from "@/lib/db/models/subscription";
 
 /** Validate ObjectId */
 function isValidObjectIdString(id) {
@@ -147,6 +148,29 @@ export async function PATCH(request, { params }) {
 
     if (!updated) {
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
+    }
+
+    // --- AUTO-RESUME PAUSED SUBSCRIPTIONS ---
+    // If stock increased, find paused subs that can now be fulfilled
+    if (updated.stockQuantity > 0) {
+        try {
+            const pausedSubs = await Subscription.find({
+                product: id,
+                status: 'Paused',
+                quantity: { $lte: updated.stockQuantity } // Only if we have enough stock
+            });
+
+            if (pausedSubs.length > 0) {
+                console.log(`[PRODUCT UPDATE] Found ${pausedSubs.length} paused subscriptions for Product ${id}. Reactivating...`);
+                for (const sub of pausedSubs) {
+                    sub.status = 'Active';
+                    await sub.save();
+                    console.log(`[PRODUCT UPDATE] Reactivated Subscription ${sub._id}`);
+                }
+            }
+        } catch (subErr) {
+            console.error("Error reactivating subscriptions:", subErr);
+        }
     }
 
     return NextResponse.json({ success: true, data: updated });
