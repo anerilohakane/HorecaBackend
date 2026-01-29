@@ -1,189 +1,124 @@
 const mongoose = require('mongoose');
 
 // --- CONFIG ---
-const MONGODB_URI = "mongodb+srv://aneridelxn_db_user:YhZGkF6u2pEeVyvJ@farmferry-db.11sfqjg.mongodb.net/farmferry_data?retryWrites=true&w=majority";
+const MONGODB_URI = "mongodb+srv://chaitanyakhairmodedelxn_db_user:root%40123@cluster0.2muyghy.mongodb.net/?appName=Cluster0";
 
-// --- MINIMAL SCHEMAS (Inline to avoid Next.js issues) ---
+// --- MODELS ---
 const Schema = mongoose.Schema;
+const Subscription = mongoose.model('Subscription', new Schema({ 
+    user: Schema.Types.ObjectId,
+    product: Schema.Types.ObjectId,
+    status: String, 
+    nextOrderDate: Date, 
+    frequency: String,
+    preferredTime: String,
+    preferredDay: Number,
+    quantity: Number
+}, { strict: false }));
 
-const UserSchema = new Schema({ name: String }, { timestamps: true });
-const User = mongoose.models.User || mongoose.model("User", UserSchema);
-
-const ProductSchema = new Schema({ 
-    name: String, 
-    price: Number, 
-    image: String 
-});
-const Product = mongoose.models.Product || mongoose.model("Product", ProductSchema);
-
-const OrderSchema = new Schema({
-    user: { type: Schema.Types.ObjectId, ref: "User" },
+const Order = mongoose.model('Order', new Schema({ 
+    user: Schema.Types.ObjectId, 
+    shippingAddress: Object,
+    payment: Object,
     orderNumber: String,
-    orderId: String, // Legacy field
-    shippingAddress: {
-        fullName: String,
-        addressLine1: String,
-        city: String,
-        state: String,
-        pincode: String
-    },
-    items: [Object],
-    total: Number,
-    status: String,
-    metadata: Object
-}, { timestamps: true });
-const Order = mongoose.models.Order || mongoose.model("Order", OrderSchema);
+    createdAt: Date
+}, { strict: false }));
 
-const SubscriptionSchema = new Schema({
-    user: { type: Schema.Types.ObjectId, ref: "User" },
-    product: { type: Schema.Types.ObjectId, ref: "Product" },
-    quantity: { type: Number, default: 1 },
-    frequency: { type: String, enum: ["Weekly", "Monthly"] },
-    status: { type: String, default: 'Active' },
-    nextOrderDate: Date,
-    startDate: Date
-});
-const Subscription = mongoose.models.Subscription || mongoose.model("Subscription", SubscriptionSchema);
+const Product = mongoose.model('Product', new Schema({ 
+    stockQuantity: Number, 
+    price: Number, 
+    name: String,
+    images: [Object],
+    image: String
+}, { strict: false }));
 
-// --- TEST RUNNER ---
-async function runTest() {
+const Customer = mongoose.model('Customer', new Schema({ 
+    name: String,
+    address: String, 
+    city: String, 
+    state: String, 
+    pincode: String, 
+    phone: String 
+}, { strict: false }));
+
+// --- LOGIC ---
+async function runCronSim() {
     try {
-        console.log("🔌 Connecting to DB...");
+        console.log("🔌 Connecting...");
         await mongoose.connect(MONGODB_URI);
-        console.log("✅ Connected.");
-
-        // 1. SETUP DATA
-        console.log("🛠️ Setting up test data...");
-        const uniqueSuffix = Date.now();
+        const now = new Date();
         
-        // USER
-        const user = await User.create({ 
-            name: "Cron Test User", 
-            email: `cronuser${uniqueSuffix}@test.com` 
-        });
-
-        // PRODUCT (Needs supplier/cat/images/stock)
-        const product = await Product.create({ 
-            name: "Test Croissant", 
-            price: 100, 
-            stockQuantity: 50,
-            images: [{ url: "http://img", publicId: "123" }],
-            supplierId: new mongoose.Types.ObjectId(), // Mock ID
-            categoryId: new mongoose.Types.ObjectId()  // Mock ID
-        });
-
-        // Create a past order to provide address
-        const pastOrder = await Order.create({
-            orderNumber: `TEST-ORD-${uniqueSuffix}`,
-            orderId: `TEST-ORD-ID-${uniqueSuffix}`, // Satisfy legacy index
-            user: user._id,
-            shippingAddress: {
-                fullName: "Test User",
-                addressLine1: "123 Test St",
-                city: "Test City",
-                state: "Test State",
-                pincode: "123456"
-            },
-            items: [],
-             total: 0,
-            status: 'delivered'
-        });
-
-        // Create a Subscription due "NOW" (set to 5 mins ago to be safe)
-        const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const sub = await Subscription.create({
-            user: user._id,
-            product: product._id,
-            quantity: 2,
-            frequency: 'Weekly',
-            status: 'Active',
-            startDate: fiveMinsAgo,
-            nextOrderDate: fiveMinsAgo // IT IS DUE!
-        });
-        console.log(`📅 Subscription Created. Next Order Date: ${sub.nextOrderDate.toISOString()}`);
-
-        // 2. RUN CRON LOGIC (Simulating the API Route)
-        console.log("🚀 Running Cron Logic...");
-        
-        const now = new Date(); // Current Time
-        console.log(`⏰ Current Server Time: ${now.toISOString()}`);
-
-        // Find Due
+        // 1. Find Due
         const dueSubscriptions = await Subscription.find({
-            nextOrderDate: { $lte: now },
-            status: 'Active'
-        }).populate('product'); // We know populating works by ID ref usually
+            status: 'Active',
+            nextOrderDate: { $lte: now }
+        });
+        
+        console.log(`[SIM] Found ${dueSubscriptions.length} due subscriptions.`);
+        
+        if (dueSubscriptions.length === 0) return;
 
-        console.log(`🔍 Found ${dueSubscriptions.length} due subscriptions.`);
-
-        if (dueSubscriptions.length === 0) {
-            throw new Error("❌ Failed to find the due subscription!");
+        // Grouping
+        const groups = {};
+        for (const sub of dueSubscriptions) {
+             const key = `${sub.user}`; // Simple grouping by user for test
+             if (!groups[key]) groups[key] = { user: sub.user, subs: [] };
+             groups[key].subs.push(sub);
         }
 
-        for (const s of dueSubscriptions) {
-            if (s._id.toString() !== sub._id.toString()) continue; // Skip others if any
+        // Process
+        for (const key in groups) {
+            const group = groups[key];
+            const userId = group.user;
+            console.log(`\nProcessing User: ${userId}`);
 
-            console.log(`⚙️ Processing Subscription ${s._id}...`);
+            // Address Check
+            let shippingAddress = null;
+            const lastOrder = await Order.findOne({ user: userId }).sort({ createdAt: -1 });
             
-            // Fetch Address (Mocking the route logic)
-            const lastOrder = await Order.findOne({ user: s.user }).sort({ createdAt: -1 });
-            if (!lastOrder) throw new Error("Could not find last order");
+            if (lastOrder && lastOrder.shippingAddress && lastOrder.shippingAddress.addressLine1 && lastOrder.shippingAddress.pincode) {
+                console.log(`  ✅ Found Last Order Address: ${lastOrder.shippingAddress.addressLine1}`);
+                shippingAddress = lastOrder.shippingAddress;
+            } else {
+                console.log(`  ⚠️ No recent order address. Checking Profile...`);
+                // Fallback
+                const customer = await Customer.findById(userId);
+                if (customer) {
+                    console.log(`  Customer Profile Found: ${JSON.stringify(customer)}`);
+                } else {
+                    console.log(`  ❌ Customer Profile NOT FOUND.`);
+                }
 
-            // Create Order
-            const uniqueSubSuffix = Date.now() + Math.floor(Math.random() * 1000);
-            const newOrder = await Order.create({
-                orderNumber: `ORD-SUB-${uniqueSubSuffix}`,
-                orderId: `ORD-SUB-ID-${uniqueSubSuffix}`,
-                user: s.user,
-                items: [{
-                    product: product._id, // In real code, s.product._id
-                    name: product.name,
-                    quantity: s.quantity,
-                    unitPrice: product.price,
-                    totalPrice: product.price * s.quantity
-                }],
-                shippingAddress: lastOrder.shippingAddress,
-                total: product.price * s.quantity,
-                status: 'pending',
-                metadata: { isAutoOrder: true, subscriptionId: s._id }
-            });
-            console.log(`✅ Order Created: ${newOrder._id}`);
+                if (customer && customer.address && customer.pincode) {
+                     console.log(`  ✅ Found Profile Address.`);
+                     shippingAddress = { addressLine1: customer.address, pincode: customer.pincode };
+                }
+            }
 
-            // Update Next Date
-            const nextDate = new Date(s.nextOrderDate);
-            nextDate.setDate(nextDate.getDate() + 7); // Weekly
-            s.nextOrderDate = nextDate;
-            await s.save();
-            console.log(`🗓️ Rescheduled to: ${s.nextOrderDate.toISOString()}`);
+            if (!shippingAddress) {
+                console.error(`  ❌ FAIL: No valid address found. This is why it fails!`);
+                continue;
+            }
+            
+            console.log(`  ✅ Address Check Passed. Checking Stock...`);
+            
+            for (const sub of group.subs) {
+                const product = await Product.findById(sub.product);
+                if (!product) {
+                    console.error(`  ❌ Product not found: ${sub.product}`);
+                } else if (product.stockQuantity < sub.quantity) {
+                    console.error(`  ❌ Out of Stock: ${product.stockQuantity} < ${sub.quantity}`);
+                } else {
+                    console.log(`  ✅ Stock OK for product ${product.name}`);
+                }
+            }
         }
-
-        // 3. VERIFICATION
-        const updatedSub = await Subscription.findById(sub._id);
-        const orders = await Order.find({ "metadata.subscriptionId": sub._id });
-
-        if (orders.length === 1 && updatedSub.nextOrderDate > now) {
-            console.log("\n🎉 TEST SUCCESS: Order created and Subscription rescheduled correctly!");
-        } else {
-            console.error("\n❌ TEST FAILED: Verification checks failed.");
-            console.log("Orders found:", orders.length);
-            console.log("Next Date:", updatedSub.nextOrderDate);
-        }
-
-        // 4. CLEANUP
-        console.log("\n🧹 Cleaning up...");
-        await User.findByIdAndDelete(user._id);
-        await Product.findByIdAndDelete(product._id);
-        await Order.findByIdAndDelete(pastOrder._id);
-        if (orders.length > 0) await Order.findByIdAndDelete(orders[0]._id);
-        await Subscription.findByIdAndDelete(sub._id);
-        console.log("✨ Done.");
-
-        process.exit(0);
 
     } catch (e) {
-        console.error("💥 TEST ERROR:", e);
-        process.exit(1);
+        console.error(e);
+    } finally {
+        await mongoose.disconnect();
     }
 }
 
-runTest();
+runCronSim();

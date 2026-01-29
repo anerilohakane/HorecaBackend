@@ -1,63 +1,58 @@
-// Native fetch
-const BASE_URL = 'http://localhost:3001/api';
+const mongoose = require('mongoose');
 
-async function run() {
-  try {
-    console.log('🔍 Inspecting Subscription Dates...');
-    const now = new Date();
-    // 1. Get User
-    const orderRes = await fetch(`${BASE_URL}/order?limit=5`);
-    const orderJson = await orderRes.json();
-    let userId = orderJson.orders?.[0]?.user?._id || orderJson.orders?.[0]?.user || '693fb21c7b2b7ea2f4e162a3';
-    if(typeof userId === 'object') userId = userId._id || userId.id;
-    console.log(`👤 User ID: ${userId}`);
+// --- CONFIG ---
+const MONGODB_URI = "mongodb+srv://chaitanyakhairmodedelxn_db_user:root%40123@cluster0.2muyghy.mongodb.net/?appName=Cluster0";
 
-    // 2. Get Subs
-    const subRes = await fetch(`${BASE_URL}/subscriptions?userId=${userId}`);
-    const subJson = await subRes.json();
-    const subs = subJson.data || [];
+// --- SCHEMA ---
+const Schema = mongoose.Schema;
+const Subscription = mongoose.model('Subscription', new Schema({ 
+    user: Schema.Types.ObjectId, 
+    status: String, 
+    nextOrderDate: Date,
+    preferredTime: String,
+    frequency: String
+}, { strict: false }));
 
-    // 3. Diagnostics for this User
-    console.log(`\n🩺 DIAGNOSTICS for User ${userId}:`);
-    
-    // Address Check
-    const lastOrdRes = await fetch(`${BASE_URL}/order?userId=${userId}&limit=1`);
-    const lastOrdJson = await lastOrdRes.json();
-    const lastOrder = lastOrdJson.orders?.[0];
-    const customerRes = await fetch(`${BASE_URL}/customers/${userId}`);
-    const customerJson = await customerRes.json();
-    const customer = customerJson.data;
+async function checkDates() {
+    try {
+        console.log("🔌 Connecting...");
+        await mongoose.connect(MONGODB_URI);
 
-    let hasAddress = false;
-    if (lastOrder?.shippingAddress?.addressLine1) {
-        console.log(`✅ Address Source: Last Order (${lastOrder._id})`);
-        hasAddress = true;
-    } else if (customer?.address) {
-        console.log(`✅ Address Source: Customer Profile`);
-        hasAddress = true;
-    } else {
-        console.log(`❌ FAIL: No valid address found in Order History OR Profile.`);
-    }
+        const now = new Date();
+        console.log(`\n==================================================`);
+        console.log(` SERVER TIME CHECK`);
+        console.log(`==================================================`);
+        console.log(`1. new Date() (UTC ISO):  ${now.toISOString()}`);
+        console.log(`2. new Date() (Local):    ${now.toString()}`);
+        console.log(`3. Timestamp (ms):        ${now.getTime()}`);
+        console.log(`==================================================\n`);
 
-    // Stock & Status Check
-    subs.forEach(sub => {
-        const next = new Date(sub.nextOrderDate);
-        if (next <= now) {
-            console.log(`\nChecking Due Sub: ${sub.productName} (${sub._id})`);
-            console.log(`   - Status: ${sub.status} ${sub.status === 'Active' ? '✅' : '❌'}`);
-            console.log(`   - Stock:  ${sub.product?.stockQuantity ?? 'Unknown'} ${sub.product?.stockQuantity >= sub.quantity ? '✅' : '❌ (OOS)'}`);
+        const subs = await Subscription.find({ status: 'Active' });
+        console.log(`Found ${subs.length} Active Subscriptions. Checking their times:\n`);
+
+        subs.forEach(s => {
+            const due = new Date(s.nextOrderDate);
+            const diffMs = due.getTime() - now.getTime();
+            const diffMins = (diffMs / 60000).toFixed(1);
             
-            if (hasAddress && sub.status === 'Active' && (sub.product?.stockQuantity >= sub.quantity)) {
-                console.log(`   🚀 VERDICT: SHOULD PROCESS.`);
+            console.log(`Subscription ${s._id}`);
+            console.log(`  Frequency:     ${s.frequency}`);
+            console.log(`  PreferredTime: ${s.preferredTime} (Note: This is just metadata, nextOrderDate is truth)`);
+            console.log(`  nextOrderDate: ${due.toISOString()} (UTC)`);
+            
+            if (due <= now) {
+                console.log(`  STATUS: ✅ DUE! (Is in the past by ${Math.abs(diffMins)} mins)`);
             } else {
-                console.log(`   🛑 VERDICT: BLOCKED.`);
+                console.log(`  STATUS: ❌ NOT DUE (In future by ${diffMins} mins)`);
             }
-        }
-    });
+            console.log(`--------------------------------------------------`);
+        });
 
-  } catch (err) {
-    console.error('🔥 Error:', err);
-  }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        await mongoose.disconnect();
+    }
 }
 
-run();
+checkDates();
