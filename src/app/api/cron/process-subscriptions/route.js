@@ -5,6 +5,7 @@ import Subscription from '@/lib/db/models/subscription';
 import Order from '@/lib/db/models/order';
 import Product from '@/lib/db/models/product';
 import Customer from '@/lib/db/models/customer';
+import Notification from '@/lib/db/models/notification';
 
 // Mark as dynamic to avoid static generation
 export const dynamic = 'force-dynamic';
@@ -127,6 +128,23 @@ export async function GET(req) {
                          sub.status = 'Paused';
                          await sub.save(); // Save immediately so it doesn't get picked up again
                          
+                         // Notify User
+                         try {
+                             await Notification.create({
+                                 user: sub.user, // sub.user is ObjectId since not populated
+                                 title: "Subscription Paused: Out of Stock",
+                                 message: `Your subscription for "${sub.product.name}" was paused because it is out of stock. We will auto-resume it when stock returns.`,
+                                 type: "warning",
+                                 metadata: {
+                                    subscriptionId: sub._id,
+                                    productId: sub.product._id
+                                 }
+                             });
+                             console.log(`[CRON] Notification created for User ${sub.user}`);
+                         } catch (notifErr) {
+                             console.error(`[CRON] Failed to create notification:`, notifErr);
+                         }
+
                          continue;
                     }
 
