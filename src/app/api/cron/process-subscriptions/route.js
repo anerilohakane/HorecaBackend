@@ -148,6 +148,38 @@ export async function GET(req) {
                          continue;
                     }
 
+                    // --- TC-OM-NEW: Price Protection ---
+                    // If price increased by >= 1 unit from lockedPrice, Pause & Notify.
+                    const currentPrice = sub.product.price || 0;
+                    const lockedPrice = sub.lockedPrice || currentPrice; // Default to current if not set (legacy)
+                    
+                    if (currentPrice >= lockedPrice + 1) {
+                        const msg = `[CRON] Subscription ${sub._id} PAUSED due to Price Hike. (Locked: ${lockedPrice}, Current: ${currentPrice})`;
+                        console.warn(msg);
+                        results.logs.push(msg);
+
+                        sub.status = 'Paused';
+                        await sub.save();
+
+                        // Notify User
+                        try {
+                             await Notification.create({
+                                 user: sub.user,
+                                 title: "Subscription Paused: Price Change",
+                                 message: `The price for "${sub.product.name}" increased to ${currentPrice} (was ${lockedPrice}). Please approve the new price to resume.`,
+                                 type: "warning",
+                                 metadata: {
+                                    subscriptionId: sub._id,
+                                    productId: sub.product._id,
+                                    oldPrice: lockedPrice,
+                                    newPrice: currentPrice
+                                 }
+                             });
+                        } catch (notifErr) { console.error(notifErr); }
+
+                        continue;
+                    }
+
                     // --- TC-OM-017: Max Quantity Limit ---
                     const MAX_QTY = 100;
                     if (sub.quantity > MAX_QTY) {

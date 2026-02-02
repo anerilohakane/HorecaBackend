@@ -53,6 +53,7 @@ const SubscriptionSchema = new Schema(
     productName: { type: String },
     productImage: { type: String },
     deviceToken: { type: String }, // For push notifications
+    lockedPrice: { type: Number }, // Price when subscription started
   },
   {
     timestamps: true,

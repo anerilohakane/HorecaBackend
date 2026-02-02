@@ -112,6 +112,7 @@ export async function POST(req) {
             preferredTime,
             productName: product.name,
             productImage: product.image || (product.images && product.images[0]?.url) || '',
+            lockedPrice: product.price,
         });
 
         return NextResponse.json({ success: true, data: newSubscription }, { status: 201 });
@@ -158,7 +159,10 @@ export async function PATCH(req) {
         if (status) updates.status = status;
         if (quantity) updates.quantity = quantity;
         if (preferredDay) updates.preferredDay = preferredDay;
+        if (quantity) updates.quantity = quantity;
+        if (preferredDay) updates.preferredDay = preferredDay;
         if (preferredTime) updates.preferredTime = preferredTime;
+        if (body.lockedPrice) updates.lockedPrice = body.lockedPrice;
         
         // Recalculating nextOrderDate on update is complex, 
         // skipping for now unless specifically requested to reschedule immediately.
