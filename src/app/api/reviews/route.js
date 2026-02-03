@@ -5,6 +5,7 @@ import Review from "@/lib/db/models/review";
 import Order from "@/lib/db/models/order";
 // import Product from "@/lib/db/models/product"; // If needed to update avg rating
 import User from "@/lib/db/models/User";
+import Customer from "@/lib/db/models/customer";
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -162,7 +163,7 @@ export async function GET(request) {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("user", "name")
+      .populate({ path: "user", select: "name", model: Customer })
       .lean();
 
     const total = await Review.countDocuments(query);
