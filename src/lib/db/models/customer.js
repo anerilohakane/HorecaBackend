@@ -31,6 +31,8 @@ const CustomerSchema = new mongoose.Schema(
     city: { type: String, default: null },
     state: { type: String, default: null },
     pincode: { type: String, default: null },
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
 
     lastLoginAt: {
       type: Date,

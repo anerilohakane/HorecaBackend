@@ -136,6 +136,8 @@ const OrderSchema = new Schema(
     state: String,
     pincode: String,
     country: String,
+    lat: Number,
+    lng: Number,
   },
 
     // amounts

@@ -7,7 +7,7 @@ export async function PUT(req) {
 
   try {
     const body = await req.json();
-    const { id, name, email, address, city, state, pincode } = body;
+    const { id, name, email, address, city, state, pincode, lat, lng } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -18,7 +18,7 @@ export async function PUT(req) {
 
     const updated = await Customer.findByIdAndUpdate(
       id,
-      { name, email, address, city, state, pincode },
+      { name, email, address, city, state, pincode, lat, lng },
       { new: true }
     ).lean();
 
