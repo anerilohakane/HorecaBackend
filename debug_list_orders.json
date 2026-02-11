@@ -1,0 +1,40 @@
+{
+  "now": "2026-02-11T12:48:59.830Z",
+  "orders": [
+    {
+      "id": "6981d2ad699c8e55ba24a944",
+      "orderNumber": "ORD-ML6H7VOG-9660",
+      "status": "pending",
+      "total": 372.82,
+      "created": "2026-02-03T10:49:17.350Z"
+    },
+    {
+      "id": "6981a1460dde1bb68d030310",
+      "orderNumber": "ORD-ML69OTGB-2704",
+      "status": "out_for_delivery",
+      "total": 136.82,
+      "created": "2026-02-03T07:18:30.688Z"
+    },
+    {
+      "id": "698066a64f80155ca761f7bc",
+      "orderNumber": "ORD-AUTO-ML4XQGWU-409",
+      "status": "pending",
+      "total": 399,
+      "created": "2026-02-02T08:56:06.185Z"
+    },
+    {
+      "id": "69789ab8ec7bbf5c3ab8945d",
+      "orderNumber": "ORD-MKWHIVF1-9257",
+      "status": "delivered",
+      "total": 372.82,
+      "created": "2026-01-27T11:00:08.464Z"
+    },
+    {
+      "id": "697883678af825727524617e",
+      "orderNumber": "ORD-MKWDYXOU-1905",
+      "status": "delivered",
+      "total": 254.82,
+      "created": "2026-01-27T09:20:39.441Z"
+    }
+  ]
+}

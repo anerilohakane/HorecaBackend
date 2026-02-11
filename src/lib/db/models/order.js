@@ -159,6 +159,14 @@ const OrderSchema = new Schema(
     delivery: { type: DeliverySchema },
     b2b: { type: B2BSchema },
 
+    // Driver Location (for real-time tracking via polling)
+    driverLocation: {
+        lat: Number,
+        lng: Number,
+        bearing: Number,
+        lastUpdated: Date
+    },
+
     // misc
     notes: { type: String },
     cancellationReason: { type: String },

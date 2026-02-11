@@ -1,38 +1,49 @@
 {
-  "now": "2026-01-20T12:51:54.022Z",
+  "now": "2026-02-11T12:47:52.226Z",
   "subs": [
     {
-      "id": "696f5ca2f494b13629c159b3",
+      "id": "698069815a8defb72538ec20",
       "user": "693fb21c7b2b7ea2f4e162a3",
-      "created": "2026-01-20T10:44:50.889Z",
-      "status": "Cancelled",
-      "nextOrderDate": "2026-01-24T18:15:00.000Z",
-      "startDate": "2026-01-20T10:44:50.888Z",
-      "preferredTime": "16:12",
-      "frequency": "Weekly",
-      "pt": "16:12"
+      "created": "2026-02-02T09:08:17.096Z",
+      "status": "Paused",
+      "nextOrderDate": "2026-02-02T09:11:00.000Z",
+      "startDate": "2026-02-02T09:08:17.089Z",
+      "preferredTime": "14:41",
+      "frequency": "Once",
+      "pt": "14:41"
     },
     {
-      "id": "696f5ca1f494b13629c159b0",
+      "id": "6980655d2ba2b150ef05afce",
       "user": "693fb21c7b2b7ea2f4e162a3",
-      "created": "2026-01-20T10:44:49.521Z",
-      "status": "Active",
-      "nextOrderDate": "2026-01-24T18:15:00.000Z",
-      "startDate": "2026-01-20T10:44:49.520Z",
-      "preferredTime": "16:12",
-      "frequency": "Weekly",
-      "pt": "16:12"
+      "created": "2026-02-02T08:50:37.846Z",
+      "status": "Completed",
+      "nextOrderDate": "2026-02-02T08:54:00.000Z",
+      "startDate": "2026-02-02T08:50:37.839Z",
+      "preferredTime": "14:24",
+      "frequency": "Once",
+      "pt": "14:24"
     },
     {
-      "id": "696f5c9ff494b13629c159a6",
+      "id": "697b335b1058febf164ec292",
       "user": "693fb21c7b2b7ea2f4e162a3",
-      "created": "2026-01-20T10:44:47.277Z",
-      "status": "Active",
-      "nextOrderDate": "2026-01-24T18:15:00.000Z",
-      "startDate": "2026-01-20T10:44:47.269Z",
-      "preferredTime": "16:12",
+      "created": "2026-01-29T10:15:55.813Z",
+      "status": "Completed",
+      "nextOrderDate": "2026-02-05T10:16:00.000Z",
+      "startDate": "2026-01-29T10:15:55.807Z",
+      "preferredTime": "15:46",
       "frequency": "Weekly",
-      "pt": "16:12"
+      "pt": "15:46"
+    },
+    {
+      "id": "697b307494919b895ff3c4e5",
+      "user": "693fb21c7b2b7ea2f4e162a3",
+      "created": "2026-01-29T10:03:32.664Z",
+      "status": "Paused",
+      "nextOrderDate": "2026-01-29T10:04:00.000Z",
+      "startDate": "2026-01-29T10:03:32.656Z",
+      "preferredTime": "15:34",
+      "frequency": "Once",
+      "pt": "15:34"
     }
   ]
 }
