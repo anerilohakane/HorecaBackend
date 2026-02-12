@@ -158,7 +158,13 @@ export async function GET(request) {
 
     const filter = {};
 
-    if (q) filter.name = { $regex: q, $options: "i" };
+    if (q) {
+      // Search in name OR description (case-insensitive)
+      filter.$or = [
+        { name: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } }
+      ];
+    }
 
     // If categoryId is provided, accept either objectId or slug/name.
     if (categoryId) {

@@ -1,6 +1,6 @@
 // Polling Simulation: Updates Database via API
 const ORDER_ID = "6981a1460dde1bb68d030310"; // Order in 'out_for_delivery' status
-const API_URL = "http://localhost:3001/api/driver/" + ORDER_ID;
+const API_URL = "https://horeca-backend-six.vercel.app/api/driver/" + ORDER_ID;
 
 // Route: From Noida Sector 18 TO Connaught Place (Delivering TOWARDS current location)
 const start = { lat: 28.5708, lng: 77.3271 };   // Noida Sector 18 (Start)
