@@ -164,6 +164,7 @@ import User from '@/lib/db/models/User';
 import Employee from '@/lib/db/models/payroll/Employee';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { logger } from '@/lib/logger';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const TOKEN_MAX_AGE = 2 * 60 * 60; // seconds (2 hours)
@@ -197,6 +198,7 @@ export async function POST(req) {
       // Find user by email (then check role/department)
       const user = await User.findOne({ email });
       if (!user) {
+        await logger({ level: 'warn', message: 'Login failed: Invalid credentials', action: 'LOGIN_FAILED', metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
@@ -205,16 +207,19 @@ export async function POST(req) {
                           (user.department && user.department.toLowerCase() === 'admin');
 
       if (!isAdminUser) {
+        await logger({ level: 'warn', message: 'Login failed: Unauthorized for admin', action: 'LOGIN_FAILED', userId: user._id, metadata: { email, department }, req });
         return NextResponse.json({ message: 'Unauthorized for admin access' }, { status: 403 });
       }
 
       // Verify password (bcrypt)
       if (!user.password) {
+        await logger({ level: 'warn', message: 'Login failed: Invalid credentials (No password)', action: 'LOGIN_FAILED', userId: user._id, metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
+        await logger({ level: 'warn', message: 'Login failed: Invalid password', action: 'LOGIN_FAILED', userId: user._id, metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
@@ -244,6 +249,7 @@ export async function POST(req) {
       });
 
       console.log('Admin login success:', email);
+      await logger({ level: 'info', message: 'Admin login success', action: 'USER_LOGIN', userId: user._id, metadata: { email, department: 'admin' }, req });
       return res;
     }
 
@@ -253,12 +259,14 @@ export async function POST(req) {
       // Find employee by email
       const employee = await Employee.findOne({ 'personalDetails.email': new RegExp(`^${email}$`, 'i') });
       if (!employee) {
+        await logger({ level: 'warn', message: 'Login failed: Invalid credentials', action: 'LOGIN_FAILED', metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
       // Check department (case-insensitive)
       const empDept = (employee.jobDetails?.department || '').toString().trim().toLowerCase();
       if (empDept !== department) {
+        await logger({ level: 'warn', message: 'Login failed: Department mismatch', action: 'LOGIN_FAILED', userId: employee._id, metadata: { email, department, empDept }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
@@ -276,6 +284,7 @@ export async function POST(req) {
 
       // Compare password (which for employees is DOB in YYYY-MM-DD)
       if (dobString !== password) {
+        await logger({ level: 'warn', message: 'Login failed: Invalid password (DOB)', action: 'LOGIN_FAILED', userId: employee._id, metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
@@ -314,13 +323,16 @@ export async function POST(req) {
       });
 
       console.log('Employee login success:', email, 'dept:', department);
+      await logger({ level: 'info', message: 'Employee login success', action: 'USER_LOGIN', userId: employee._id, metadata: { email, department }, req });
       return res;
     }
 
+    await logger({ level: 'warn', message: 'Login failed: Invalid department', action: 'LOGIN_FAILED', metadata: { email, department }, req });
     return NextResponse.json({ message: 'Invalid department' }, { status: 400 });
 
   } catch (err) {
     console.error('Login error:', err);
+    await logger({ level: 'error', message: 'Error during login', action: 'LOGIN_ERROR', metadata: { error: err.message, stack: err.stack }, req });
     return NextResponse.json({ message: 'Server error: ' + err.message }, { status: 500 });
   }
 }

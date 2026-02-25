@@ -14,6 +14,7 @@ import Product from "@/lib/db/models/product";
 import Supplier from "@/lib/db/models/supplier";
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
+import { logger } from "@/lib/logger";
 
 // (json helper assumed already in file)
 const json = (payload, status = 200) =>
@@ -312,6 +313,15 @@ export async function POST(request) {
       // If status is paid at creation, set paidAt now
       if (paymentStatus === "paid") {
         paidAt = new Date();
+      } else if (paymentStatus === "failed") {
+        await logger({
+          level: 'warn',
+          message: 'Payment failed during order creation',
+          action: 'PAYMENT_FAILED',
+          userId: user._id,
+          metadata: { transactionId, bodyPaymentStatus: paymentStatus },
+          req: request
+        });
       }
     }
 
@@ -399,9 +409,25 @@ export async function POST(request) {
       console.log("Stock decrement skipped (decrementStock === false)");
     }
 
+    await logger({
+      level: 'info',
+      message: `Order created successfully: ${orderDoc._id}`,
+      action: 'ORDER_CREATED',
+      userId: user._id,
+      metadata: { orderId: orderDoc._id, subtotal, total },
+      req: request
+    });
+
     return json({ success: true, order: orderDoc }, 201);
   } catch (err) {
     console.error("POST /api/order error:", err);
+    await logger({
+      level: 'error',
+      message: 'Error during order creation',
+      action: 'ORDER_CREATE_ERROR',
+      metadata: { error: err.message, stack: err.stack },
+      req: request
+    });
     if (err.name === "ValidationError") {
       return json(
         {
