@@ -754,6 +754,22 @@ export async function PATCH(request) {
 
       // trigger refund worker / gateway asynchronously if needed
       const updated = await Order.findById(order._id).lean();
+
+      await logger({
+        level: 'info',
+        message: `Order cancelled successfully: ${order._id}`,
+        action: 'ORDER_CANCELLED',
+        userId: body.userId || order.user,
+        metadata: {
+          orderId: order._id,
+          reason: cancellationReason,
+          refundAmount: updated.payment?.refundAmount || 0,
+          paymentMethod: originalPaymentMethod,
+          paymentStatus: originalPaymentStatus
+        },
+        req: request
+      });
+
       return json(
         { success: true, message: "Order cancelled", data: updated },
         200
@@ -799,6 +815,21 @@ export async function PATCH(request) {
           return json({ success: false, error: "Order not found" }, 404);
 
         const updated = await Order.findById(order._id).lean();
+        
+        await logger({
+          level: 'info',
+          message: `Return requested for order: ${order._id}`,
+          action: 'ORDER_RETURN_REQUESTED',
+          userId: body.userId || order.user,
+          metadata: {
+            orderId: order._id,
+            reason: setData.returnReason || null,
+            paymentMethod: originalPaymentMethod,
+            paymentStatus: originalPaymentStatus
+          },
+          req: request
+        });
+
         return json(
           { success: true, message: "Return requested", data: updated },
           200
@@ -957,6 +988,22 @@ export async function PATCH(request) {
       }
 
       const updated = await Order.findById(order._id).lean();
+
+      await logger({
+        level: 'info',
+        message: `Order returned successfully: ${order._id}`,
+        action: 'ORDER_RETURNED',
+        userId: body.userId || order.user,
+        metadata: {
+          orderId: order._id,
+          reason: setData.returnReason || null,
+          refundAmount: updated.payment?.refundAmount || 0,
+          paymentMethod: originalPaymentMethod,
+          paymentStatus: originalPaymentStatus
+        },
+        req: request
+      });
+
       return json(
         { success: true, message: "Order returned", data: updated },
         200
@@ -1092,6 +1139,22 @@ export async function PATCH(request) {
     return json({ success: true, data: updated }, 200);
   } catch (err) {
     console.error("PATCH /api/orders error:", err);
+    
+    // Attempt to extract order ID from URL if parsing failed
+    let orderIdFromParams = null;
+    try {
+      const url = new URL(request.url);
+      orderIdFromParams = url.searchParams.get("id") || url.searchParams.get("orderId");
+    } catch (_) {}
+
+    await logger({
+      level: 'error',
+      message: 'Error during order update (PATCH)',
+      action: 'ORDER_UPDATE_ERROR',
+      metadata: { orderId: orderIdFromParams, error: err.message, stack: err.stack },
+      req: request
+    });
+
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }
