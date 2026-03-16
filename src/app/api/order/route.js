@@ -243,8 +243,9 @@ export async function POST(request) {
     // 4) Totals mapped to your schema
     const tax = Number(body.tax ?? 0);
     const shippingCharges = Number(body.shippingCharges ?? 0);
+    const platformFee = Number(body.platformFee ?? 0);
     const discounts = Number(body.discounts ?? 0);
-    const total = subtotal + tax + shippingCharges - discounts;
+    const total = subtotal + tax + shippingCharges + platformFee - discounts;
 
     // 5) Supplier ref
     let supplierRef = null;
@@ -336,6 +337,7 @@ export async function POST(request) {
       subtotal,
       tax,
       shippingCharges,
+      platformFee,
       discounts,
       total,
       currency: body.currency || "INR",
@@ -379,6 +381,7 @@ export async function POST(request) {
         subtotal,
         tax,
         shippingCharges,
+        platformFee,
         discounts,
         total,
         currency: orderDoc.currency,
