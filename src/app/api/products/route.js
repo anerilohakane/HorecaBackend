@@ -166,23 +166,34 @@ export async function GET(request) {
       ];
     }
 
-    // If categoryId is provided, accept either objectId or slug/name.
+    // If categoryId is provided, expand parent → children so clicking a parent
+    // category returns products from ALL its subcategories too.
     if (categoryId) {
+      let resolvedId = null;
+
       if (isValidObjectIdString(categoryId)) {
-        filter.categoryId = categoryId;
+        resolvedId = categoryId;
       } else {
-        // try to find category by slug or name (case-insensitive)
         const cat = await Category.findOne({ $or: [{ slug: categoryId }, { name: { $regex: `^${categoryId}$`, $options: "i" } }] }).lean();
-        if (cat) filter.categoryId = String(cat._id);
-        else {
-          // no matching category — return empty result set (avoid server error)
+        if (cat) {
+          resolvedId = String(cat._id);
+        } else {
           return NextResponse.json({
             success: true,
             data: { items: [], pagination: { total: 0, page, limit, pages: 0 } }
           });
         }
       }
+
+      // Fetch all children of this category
+      const children = await Category.find({ parent: resolvedId }).select('_id').lean();
+      const childIds = children.map(c => String(c._id));
+
+      // Filter by the category itself AND all its children
+      const allCategoryIds = [resolvedId, ...childIds];
+      filter.categoryId = { $in: allCategoryIds };
     }
+
 
     if (supplierId) filter.supplierId = supplierId;
     if (isActive === "true") filter.isActive = true;
