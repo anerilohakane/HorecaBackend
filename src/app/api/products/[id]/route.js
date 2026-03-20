@@ -5,10 +5,41 @@ import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
 import Subscription from "@/lib/db/models/subscription";
+import RestockRequest from "@/lib/db/models/RestockRequest";
+import Notification from "@/lib/db/models/notification";
 
 /** Validate ObjectId */
 function isValidObjectIdString(id) {
   return typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
+}
+
+/** Helper: Process Restock Notifications */
+async function processRestockNotifications(product) {
+  if (product.stockQuantity > 0 || product.inStock === true) {
+    try {
+      const pendingRequests = await RestockRequest.find({
+        product: product._id,
+        status: 'pending'
+      });
+
+      if (pendingRequests.length > 0) {
+        console.log(`[RESTOCK] Found ${pendingRequests.length} pending requests for Product ${product.name}. Notifying users...`);
+        for (const req of pendingRequests) {
+          await Notification.create({
+            user: req.user,
+            title: "Product Back In Stock",
+            message: `Good news! ${product.name || "A product you wanted"} is now back in stock. Grab it before it sells out again.`,
+            type: "success",
+            metadata: { productId: product._id }
+          });
+          req.status = 'notified';
+          await req.save();
+        }
+      }
+    } catch (err) {
+      console.error("Error processing restock notifications:", err);
+    }
+  }
 }
 
 /** -------------------------------------------------------
@@ -110,6 +141,9 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
     }
 
+    // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
+    await processRestockNotifications(updated);
+
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     console.error("PUT /api/products/[id] error:", err);
@@ -175,6 +209,9 @@ export async function PATCH(request, { params }) {
             console.error("Error reactivating subscriptions:", subErr);
         }
     }
+
+    // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
+    await processRestockNotifications(updated);
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
