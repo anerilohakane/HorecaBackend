@@ -24,8 +24,23 @@ export async function POST(request) {
 
     console.log("➡️ Phone:", phone);
 
+    // Normalize: strip non-digits
+    const numericPhone = phone.replace(/\D/g, "");
+    // Standardize: ensure +91 for 10-digit Indian numbers
+    const standardizedPhone = (numericPhone.length === 10) ? `+91${numericPhone}` : 
+                              (numericPhone.length === 12 && numericPhone.startsWith("91")) ? `+${numericPhone}` :
+                              phone.trim();
+
+    // Look for variations to match existing users
+    const variations = [phone.trim(), standardizedPhone, numericPhone];
+    if (numericPhone.length === 12 && numericPhone.startsWith("91")) {
+        variations.push(numericPhone.slice(2)); // handle without 91
+    } else if (numericPhone.length === 10) {
+        variations.push("91" + numericPhone); // handle with 91
+    }
+
     // Does customer already exist?
-    let customer = await Customer.findOne({ phone });
+    let customer = await Customer.findOne({ phone: { $in: variations } });
 
     if (customer) {
       console.log("🟡 Existing customer found:", customer._id);
@@ -45,7 +60,7 @@ export async function POST(request) {
     console.log("🆕 Creating new customer…");
 
     const newCustomer = await Customer.create({
-      phone,
+      phone: standardizedPhone,
       name: name ?? null,
       email: email ?? null,
       address: address ?? null,

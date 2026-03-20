@@ -84,8 +84,30 @@ export async function POST(request) {
       images: processedImages,
     });
 
-    // 4. (Optional) Update Product Average Rating
-    // We can do this in an aggregation or a separate worker. For simplicity, just saving the review now.
+    // 4. Update Product Average Rating and Total Reviews
+    try {
+      const Product = (await import("@/lib/db/models/product")).default;
+      const stats = await Review.aggregate([
+        { $match: { product: new mongoose.Types.ObjectId(productId) } },
+        {
+          $group: {
+            _id: "$product",
+            averageRating: { $avg: "$rating" },
+            totalReviews: { $sum: 1 },
+          },
+        },
+      ]);
+
+      if (stats.length > 0) {
+        await Product.findByIdAndUpdate(productId, {
+          averageRating: Number(stats[0].averageRating.toFixed(1)),
+          totalReviews: stats[0].totalReviews,
+        });
+      }
+    } catch (updateError) {
+      console.error("Error updating product rating stats:", updateError);
+      // We don't fail the review creation if this fails, but it's important to log.
+    }
 
     return json({ success: true, review }, 201);
   } catch (error) {

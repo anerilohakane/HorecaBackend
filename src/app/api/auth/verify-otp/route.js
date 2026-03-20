@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import dbConnect from "@/lib/db/connect";
+import Customer from "@/lib/db/models/customer";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -15,20 +17,37 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Invalid OTP" });
     }
 
-    // 1️⃣ Create or fetch customer
-    const customerRes = await fetch("https://horeca-backend-six.vercel.app/api/customers/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone }),
-    });
+    // 1️⃣ Normalize Phone and Find/Create Customer
+    await dbConnect();
+    
+    // Normalize: strip non-digits
+    const numericPhone = phone.replace(/\D/g, "");
+    // Standardize: ensure +91 for 10-digit Indian numbers
+    const standardizedPhone = (numericPhone.length === 10) ? `+91${numericPhone}` : 
+                              (numericPhone.length === 12 && numericPhone.startsWith("91")) ? `+${numericPhone}` :
+                              phone.trim();
 
-    const customer = await customerRes.json();
-
-    if (!customer.success) {
-      return NextResponse.json({ success: false, error: customer.error });
+    // Look for variations to match existing users
+    const variations = [phone.trim(), standardizedPhone, numericPhone];
+    if (numericPhone.length === 12 && numericPhone.startsWith("91")) {
+        variations.push(numericPhone.slice(2)); // handle without 91
+    } else if (numericPhone.length === 10) {
+        variations.push("91" + numericPhone); // handle with 91
     }
 
-    const user = customer.data; // must include _id
+    let user = await Customer.findOne({ phone: { $in: variations } });
+
+    if (user) {
+        console.log(`[AUTH] Found existing user: ${user._id} (${user.phone})`);
+        user.lastLoginAt = new Date();
+        await user.save();
+    } else {
+        console.log(`[AUTH] Creating new user for: ${standardizedPhone}`);
+        user = await Customer.create({
+            phone: standardizedPhone,
+            lastLoginAt: new Date()
+        });
+    }
 
     // 2️⃣ Create JWT
     const token = jwt.sign(
