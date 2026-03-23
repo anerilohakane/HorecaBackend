@@ -490,24 +490,19 @@ export async function GET(request) {
       return json({ success: true, order }, 200);
     }
 
-    /* -----------------------------
-       FETCH ALL ORDERS FOR A USER
-    ------------------------------*/
     const userId =
       url.searchParams.get("userId") || url.searchParams.get("user");
-
-    if (!userId) {
-      return json(
-        { success: false, error: "userId is required to fetch orders" },
-        400
-      );
-    }
+    const status = url.searchParams.get("status");
+    const supplierId = url.searchParams.get("supplierId");
 
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const limit = Math.min(100, Number(url.searchParams.get("limit") || 20));
     const skip = (page - 1) * limit;
 
-    const q = { user: userId };
+    const q = {};
+    if (userId) q.user = userId;
+    if (status) q.status = status;
+    if (supplierId) q.supplier = supplierId;
 
     let query = Order.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit);
 
