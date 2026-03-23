@@ -123,7 +123,7 @@ export async function GET(request, { params }) {
 export async function PUT(request, { params }) {
   await dbConnect();
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!isValidObjectIdString(id)) {
       return NextResponse.json({ success: false, error: "Invalid product id" }, { status: 400 });
@@ -235,7 +235,7 @@ export async function PATCH(request, { params }) {
 export async function DELETE(request, { params }) {
   await dbConnect();
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!isValidObjectIdString(id)) {
       return NextResponse.json({ success: false, error: "Invalid product id" }, { status: 400 });

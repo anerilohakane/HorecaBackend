@@ -159,10 +159,12 @@ export async function GET(request) {
     const filter = {};
 
     if (q) {
-      // Search in name OR description (case-insensitive)
+      // Search in name OR description OR SKU (case-insensitive)
       filter.$or = [
         { name: { $regex: q, $options: "i" } },
-        { description: { $regex: q, $options: "i" } }
+        { description: { $regex: q, $options: "i" } },
+        { sku: { $regex: q, $options: "i" } },
+        { "variations.sku": { $regex: q, $options: "i" } }
       ];
     }
 
