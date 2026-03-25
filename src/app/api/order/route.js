@@ -37,7 +37,9 @@ function safePopulateQuery(query, path, select = "") {
   function resolveRefForPath(p) {
     // direct path e.g. 'supplier' or 'user' on Order schema
     const sp = Order.schema.path(p);
-    if (sp && sp.options && sp.options.ref) return sp.options.ref;
+    if (!sp) return null;
+    if (sp.options && sp.options.ref) return sp.options.ref;
+    if (sp.options && sp.options.refPath) return "POLYMORPHIC"; // indicator
 
     // handle nested path like 'items.product'
     if (p.includes(".")) {
@@ -52,15 +54,12 @@ function safePopulateQuery(query, path, select = "") {
           casterSchema.path(subPath) &&
           casterSchema.path(subPath).options
         ) {
-          return casterSchema.path(subPath).options.ref;
+           const osp = casterSchema.path(subPath).options;
+           if (osp.ref) return osp.ref;
+           if (osp.refPath) return "POLYMORPHIC";
         }
       }
     }
-
-    // as a fallback, try reading options.ref from nested path string directly
-    const nested = Order.schema.path(p);
-    if (nested && nested.options && nested.options.ref)
-      return nested.options.ref;
 
     return null;
   }
@@ -69,14 +68,15 @@ function safePopulateQuery(query, path, select = "") {
 
   if (!refModel) {
     // no ref defined in schema for this path -> don't populate
-    // but still attempt to call populate (it will no-op), however to avoid strictPopulate error, skip it.
     console.warn(
-      `[safePopulate] No ref found in Order.schema for path "${path}" — skipping populate.`
+      `[safePopulate] No ref or refPath found in Order.schema for path "${path}" — skipping populate.`
     );
     return query;
   }
 
-  if (!registered.includes(refModel)) {
+  // If polymorphic, we just trust Mongoose to handle it if the models are registered.
+  // Standard non-polymorphic check
+  if (refModel !== "POLYMORPHIC" && !registered.includes(refModel)) {
     console.warn(
       `[safePopulate] Model "${refModel}" for path "${path}" is NOT registered. Skipping populate. Registered models: ${registered.join(
         ", "
@@ -116,24 +116,27 @@ export async function POST(request) {
 
     const shippingAddress = body.shippingAddress || null; // ⭐ REQUIRED
 
-    // 1) userId (or user)
-    const userId = body.userId || body.user;
-    if (!userId) {
-      return json({ success: false, error: "userId is required" }, 400);
+    // 1) Identify Who is Placing the Order (User, Customer, or Supplier)
+    const placerId = body.userId || body.user || body.supplierId;
+    if (!placerId) {
+      return json({ success: false, error: "Identification (userId or supplierId) is required" }, 400);
     }
 
-    // const user = await User.findById(userId);
-    // if (!user) {
-    //   return json({ success: false, error: "User not found" }, 404);
-    // }
+    let user = await User.findById(placerId);
+    let userModel = "User";
 
-    let user = await User.findById(userId);
     if (!user) {
-      user = await Customer.findById(userId);
+      user = await Customer.findById(placerId);
+      userModel = "Customer";
     }
 
     if (!user) {
-      return json({ success: false, error: "Customer/User not found" }, 404);
+      user = await Supplier.findById(placerId);
+      userModel = "Supplier";
+    }
+
+    if (!user) {
+      return json({ success: false, error: "Customer/User/Supplier not found with the provided ID" }, 404);
     }
 
     // 2) items array or single-item shortcut
@@ -329,6 +332,7 @@ export async function POST(request) {
     // 8) Build orderDoc according to your OrderSchema
     const orderDoc = new Order({
       user: user._id,
+      userModel: userModel,
       supplier: supplierRef,
       items: builtItems,
       

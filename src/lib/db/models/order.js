@@ -112,7 +112,8 @@ const B2BSchema = new Schema(
 const OrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true }, // generate before saving
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true }, // who placed order
+    user: { type: Schema.Types.ObjectId, refPath: "userModel", required: true }, // who placed order
+    userModel: { type: String, required: true, enum: ["User", "Supplier", "Customer"], default: "User" },
     supplier: { type: Schema.Types.ObjectId, ref: "Supplier" }, // primary supplier (optional)
     items: { type: [OrderItemSchema], required: true },
 
