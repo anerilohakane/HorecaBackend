@@ -44,6 +44,14 @@ export async function POST(request) {
       </div>
     `;
 
+    // Pre-flight check for SMTP config (Mandatory for Vercel deployment)
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Incomplete Infrastructure Configuration: SMTP credentials missing on server." 
+      }, { status: 500 });
+    }
+
     const mailRes = await sendEmail({
       to: email,
       subject: "Unifoods Access Recovery Protocol",
@@ -51,7 +59,10 @@ export async function POST(request) {
     });
 
     if (!mailRes.success) {
-      return NextResponse.json({ success: false, error: "Transmission Node Failure: " + mailRes.error }, { status: 500 });
+      return NextResponse.json({ 
+        success: false, 
+        error: "Transmission Node Failure: The recovery server was unable to reach your identity. Please verify registry status." 
+      }, { status: 500 });
     }
 
     return NextResponse.json({ 
