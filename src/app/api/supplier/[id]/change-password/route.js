@@ -30,14 +30,11 @@ export async function POST(request, { params }) {
     supplier.password = newPassword;
     await supplier.save();
 
-    // Generate new token to keep user logged in
-    const token = supplier.generateAccessToken();
-
-    // Set Cookie
-    const cookie = `authToken=${token}; Path=/; HttpOnly; Max-Age=${TOKEN_MAX_AGE}; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+    // Set Cookie with Max-Age=0 to logout
+    const cookie = `authToken=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
 
     return NextResponse.json(
-      { success: true, message: "Password updated successfully", token },
+      { success: true, message: "Password updated successfully. Please login again." },
       { 
         status: 200,
         headers: { "Set-Cookie": cookie }
