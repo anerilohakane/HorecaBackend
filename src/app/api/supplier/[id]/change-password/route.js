@@ -15,9 +15,9 @@ export async function POST(request, { params }) {
       return NextResponse.json({ success: false, error: "Both old and new passwords are required" }, { status: 400 });
     }
 
-    const supplier = await Supplier.findById(id);
+    const supplier = await Supplier.findById(id).select("+password");
     if (!supplier) {
-      return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Supplier registry entry not found" }, { status: 404 });
     }
 
     // Verify old password
