@@ -14,8 +14,19 @@ const walletSchema = new mongoose.Schema({
   },
   balance: {
     type: Number,
-    default: 0,
-    min: 0
+    default: 0
+  },
+  realizedSavings: {
+    type: Number,
+    default: 0
+  },
+  escrowedPoints: {
+    type: Number,
+    default: 0
+  },
+  totalEarnings: {
+    type: Number,
+    default: 0
   },
   currency: {
     type: String,

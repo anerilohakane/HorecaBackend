@@ -1215,12 +1215,15 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
-    // 🔥 COMPLETELY DYNAMIC SETTLEMENT: Record a ledger entry when status becomes 'delivered'
-    const newStatus = (setData.status || (body.delivery && body.delivery.status) || "").toLowerCase();
-    const isNowDelivered = newStatus === "delivered";
-    const wasDelivered = (order.status || "").toLowerCase() === "delivered";
+    // 🔥 PERSISTENT SETTLEMENT ENGINE: Sync live snapshots with the Wallet model
+    const newStat = (setData.status || (body.delivery && body.delivery.status) || order.status || "").toLowerCase();
+    const payStat = (setData["payment.status"] || (body.payment && body.payment.status) || order.payment?.status || "").toLowerCase();
+    
+    const isNowDelivered = newStat === "delivered";
+    const isPaid = payStat === "paid";
+    const isSettlable = isNowDelivered && isPaid;
 
-    if (isNowDelivered && !wasDelivered && order.supplier) {
+    if (order.supplier) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
@@ -1228,36 +1231,51 @@ export async function PATCH(request) {
         let wallet = await Wallet.findOne({ userId: order.supplier });
         if (!wallet) {
           wallet = new Wallet({ userId: order.supplier, balance: 0, userType: 'supplier' });
-          await wallet.save();
         }
 
-        // Check if settlement already exists for this order (Dynamic Safety)
-        const existingTx = await Transaction.findOne({ 
-           "metadata.orderId": order._id,
-           type: "order_settlement"
-        });
+        // 🟢 PERSIST: Real-time Snapshot Calculation
+        const metrics = await Order.aggregate([
+          { $match: { supplier: order.supplier } },
+          {
+             $group: {
+               _id: null,
+               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } },
+               escrowed: { $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } }
+             }
+          }
+        ]);
 
-        if (!existingTx) {
-          const settlementTx = new Transaction({
-            userId: order.supplier,
-            walletId: wallet._id,
-            amount: (order.total || 0),
-            type: "order_settlement", // Dynamic Wallet uses this for live calculations
-            method: "wallet",
-            status: "completed",
-            description: `Settlement for Order: ${order.orderNumber}`,
-            metadata: { orderId: order._id, orderNumber: order.orderNumber }
-          });
-          await settlementTx.save();
-          console.log(`[Dynamic Settlement] Recorded ₹${order.total} for order ${order.orderNumber}`);
+        const snap = metrics[0] || { realized: 0, escrowed: 0 };
+        wallet.realizedSavings = snap.realized;
+        wallet.escrowedPoints = snap.escrowed;
+
+        // 🟠 SETTLE: If just became 'Delivered + Paid', record the Ledger entry
+        if (isSettlable) {
+          const existingTx = await Transaction.findOne({ "metadata.orderId": order._id, type: "order_settlement" });
+          if (!existingTx) {
+            const settlementTx = new Transaction({
+              userId: order.supplier,
+              walletId: wallet._id,
+              amount: (order.total || 0),
+              type: "order_settlement", 
+              method: "wallet",
+              status: "completed",
+              description: `Settlement for Order: ${order.orderNumber}`,
+              metadata: { orderId: order._id, orderNumber: order.orderNumber }
+            });
+            await settlementTx.save();
+            // Ledger entry created; balance calculation will update on GET or we can sync it now
+            console.log(`[Persistence] Recorded ₹${order.total} for order ${order.orderNumber}`);
+          }
         }
+        await wallet.save();
       } catch (e) {
-        console.error("Dynamic settlement failed silently:", e);
+        console.error("Persistence sync failed silently:", e);
       }
     }
 
     const updated = await Order.findById(idParam).lean();
-    return json({ success: true, message: "Order updated successfully", data: updated });
+    return json({ success: true, message: "Order successfully updated & synced", data: updated });
 
   } catch (err) {
     console.error("PATCH /api/order error:", err);
