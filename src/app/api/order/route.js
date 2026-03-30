@@ -1215,7 +1215,7 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
-    // 🔥 SIMPLE SETTLEMENT: Credit Wallet when status moves to 'delivered'
+    // 🔥 COMPLETELY DYNAMIC SETTLEMENT: Record a ledger entry when status becomes 'delivered'
     const newStatus = (setData.status || (body.delivery && body.delivery.status) || "").toLowerCase();
     const isNowDelivered = newStatus === "delivered";
     const wasDelivered = (order.status || "").toLowerCase() === "delivered";
@@ -1228,24 +1228,31 @@ export async function PATCH(request) {
         let wallet = await Wallet.findOne({ userId: order.supplier });
         if (!wallet) {
           wallet = new Wallet({ userId: order.supplier, balance: 0, userType: 'supplier' });
+          await wallet.save();
         }
-        
-        wallet.balance += (order.total || 0);
-        await wallet.save();
 
-        const tx = new Transaction({
-          userId: order.supplier,
-          walletId: wallet._id,
-          amount: order.total || 0,
-          type: 'deposit',
-          method: 'order_settlement',
-          status: 'completed',
-          description: `Settlement for Order: ${order.orderNumber}`,
-          metadata: { orderId: order._id }
+        // Check if settlement already exists for this order (Dynamic Safety)
+        const existingTx = await Transaction.findOne({ 
+           "metadata.orderId": order._id,
+           type: "order_settlement"
         });
-        await tx.save();
+
+        if (!existingTx) {
+          const settlementTx = new Transaction({
+            userId: order.supplier,
+            walletId: wallet._id,
+            amount: (order.total || 0),
+            type: "order_settlement", // Dynamic Wallet uses this for live calculations
+            method: "wallet",
+            status: "completed",
+            description: `Settlement for Order: ${order.orderNumber}`,
+            metadata: { orderId: order._id, orderNumber: order.orderNumber }
+          });
+          await settlementTx.save();
+          console.log(`[Dynamic Settlement] Recorded ₹${order.total} for order ${order.orderNumber}`);
+        }
       } catch (e) {
-        console.error("Settlement failed silently:", e);
+        console.error("Dynamic settlement failed silently:", e);
       }
     }
 

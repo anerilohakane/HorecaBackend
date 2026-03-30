@@ -28,12 +28,34 @@ export async function GET(req) {
       await wallet.save();
     }
 
-    // Fetch recent 10 transactions
-    const transactions = await Transaction.find({ userId: supplierId })
-      .sort({ createdAt: -1 })
-      .limit(10);
 
-    // Order Metrics (Delivered vs Pending)
+    // 1) DYNAMIC BALANCE CALCULATION (Ledger-based sum of all time)
+    const allTransactions = await Transaction.aggregate([
+      { 
+        $match: { 
+          userId: supplierId,
+          status: 'completed'
+        } 
+      },
+      {
+        $group: {
+          _id: null,
+          totalInflow: { 
+            // Money coming into the wallet
+            $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, "$amount", 0] }
+          },
+          totalOutflow: { 
+            // Money leaving the wallet
+            $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, "$amount", 0] }
+          }
+        }
+      }
+    ]);
+
+    const globalSum = allTransactions[0] || { totalInflow: 0, totalOutflow: 0 };
+    const dynamicBalance = globalSum.totalInflow - globalSum.totalOutflow;
+
+    // 2) DYNAMIC ORDER METRICS (Realized vs Escrowed)
     const orderMetrics = await Order.aggregate([
       { $match: { supplier: supplierId } },
       {
@@ -57,11 +79,16 @@ export async function GET(req) {
 
     const metrics = orderMetrics[0] || { deliveredTotal: 0, pendingTotal: 0 };
 
-    // Dynamic Financial Analytics (Last 30 Days)
+    // 3) RECENT ACTIVITY (Last 10)
+    const transactions = await Transaction.find({ userId: supplierId })
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    // 4) 30-DAY ANALYTICS
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const stats = await Transaction.aggregate([
+    const stats30 = await Transaction.aggregate([
       { 
         $match: { 
           userId: supplierId,
@@ -72,33 +99,29 @@ export async function GET(req) {
       {
         $group: {
           _id: null,
-          totalInflow: { 
-            $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer"]] }, "$amount", 0] }
-          },
-          totalOutflow: { 
-            $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, "$amount", 0] }
-          }
+          in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement"]] }, "$amount", 0] } },
+          out: { $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, "$amount", 0] } }
         }
       }
     ]);
 
-    const flow = stats[0] || { totalInflow: 0, totalOutflow: 0 };
+    const flow30 = stats30[0] || { in: 0, out: 0 };
 
     return NextResponse.json({
       success: true,
       data: {
-        balance: wallet.balance,
-        currency: wallet.currency,
-        status: wallet.status,
+        balance: dynamicBalance, // THIS IS THE KEY: Derived from ledger!
+        currency: wallet?.currency || "INR",
+        status: wallet?.status || "active",
         recentTransactions: transactions,
         metrics: {
-          deliveredAmount: metrics.deliveredTotal,
-          pendingAmount: metrics.pendingTotal
+          deliveredAmount: metrics.deliveredTotal, // REALIZED SAVINGS
+          pendingAmount: metrics.pendingTotal      // ESCROWED POINTS
         },
         stats: {
-          inflow: flow.totalInflow,
-          outflow: flow.totalOutflow,
-          netProfit: flow.totalInflow - flow.totalOutflow,
+          inflow: flow30.in,
+          outflow: flow30.out,
+          netProfit: flow30.in - flow30.out,
           period: "Last 30 Days"
         }
       }
