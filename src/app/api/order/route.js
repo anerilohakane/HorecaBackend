@@ -1205,82 +1205,55 @@ export async function PATCH(request) {
       );
     }
 
-    // Capture state from DB for settlement decisions
-    const updatedOrderInDb = await Order.findById(idParam);
-    if (!updatedOrderInDb) return json({ success: false, error: "Order lost during update" }, 404);
+    // --- CRITICAL: EXECUTE THE UPDATE ---
+    const result = await Order.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(idParam) },
+      update
+    );
 
-    // 🔥 SETTLEMENT ENGINE: Centralized Post-Update Processing
-    let settlementInfo = { processed: false, reason: "No transition to delivered detected" };
-    
-    // Check if it's currently delivered in DB (after our update)
-    const isNowDelivered = (updatedOrderInDb.status || "").toLowerCase() === "delivered" || 
-                           (updatedOrderInDb.delivery?.status || "").toLowerCase() === "delivered";
-                           
-    const wasDeliveredBefore = (order.status || "").toLowerCase() === "delivered";
+    if (result.matchedCount === 0) {
+      return json({ success: false, error: "Order not found" }, 404);
+    }
 
-    if (isNowDelivered && (!wasDeliveredBefore || body.forceSettlement)) {
+    // 🔥 SIMPLE SETTLEMENT: Credit Wallet when status moves to 'delivered'
+    const newStatus = (setData.status || (body.delivery && body.delivery.status) || "").toLowerCase();
+    const isNowDelivered = newStatus === "delivered";
+    const wasDelivered = (order.status || "").toLowerCase() === "delivered";
+
+    if (isNowDelivered && !wasDelivered && order.supplier) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
         
-        let supplierId = updatedOrderInDb.supplier || order.supplier;
-        if (supplierId && (typeof supplierId === 'string' || supplierId.$oid)) {
-          supplierId = new mongoose.Types.ObjectId(supplierId.$oid || supplierId);
+        let wallet = await Wallet.findOne({ userId: order.supplier });
+        if (!wallet) {
+          wallet = new Wallet({ userId: order.supplier, balance: 0, userType: 'supplier' });
         }
         
-        if (supplierId) {
-          let wallet = await Wallet.findOne({ userId: supplierId });
-          if (!wallet) {
-            wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
-          }
-          
-          // Robust duplicate check (Check both ObjectId and String metadata)
-          const existingTx = await Transaction.findOne({ 
-            userId: supplierId,
-            "metadata.orderId": { $in: [updatedOrderInDb._id.toString(), updatedOrderInDb._id] }, 
-            method: 'order_settlement'
-          });
+        wallet.balance += (order.total || 0);
+        await wallet.save();
 
-          if (!existingTx) {
-            const amountToCredit = updatedOrderInDb.total || 0;
-            wallet.balance += amountToCredit;
-            await wallet.save();
-
-            const settlementTx = new Transaction({
-              userId: supplierId,
-              walletId: wallet._id,
-              amount: amountToCredit,
-              type: 'deposit',
-              method: 'order_settlement',
-              status: 'completed',
-              description: `Settlement for Order: ${updatedOrderInDb.orderNumber}`,
-              metadata: { orderId: updatedOrderInDb._id, orderNumber: updatedOrderInDb.orderNumber }
-            });
-            await settlementTx.save();
-            settlementInfo = { processed: true, amount: amountToCredit, newBalance: wallet.balance };
-            console.log(`[Settlement Success] Credited ₹${amountToCredit} to supplier ${supplierId}`);
-          } else {
-            settlementInfo = { processed: false, reason: "Already settled in ledger", txId: existingTx._id };
-          }
-        } else {
-          settlementInfo = { processed: false, reason: "Order has no linked supplier" };
-        }
-      } catch (sErr) {
-        console.error("[Settlement Failure]:", sErr);
-        settlementInfo = { processed: false, reason: `System Error: ${sErr.message}` };
+        const tx = new Transaction({
+          userId: order.supplier,
+          walletId: wallet._id,
+          amount: order.total || 0,
+          type: 'deposit',
+          method: 'order_settlement',
+          status: 'completed',
+          description: `Settlement for Order: ${order.orderNumber}`,
+          metadata: { orderId: order._id }
+        });
+        await tx.save();
+      } catch (e) {
+        console.error("Settlement failed silently:", e);
       }
     }
 
-    const finalOrder = await Order.findById(idParam).lean();
-    return json({ 
-      success: true, 
-      message: "Order successfully updated", 
-      data: finalOrder,
-      _settlement: settlementInfo 
-    }, 200);
+    const updated = await Order.findById(idParam).lean();
+    return json({ success: true, message: "Order updated successfully", data: updated });
 
   } catch (err) {
-    console.error("PATCH /api/order critical error:", err);
-    return json({ success: false, error: "Internal Update Error", details: err.message }, 500);
+    console.error("PATCH /api/order error:", err);
+    return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }
