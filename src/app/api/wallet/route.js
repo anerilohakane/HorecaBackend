@@ -21,13 +21,21 @@ export async function GET(req) {
 
     const supplierId = new mongoose.Types.ObjectId(userId);
 
-    // 1) DYNAMIC BALANCE CALCULATION (Flipkart/Amazon Style Ledger)
-    // Balance = (All Settlements + Deposits + Refunds) - (All Payments + Withdrawals)
+    // 1) DYNAMIC BALANCE & CLEANUP (Self-Healing Ledger)
+    // We only count settlements for orders that STILL EXIST in the database
+    const allOrders = await Order.find({ supplier: supplierId }, '_id').lean();
+    const validOrderIds = allOrders.map(o => o._id);
+
     const ledger = await Transaction.aggregate([
       { 
         $match: { 
           userId: supplierId,
-          status: 'completed'
+          status: 'completed',
+          // SAFETY: If it's an order settlement, the order must still exist
+          $or: [
+            { type: { $ne: "order_settlement" } },
+            { "metadata.orderId": { $in: validOrderIds } }
+          ]
         } 
       },
       {
@@ -46,7 +54,18 @@ export async function GET(req) {
     const globalSum = ledger[0] || { totalInflow: 0, totalOutflow: 0 };
     const dynamicBalance = Math.max(0, globalSum.totalInflow - globalSum.totalOutflow);
 
-    // 1.5) LIVE METRICS CALCULATION (For Synchronization)
+    // Filter transactions list for the UI (only show settlements for existing orders)
+    const transactions = await Transaction.find({ 
+      userId: supplierId,
+      $or: [
+        { type: { $ne: "order_settlement" } },
+        { "metadata.orderId": { $in: validOrderIds } }
+      ]
+    })
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    // 2) LIVE METRICS CALCULATION (Filtered Truth)
     const orderMetrics = await Order.aggregate([
       { $match: { supplier: supplierId } },
       {
@@ -63,7 +82,7 @@ export async function GET(req) {
     ]);
     const metrics = orderMetrics[0] || { deliveredTotal: 0, pendingTotal: 0 };
 
-    // 2) SYNC & PERSIST SNAPSHOTS (Source of Truth Stabilization)
+    // 3) SYNC & PERSIST SNAPSHOTS
     let wallet = await Wallet.findOne({ userId: supplierId });
     if (!wallet) {
       wallet = new Wallet({ 
@@ -90,11 +109,6 @@ export async function GET(req) {
       }
       if (isChanged) await wallet.save();
     }
-
-    // 3) RECENT ACTIVITY
-    const transactions = await Transaction.find({ userId: supplierId })
-      .sort({ createdAt: -1 })
-      .limit(10);
 
     return NextResponse.json({
       success: true,
