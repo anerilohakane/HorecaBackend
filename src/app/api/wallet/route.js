@@ -55,6 +55,12 @@ export async function GET(req) {
     const globalSum = allTransactions[0] || { totalInflow: 0, totalOutflow: 0 };
     const dynamicBalance = globalSum.totalInflow - globalSum.totalOutflow;
 
+    // 1.5) SYNC BACK TO DB: Ensure static balance reflects the ledger truth
+    if (wallet && wallet.balance !== dynamicBalance) {
+      wallet.balance = dynamicBalance;
+      await wallet.save();
+    }
+
     // 2) DYNAMIC ORDER METRICS (Realized vs Escrowed)
     const orderMetrics = await Order.aggregate([
       { $match: { supplier: supplierId } },
@@ -99,7 +105,7 @@ export async function GET(req) {
       {
         $group: {
           _id: null,
-          in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement"]] }, "$amount", 0] } },
+          in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, "$amount", 0] } },
           out: { $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, "$amount", 0] } }
         }
       }
@@ -110,13 +116,13 @@ export async function GET(req) {
     return NextResponse.json({
       success: true,
       data: {
-        balance: dynamicBalance, // THIS IS THE KEY: Derived from ledger!
+        balance: dynamicBalance, 
         currency: wallet?.currency || "INR",
         status: wallet?.status || "active",
         recentTransactions: transactions,
         metrics: {
-          deliveredAmount: metrics.deliveredTotal, // REALIZED SAVINGS
-          pendingAmount: metrics.pendingTotal      // ESCROWED POINTS
+          deliveredAmount: metrics.deliveredTotal, 
+          pendingAmount: metrics.pendingTotal      
         },
         stats: {
           inflow: flow30.in,
