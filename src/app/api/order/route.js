@@ -1205,34 +1205,27 @@ export async function PATCH(request) {
       );
     }
 
-    // 🔥 SETTLEMENT LOGIC: Credit Wallet when status moves to 'delivered'
-    const newStatus = (setData.status || (body.delivery && body.delivery.status) || "").toLowerCase();
-    const isNowDelivered = newStatus === "delivered";
-    const wasDelivered = (order.status || "").toLowerCase() === "delivered";
+    // Capture state from DB for settlement decisions
+    const updatedOrderInDb = await Order.findById(idParam);
+    if (!updatedOrderInDb) return json({ success: false, error: "Order lost during update" }, 404);
 
-    const result = await Order.collection.updateOne(
-      { _id: new mongoose.Types.ObjectId(idParam) },
-      update
-    );
+    // 🔥 SETTLEMENT ENGINE: Centralized Post-Update Processing
+    let settlementInfo = { processed: false, reason: "No transition to delivered detected" };
+    
+    // Check if it's currently delivered in DB (after our update)
+    const isNowDelivered = (updatedOrderInDb.status || "").toLowerCase() === "delivered" || 
+                           (updatedOrderInDb.delivery?.status || "").toLowerCase() === "delivered";
+                           
+    const wasDeliveredBefore = (order.status || "").toLowerCase() === "delivered";
 
-    if (result.matchedCount === 0) {
-      return json({ success: false, error: "Order not found" }, 404);
-    }
-
-    let settlementInfo = { processed: false, reason: "No transition to delivered" };
-
-    // Trigger wallet credit if just became delivered
-    if (isNowDelivered && !wasDelivered) {
+    if (isNowDelivered && (!wasDeliveredBefore || body.forceSettlement)) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
         
-        let supplierId = order.supplier;
-        // Strict casting for reliability
-        if (supplierId && typeof supplierId === 'string') {
-          supplierId = new mongoose.Types.ObjectId(supplierId);
-        } else if (supplierId && supplierId.$oid) {
-           supplierId = new mongoose.Types.ObjectId(supplierId.$oid);
+        let supplierId = updatedOrderInDb.supplier || order.supplier;
+        if (supplierId && (typeof supplierId === 'string' || supplierId.$oid)) {
+          supplierId = new mongoose.Types.ObjectId(supplierId.$oid || supplierId);
         }
         
         if (supplierId) {
@@ -1241,15 +1234,15 @@ export async function PATCH(request) {
             wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
           }
           
-          // Smart check: Avoid duplicate settlement if already processed (though wasDelivered should handle it)
+          // Robust duplicate check (Check both ObjectId and String metadata)
           const existingTx = await Transaction.findOne({ 
-            "metadata.orderId": order._id, 
-            method: 'order_settlement',
-            status: 'completed'
+            userId: supplierId,
+            "metadata.orderId": { $in: [updatedOrderInDb._id.toString(), updatedOrderInDb._id] }, 
+            method: 'order_settlement'
           });
 
           if (!existingTx) {
-            const amountToCredit = order.total || 0;
+            const amountToCredit = updatedOrderInDb.total || 0;
             wallet.balance += amountToCredit;
             await wallet.save();
 
@@ -1260,48 +1253,34 @@ export async function PATCH(request) {
               type: 'deposit',
               method: 'order_settlement',
               status: 'completed',
-              description: `Settlement for Order: ${order.orderNumber}`,
-              metadata: { orderId: order._id, orderNumber: order.orderNumber }
+              description: `Settlement for Order: ${updatedOrderInDb.orderNumber}`,
+              metadata: { orderId: updatedOrderInDb._id, orderNumber: updatedOrderInDb.orderNumber }
             });
             await settlementTx.save();
-            settlementInfo = { processed: true, amount: amountToCredit, walletId: wallet._id };
-            console.log(`[Settlement] Credited ₹${amountToCredit} to supplier ${supplierId} for order ${order.orderNumber}`);
+            settlementInfo = { processed: true, amount: amountToCredit, newBalance: wallet.balance };
+            console.log(`[Settlement Success] Credited ₹${amountToCredit} to supplier ${supplierId}`);
           } else {
-            settlementInfo = { processed: false, reason: "Already settled" };
+            settlementInfo = { processed: false, reason: "Already settled in ledger", txId: existingTx._id };
           }
         } else {
-          settlementInfo = { processed: false, reason: "Supplier ID missing in order record" };
+          settlementInfo = { processed: false, reason: "Order has no linked supplier" };
         }
-      } catch (settlementErr) {
-        console.error("[Settlement Error] Failed to credit wallet:", settlementErr);
-        settlementInfo = { processed: false, reason: settlementErr.message };
+      } catch (sErr) {
+        console.error("[Settlement Failure]:", sErr);
+        settlementInfo = { processed: false, reason: `System Error: ${sErr.message}` };
       }
     }
 
+    const finalOrder = await Order.findById(idParam).lean();
     return json({ 
       success: true, 
-      message: "Order updated successfully", 
+      message: "Order successfully updated", 
       data: finalOrder,
       _settlement: settlementInfo 
-    });
+    }, 200);
+
   } catch (err) {
-    console.error("PATCH /api/orders error:", err);
-    
-    // Attempt to extract order ID from URL if parsing failed
-    let orderIdFromParams = null;
-    try {
-      const url = new URL(request.url);
-      orderIdFromParams = url.searchParams.get("id") || url.searchParams.get("orderId");
-    } catch (_) {}
-
-    await logger({
-      level: 'error',
-      message: 'Error during order update (PATCH)',
-      action: 'ORDER_UPDATE_ERROR',
-      metadata: { orderId: orderIdFromParams, error: err.message, stack: err.stack },
-      req: request
-    });
-
-    return json({ success: false, error: err.message || "Server error" }, 500);
+    console.error("PATCH /api/order critical error:", err);
+    return json({ success: false, error: "Internal Update Error", details: err.message }, 500);
   }
 }
