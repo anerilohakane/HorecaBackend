@@ -427,10 +427,43 @@ export async function POST(request) {
         currency: orderDoc.currency,
         notes: body.invoiceNotes || "",
         paymentMethod,
-        paymentStatus,
-        paidAt: paidAt || null,
+        paymentStatus: orderDoc.payment.status, // Use live status
+        paidAt: orderDoc.payment.paidAt || null,
       },
     };
+
+    // 9.5) 🔥 AUTO-SETTLEMENT: If created as 'delivered', credit wallet immediately
+    const isDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
+    if (isDelivered && orderDoc.supplier) {
+      try {
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+        
+        let wallet = await Wallet.findOne({ userId: orderDoc.supplier });
+        if (!wallet) {
+          wallet = new Wallet({ userId: orderDoc.supplier, balance: 0, userType: 'supplier' });
+        }
+        
+        const creditAmt = orderDoc.total || 0;
+        wallet.balance += creditAmt;
+        await wallet.save();
+
+        const tx = new Transaction({
+          userId: orderDoc.supplier,
+          walletId: wallet._id,
+          amount: creditAmt,
+          type: 'deposit',
+          method: 'order_settlement',
+          status: 'completed',
+          description: `Settlement for Order: ${orderDoc.orderNumber} (Auto-Delivered)`,
+          metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber }
+        });
+        await tx.save();
+        console.log(`[Auto-Settlement] Credited ₹${creditAmt} to supplier ${orderDoc.supplier} for delivered order creation.`);
+      } catch (e) {
+        console.error("[Auto-Settlement Error] Failed to credit wallet at creation:", e);
+      }
+    }
 
     // 10) Save
     await orderDoc.save();
