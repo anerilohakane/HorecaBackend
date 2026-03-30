@@ -298,6 +298,36 @@ export async function POST(request) {
       paymentMethod = "cod";
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
+    } else if (paymentMethod === "wallet") {
+      // 🔹 Wallet/Points payment
+      const Wallet = (await import("@/lib/db/models/wallet")).default;
+      const Transaction = (await import("@/lib/db/models/transaction")).default;
+      
+      const wallet = await Wallet.findOne({ userId: user._id });
+      if (!wallet || wallet.balance < total) {
+        return json({ success: false, error: "Insufficient Unifoods Points in your wallet." }, 400);
+      }
+
+      // Deduct balance
+      wallet.balance -= total;
+      await wallet.save();
+
+      // Create transaction
+      const debitTx = new Transaction({
+        userId: user._id,
+        walletId: wallet._id,
+        amount: -total,
+        type: 'order_payment',
+        method: 'wallet',
+        status: 'completed',
+        description: `Order Payment: ${builtItems.map(i => i.name).join(', ').slice(0, 50)}...`,
+        metadata: { type: 'wallet_debit', timestamp: new Date().toISOString() }
+      });
+      await debitTx.save();
+
+      paymentStatus = "paid";
+      paidAt = new Date();
+      transactionId = debitTx._id.toString();
     } else {
       // 🔹 Online payment (UPI, card, netbanking, etc.)
       //  - transactionId is required
@@ -1122,6 +1152,11 @@ export async function PATCH(request) {
       );
     }
 
+    // 🔥 SETTLEMENT LOGIC: Credit Wallet when status moves to 'delivered'
+    const newStatus = (setData.status || (body.delivery && body.delivery.status) || "").toLowerCase();
+    const isNowDelivered = newStatus === "delivered";
+    const wasDelivered = (order.status || "").toLowerCase() === "delivered";
+
     const result = await Order.collection.updateOne(
       { _id: new mongoose.Types.ObjectId(idParam) },
       update
@@ -1129,6 +1164,42 @@ export async function PATCH(request) {
 
     if (result.matchedCount === 0) {
       return json({ success: false, error: "Order not found" }, 404);
+    }
+
+    // Trigger wallet credit if just became delivered
+    if (isNowDelivered && !wasDelivered) {
+      try {
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+        
+        const supplierId = order.supplier;
+        if (supplierId) {
+          let wallet = await Wallet.findOne({ userId: supplierId });
+          if (!wallet) {
+            wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
+          }
+          
+          const amountToCredit = order.total || 0;
+          wallet.balance += amountToCredit;
+          await wallet.save();
+
+          const settlementTx = new Transaction({
+            userId: supplierId,
+            walletId: wallet._id,
+            amount: amountToCredit,
+            type: 'deposit',
+            method: 'order_settlement',
+            status: 'completed',
+            description: `Settlement for Order: ${order.orderNumber}`,
+            metadata: { orderId: order._id, orderNumber: order.orderNumber }
+          });
+          await settlementTx.save();
+          console.log(`[Settlement] Credited ₹${amountToCredit} to supplier ${supplierId} for order ${order.orderNumber}`);
+        }
+      } catch (settlementErr) {
+        console.error("[Settlement Error] Failed to credit wallet:", settlementErr);
+        // We log it but don't fail the whole request (the order status IS updated)
+      }
     }
 
     const updated = await Order.findById(idParam).lean();

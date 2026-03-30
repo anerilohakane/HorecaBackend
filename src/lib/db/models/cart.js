@@ -21,7 +21,8 @@ const cartItemSchema = new Schema({
   name: String,
   price: Number,
   thumbnail: String,
-  unit: String
+  unit: String,
+  gst: Number
 }, { _id: false });
 
 const cartSchema = new Schema({

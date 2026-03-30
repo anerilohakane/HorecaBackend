@@ -39,11 +39,16 @@ export async function GET(req) {
       return {
         productId: p?._id?.toString(),
         quantity: item.quantity,
+        name: item.name,
+        price: item.price,
+        unit: item.unit,
+        gst: item.gst || 0,
         product: {
           id: p?._id?.toString(),
           name: p?.name,
           price: p?.price,
           unit: p?.unit,
+          gst: p?.gst || 0,
           image:
             p?.images?.[0]?.url ||
             p?.image ||
@@ -105,7 +110,8 @@ export async function POST(request) {
         name: product.name,
         price: product.price,
         thumbnail: product.images?.[0]?.url || "",
-        unit: product.unit
+        unit: product.unit,
+        gst: product.gst || 0
       };
       const newCart = new Cart({ userId, items: [item], subtotal: product.price * quantity, updatedAt: new Date() });
       await newCart.save();
@@ -116,6 +122,9 @@ export async function POST(request) {
     const existingIndex = cart.items.findIndex(i => String(i.productId) === String(productId));
     if (existingIndex > -1) {
       cart.items[existingIndex].quantity += quantity;
+      // update price/gst snapshots just in case
+      cart.items[existingIndex].price = product.price;
+      cart.items[existingIndex].gst = product.gst || 0;
       // clamp to stock if needed
       if (product.stockQuantity != null && cart.items[existingIndex].quantity > product.stockQuantity) {
         cart.items[existingIndex].quantity = product.stockQuantity;
@@ -127,7 +136,8 @@ export async function POST(request) {
         name: product.name,
         price: product.price,
         thumbnail: product.images?.[0]?.url || "",
-        unit: product.unit
+        unit: product.unit,
+        gst: product.gst || 0
       });
     }
 
