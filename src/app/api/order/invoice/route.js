@@ -126,7 +126,8 @@ export async function POST(request) {
         })),
 
         subtotal: order.subtotal,
-        tax: order.tax,
+        gst: order.gst,
+        gstAmount: order.gstAmount,
         shippingCharges: order.shippingCharges,
         discounts: order.discounts,
         total: order.total,
