@@ -56,16 +56,7 @@ import dbConnect from "@/lib/db/connect";
 import Category from "@/lib/db/models/category";
 import Product from "@/lib/db/models/product"; // optional if you later want to include products
 
-export async function OPTIONS() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
-  });
-}
+
 
 // /app/api/categories/route.js (GET only root categories + populate children)
 export async function GET(request) {
@@ -99,12 +90,6 @@ export async function GET(request) {
     return NextResponse.json({
       success: true,
       data: { items: list, pagination: { total, page, limit, pages: Math.ceil(total / limit) } }
-    }, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      }
     });
   } catch (err) {
     console.error("GET /api/categories error", err);

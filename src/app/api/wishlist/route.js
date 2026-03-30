@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Wishlist from "@/lib/db/models/wishlist";
@@ -20,6 +21,10 @@ export async function GET(request) {
     const url = new URL(request.url);
     const userId = url.searchParams.get("userId");
     if (!userId) return NextResponse.json({ success: false, error: "userId required" }, { status: 400 });
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return NextResponse.json({ success: true, data: { userId, items: [] } });
+    }
 
     const wishlist = await Wishlist.findOne({ userId }).lean();
     return NextResponse.json({ success: true, data: wishlist || { userId, items: [] } });

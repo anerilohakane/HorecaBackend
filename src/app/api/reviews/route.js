@@ -177,8 +177,20 @@ export async function GET(request) {
 
     const query = {};
 
-    if (productId) query.product = productId;
-    if (userId) query.user = userId;
+    if (productId) {
+      if (mongoose.Types.ObjectId.isValid(productId)) {
+        query.product = productId;
+      } else {
+        return json({ success: true, total: 0, page, limit, reviews: [] });
+      }
+    }
+    if (userId) {
+      if (mongoose.Types.ObjectId.isValid(userId)) {
+        query.user = userId;
+      } else {
+        return json({ success: true, total: 0, page, limit, reviews: [] });
+      }
+    }
 
 
     const reviews = await Review.find(query)

@@ -230,6 +230,7 @@ export async function POST(request) {
         quantity: qty,
         unitPrice,
         totalPrice,
+        gst: product.gst || 0, // Persist GST from product model
         supplier: product.supplierId || product.supplier || null,
         image: it.image || product.image || null, // ✅ Added image persistence
         attributes: it.attributes || null,

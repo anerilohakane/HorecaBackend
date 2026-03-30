@@ -79,28 +79,13 @@ export async function POST(request) {
   }
 }
 
-export async function OPTIONS() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
-  });
-}
+
 
 export async function GET() {
   await dbConnect();
   try {
     const suppliers = await Supplier.find().limit(100).lean();
-    return NextResponse.json({ success: true, data: suppliers }, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      }
-    });
+    return NextResponse.json({ success: true, data: suppliers });
   } catch (err) {
     console.error("GET /api/suppliers error", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

@@ -50,6 +50,7 @@ const OrderItemSchema = new Schema(
     totalPrice: { type: Number, required: true },
     supplier: { type: Schema.Types.ObjectId, ref: "Supplier" }, // helpful for multi-supplier scenarios
     image: { type: String }, // Store product image URL (http or relative)
+    gst: { type: Number, default: 0 }, // Store the GST percentage applied at time of order
     attributes: { type: Schema.Types.Mixed }, // e.g., color/size selected
   },
   { _id: false }
