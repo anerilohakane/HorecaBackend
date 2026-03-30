@@ -144,7 +144,8 @@ const OrderSchema = new Schema(
 
     // amounts
     subtotal: { type: Number, required: true, default: 0 },
-    tax: { type: Number, default: 0 },
+    gst: { type: Number, default: 0 }, // Stores GST percentage (e.g., 18)
+    gstAmount: { type: Number, default: 0 }, // Stores calculated GST amount (e.g., 40.00)
     shippingCharges: { type: Number, default: 0 },
     platformFee: { type: Number, default: 0 },
     discounts: { type: Number, default: 0 },

@@ -245,11 +245,14 @@ export async function POST(request) {
     }
 
     // 4) Totals mapped to your schema
-    const tax = Number(body.tax ?? 0);
+    const gstAmount = Number(body.gstAmount ?? body.taxAmount ?? body.tax ?? 0);
     const shippingCharges = Number(body.shippingCharges ?? 0);
     const platformFee = Number(body.platformFee ?? 0);
     const discounts = Number(body.discounts ?? 0);
-    const total = subtotal + tax + shippingCharges + platformFee - discounts;
+    const total = subtotal + gstAmount + shippingCharges + platformFee - discounts;
+
+    // Calculate aggregated GST percentage
+    const orderGst = subtotal > 0 ? (gstAmount / subtotal) * 100 : 0;
 
     // 5) Supplier ref
     let supplierRef = null;
@@ -370,7 +373,8 @@ export async function POST(request) {
       shippingAddress: shippingAddress,
 
       subtotal,
-      tax,
+      gst: Math.round(orderGst), // Store percentage (branded as GST in db)
+      gstAmount,
       shippingCharges,
       platformFee,
       discounts,
@@ -414,7 +418,8 @@ export async function POST(request) {
         user: orderDoc.user,
         supplier: orderDoc.supplier,
         subtotal,
-        tax,
+        gst: Math.round(orderGst),
+        gstAmount,
         shippingCharges,
         platformFee,
         discounts,
