@@ -432,6 +432,40 @@ export async function POST(request) {
       },
     };
 
+    // --- 9.4) 🔥 AUTOMATIC WALLET DEBIT: Deduct points if paying with wallet ---
+    if (body.paymentMethod === "wallet") {
+      try {
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+
+        let buyerWallet = await Wallet.findOne({ userId: user._id });
+        if (!buyerWallet || buyerWallet.balance < total) {
+          throw new Error(`Insufficient wallet balance for this purchase. Available: ₹${buyerWallet?.balance || 0} | Total: ₹${total}`);
+        }
+
+        // Create Debit Transaction (OUTFLOW)
+        const debitTx = new Transaction({
+          userId: user._id,
+          walletId: buyerWallet._id,
+          amount: total,
+          type: "order_payment",
+          method: "wallet",
+          status: "completed",
+          description: `Internal Procurement: ${orderDoc.orderNumber}`,
+          metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber, type: "wallet_debit" }
+        });
+        await debitTx.save();
+
+        // Update Balance Immediately
+        buyerWallet.balance -= total;
+        await buyerWallet.save();
+        console.log(`[DEBIT LOG] Deducted ₹${total} from Buyer ${user._id}`);
+      } catch (e) {
+        console.error("[DEBIT FAILURE]:", e);
+        return json({ success: false, error: e.message || "Wallet debit failed" }, 400);
+      }
+    }
+
     // 9.5) 🔥 MARKETPLACE AUTO-SETTLEMENT: Settle for ALL unique suppliers in items
     const isNowDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
     const isPaidAtCreation = (orderDoc.payment?.status || "").toLowerCase() === "paid";
