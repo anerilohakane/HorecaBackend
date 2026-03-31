@@ -433,7 +433,8 @@ export async function POST(request) {
     };
 
     // --- 9.4) 🔥 AUTOMATIC WALLET DEBIT: Deduct points if paying with wallet ---
-    if (body.paymentMethod === "wallet") {
+    const isWalletPay = (body.paymentMethod || "").toLowerCase() === "wallet";
+    if (isWalletPay) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
@@ -1382,7 +1383,7 @@ export async function PATCH(request) {
                     $cond: [
                       { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
                       "$amount", 
-                      { $multiply: ["$amount", -1] }
+                      { $multiply: ["$amount", -1] } // Withdrawal and Order_Payment are negative
                     ] 
                   } 
                 }
