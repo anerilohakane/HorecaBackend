@@ -1242,61 +1242,69 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
-    // 🚀 INDUSTRIAL SETTLEMENT ENGINE: Guaranteed Point Accrual
+    // 🔥 THE MARKETPLACE SETTLEMENT ENGINE: Settle for EVERY Supplier in the order
     const finalState = await Order.findById(idParam).lean();
     if (!finalState) return json({ success: false, error: "Order lost" }, 404);
 
-    // 1) Hard Detection: Check all status fields for "Delivered"
-    const orderStat = (finalState.status || "").toLowerCase();
-    const deliveryStat = (finalState.delivery?.status || "").toLowerCase();
-    const payStat = (finalState.payment?.status || "").toLowerCase();
-    
-    const isDelivered = orderStat === "delivered" || deliveryStat === "delivered";
-    const isPaid = payStat === "paid";
+    const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
+    const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
 
-    console.log(`[Settlement Audit] Order: ${finalState.orderNumber} | Del: ${isDelivered} | Paid: ${isPaid}`);
-
-    // 2) Smart Supplier Discovery: Detect supplier if top-level field is null
-    let supplierId = finalState.supplier;
-    if (!supplierId && finalState.items?.length > 0) {
-      supplierId = finalState.items[0].supplier;
-    }
-
-    if (isDelivered && isPaid && supplierId) {
+    if (isDelivered && isPaid) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
-        
-        // Ensure wallet exists
-        let wallet = await Wallet.findOne({ userId: supplierId });
-        if (!wallet) {
-          wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
-        }
 
-        // 3) Deduplication check: Ensure we don't settle twice
-        const existingTx = await Transaction.findOne({ 
-          "metadata.orderId": finalState._id, 
-          type: "order_settlement" 
+        // 🟢 IDENTIFY UNIQUE SUPPLIERS
+        const suppliers = new Set();
+        if (finalState.supplier) suppliers.add(finalState.supplier.toString());
+        (finalState.items || []).forEach(item => {
+           if (item.supplier) suppliers.add(item.supplier.toString());
         });
 
-        if (!existingTx) {
-          console.log(`[🔥 SETTLEMENT TRIGGERED] Awarding ₹${finalState.total} to Supplier: ${supplierId}`);
+        for (const sId of suppliers) {
+          const supplierId = new mongoose.Types.ObjectId(sId);
           
-          const settlementTx = new Transaction({
-            userId: supplierId,
-            walletId: wallet._id,
-            amount: finalState.total || 0,
-            type: "order_settlement", 
-            method: "wallet",
-            status: "completed",
-            description: `Settlement for Order: ${finalState.orderNumber}`,
-            metadata: { orderId: finalState._id, orderNumber: finalState.orderNumber }
-          });
-          await settlementTx.save();
+          let wallet = await Wallet.findOne({ userId: supplierId });
+          if (!wallet) {
+            wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
+          }
 
-          // 4) Force Snapshot Sync: Correct snapshots + balance immediately
+          // 1) Settle items belonging to this specific supplier
+          const supplierTotal = (finalState.items || [])
+            .filter(item => item.supplier?.toString() === sId)
+            .reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+
+          if (supplierTotal > 0) {
+            const existingTx = await Transaction.findOne({ 
+              "metadata.orderId": finalState._id, 
+              userId: supplierId,
+              type: "order_settlement" 
+            });
+
+            if (!existingTx) {
+              const settlementTx = new Transaction({
+                userId: supplierId,
+                walletId: wallet._id,
+                amount: supplierTotal,
+                type: "order_settlement", 
+                method: "wallet",
+                status: "completed",
+                description: `Settlement for Order Items: ${finalState.orderNumber}`,
+                metadata: { orderId: finalState._id, orderNumber: finalState.orderNumber }
+              });
+              await settlementTx.save();
+              console.log(`[Marketplace] Credited ₹${supplierTotal} to Supplier ${sId}`);
+            }
+          }
+
+          // 2) Force Live Sync for this supplier
           const metrics = await Order.aggregate([
-            { $match: { supplier: supplierId } },
+            { $match: { 
+                 $or: [
+                   { supplier: supplierId },
+                   { "items.supplier": supplierId }
+                 ]
+            } },
             {
                $group: {
                  _id: null,
@@ -1308,8 +1316,7 @@ export async function PATCH(request) {
 
           const snap = metrics[0] || { realized: 0, escrowed: 0 };
           
-          // Re-calculate balance truth from ledger
-          const ledgerResults = await Transaction.aggregate([
+          const ledgerTruth = await Transaction.aggregate([
             { $match: { userId: supplierId, status: 'completed' } },
             {
               $group: {
@@ -1327,21 +1334,17 @@ export async function PATCH(request) {
             }
           ]);
 
-          wallet.balance = ledgerResults[0]?.balance || 0;
+          wallet.balance = ledgerTruth[0]?.balance || 0;
           wallet.realizedSavings = snap.realized;
           wallet.escrowedPoints = snap.escrowed;
           await wallet.save();
-          
-          console.log(`[✅ SETTLEMENT COMPLETE] Updated Wallet: ₹${wallet.balance} | Realized: ₹${wallet.realizedSavings}`);
-        } else {
-          console.log(`[Settlement] Order ${finalState.orderNumber} already settled. Skipping.`);
         }
       } catch (e) {
-        console.error("[Settlement Failure]:", e);
+        console.error("[Marketplace Settlement Failure]:", e);
       }
     }
 
-    return json({ success: true, message: "Order updated & settlement processed", data: finalState });
+    return json({ success: true, message: "Multi-supplier settlement handled", data: finalState });
 
   } catch (err) {
     console.error("PATCH /api/order error:", err);
