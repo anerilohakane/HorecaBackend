@@ -15,15 +15,33 @@ export async function GET(req) {
       return NextResponse.json({ success: false, error: "userId is required" }, { status: 400 });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return NextResponse.json({ success: false, error: "Invalid userId format" }, { status: 400 });
-    }
-
     const supplierId = new mongoose.Types.ObjectId(userId);
+
+    // 🛑 [SELF-HEALING 2.0]: DUPLICATE MERGE 
+    // If multiple wallets exist for one user, merge them into the first one 
+    const allWallets = await Wallet.find({ userId: supplierId }).sort({ createdAt: 1 });
+    if (allWallets.length > 1) {
+      console.log(`[FIREWALL FIX] Found DUPLICATE Wallets for Vendor ${userId}. Merging...`);
+      const mainWallet = allWallets[0];
+      for (let i = 1; i < allWallets.length; i++) {
+        mainWallet.balance += (allWallets[i].balance || 0);
+        mainWallet.realizedSavings += (allWallets[i].realizedSavings || 0);
+        mainWallet.escrowedPoints += (allWallets[i].escrowedPoints || 0);
+        await Wallet.findByIdAndDelete(allWallets[i]._id);
+      }
+      await mainWallet.save();
+      console.log(`[FIREWALL FIX] Merged ${allWallets.length} wallets into one Master record.`);
+    }
 
     // 1) DYNAMIC BALANCE & CLEANUP (Self-Healing Ledger)
     // We only count settlements for orders that STILL EXIST in the database
-    const allOrders = await Order.find({ supplier: supplierId }, '_id').lean();
+    // [FIX]: Search both top-level supplier AND items-level supplier
+    const allOrders = await Order.find({ 
+      $or: [
+        { supplier: supplierId },
+        { "items.supplier": supplierId }
+      ]
+    }, '_id').lean();
     const validOrderIds = allOrders.map(o => o._id);
 
     const ledger = await Transaction.aggregate([
@@ -65,26 +83,62 @@ export async function GET(req) {
       .sort({ createdAt: -1 })
       .limit(10);
 
-    // 2) LIVE METRICS CALCULATION (Filtered Truth)
+    // 2) LIVE METRICS CALCULATION (Marketplace Aware)
+    console.log(`[WALET LOG] Calculating Marketplace Metrics for Supplier: ${supplierId}`);
+    
+    // We must precisely calculate the supplier's portion from only their items
     const orderMetrics = await Order.aggregate([
-      { $match: { supplier: supplierId } },
+      { 
+        $match: { 
+          $or: [
+            { supplier: supplierId },
+            { "items.supplier": supplierId }
+          ]
+        } 
+      },
+      { $unwind: "$items" },
       {
         $group: {
           _id: null,
           deliveredTotal: { 
-            $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } 
+            $sum: { 
+               $cond: [
+                 { 
+                   $and: [
+                     { $eq: ["$items.supplier", supplierId] },
+                     { $eq: ["$status", "delivered"] },
+                     { $eq: ["$payment.status", "paid"] }
+                   ]
+                 },
+                 "$items.totalPrice", 
+                 0
+               ]
+            } 
           },
           pendingTotal: { 
-            $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } 
+            $sum: { 
+               $cond: [
+                 { 
+                   $and: [
+                     { $eq: ["$items.supplier", supplierId] },
+                     { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }
+                   ]
+                 },
+                 "$items.totalPrice", 
+                 0
+               ]
+            } 
           }
         }
       }
     ]);
     const metrics = orderMetrics[0] || { deliveredTotal: 0, pendingTotal: 0 };
+    console.log(`[WALET LOG] Snapshot Truth: Delivered ₹${metrics.deliveredTotal} | Pending ₹${metrics.pendingTotal}`);
 
     // 3) SYNC & PERSIST SNAPSHOTS
     let wallet = await Wallet.findOne({ userId: supplierId });
     if (!wallet) {
+      console.log(`[WALET LOG] Initializing Wallet for Vendor: ${supplierId}`);
       wallet = new Wallet({ 
         userId: supplierId, 
         balance: dynamicBalance, 
@@ -96,6 +150,7 @@ export async function GET(req) {
     } else {
       let isChanged = false;
       if (wallet.balance !== dynamicBalance) {
+        console.log(`[WALET LOG] Repairing Balance: ${wallet.balance} -> ${dynamicBalance}`);
         wallet.balance = dynamicBalance;
         isChanged = true;
       }
@@ -107,7 +162,10 @@ export async function GET(req) {
         wallet.escrowedPoints = metrics.pendingTotal;
         isChanged = true;
       }
-      if (isChanged) await wallet.save();
+      if (isChanged) {
+        console.log(`[WALET LOG] Persisting Financial Snapshot Refreshed.`);
+        await wallet.save();
+      }
     }
     // 4) 30-DAY ANALYTICS (Inflow vs Outflow)
     const thirtyDaysAgo = new Date();

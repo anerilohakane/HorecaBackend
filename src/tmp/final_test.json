@@ -1,0 +1,18 @@
+{
+  "userId": "692fd870378ae4b3c183adb7",
+  "items": [
+    {
+      "product": "69c0cede0e594fdd778489f4",
+      "quantity": 1,
+      "unitPrice": 150,
+      "name": "Paneer - TESTER"
+    }
+  ],
+  "paymentMethod": "cod",
+  "shippingAddress": {
+    "fullName": "FINAL TESTER",
+    "addressLine1": "STREET 1",
+    "city": "TESTVILLE",
+    "pincode": "110001"
+  }
+}

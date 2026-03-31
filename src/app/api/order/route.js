@@ -432,57 +432,72 @@ export async function POST(request) {
       },
     };
 
-    // 9.5) 🔥 AUTO-SETTLEMENT: If created as 'delivered', credit wallet immediately
+    // 9.5) 🔥 MARKETPLACE AUTO-SETTLEMENT: Settle for ALL unique suppliers in items
     const isNowDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
     const isPaidAtCreation = (orderDoc.payment?.status || "").toLowerCase() === "paid";
-    let settlementInfo = { processed: false, reason: "Order not Delivered+Paid at creation" };
+    
+    console.log(`[ORDER LOG] Flow: Auto-Settlement Check | Del: ${isNowDelivered} | Paid: ${isPaidAtCreation}`);
 
-    if (orderDoc.supplier) {
-      try {
-        const Wallet = (await import("@/lib/db/models/wallet")).default;
-        const Transaction = (await import("@/lib/db/models/transaction")).default;
+    try {
+      const Wallet = (await import("@/lib/db/models/wallet")).default;
+      const Transaction = (await import("@/lib/db/models/transaction")).default;
+
+      // 🟢 IDENTIFY UNIQUE SUPPLIERS
+      const suppliers = new Set();
+      if (orderDoc.supplier) suppliers.add(orderDoc.supplier.toString());
+      (orderDoc.items || []).forEach(item => {
+         if (item.supplier) suppliers.add(item.supplier.toString());
+      });
+      console.log(`[ORDER LOG] Marketplace Detected Suppliers: ${[...suppliers].join(', ')}`);
+
+      for (const sId of suppliers) {
+        const supplierId = new mongoose.Types.ObjectId(sId);
         
-        let supplierId = orderDoc.supplier;
-        if (typeof supplierId === 'string') supplierId = new mongoose.Types.ObjectId(supplierId);
-
         let wallet = await Wallet.findOne({ userId: supplierId });
         if (!wallet) {
           wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
         }
 
-        // 🟠 Settlement for 'Auto-Delivered + Paid' orders
-        if (isNowDelivered && isPaidAtCreation) {
+        // 1) Auto-Settle items if order is already Delivered + Paid
+        const supplierTotal = (orderDoc.items || [])
+          .filter(item => item.supplier?.toString() === sId)
+          .reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+
+        if (isNowDelivered && isPaidAtCreation && supplierTotal > 0) {
+          console.log(`[ORDER LOG] Triggering AUTO-SETTLEMENT for Vendor: ${sId} | Amount: ₹${supplierTotal}`);
           const settlementTx = new Transaction({
             userId: supplierId,
             walletId: wallet._id,
-            amount: (orderDoc.total || 0),
+            amount: supplierTotal,
             type: "order_settlement", 
             method: "wallet",
             status: "completed",
-            description: `Settlement for Order: ${orderDoc.orderNumber} (Auto-Delivered)`,
+            description: `Auto-Settlement for Order Items: ${orderDoc.orderNumber}`,
             metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber }
           });
           await settlementTx.save();
-          console.log(`[Auto-Settlement] Credited ₹${orderDoc.total} to ledger for supplier ${supplierId}`);
         }
 
-        // 🟢 SYNC SNAPSHOT: Ensure Wallet document is correct from Day 1
+        // 2) Force Sync Snapshot for EVERY involved supplier (Marketplace Aware)
         const summary = await Order.aggregate([
-          { $match: { supplier: supplierId } },
+          { $match: { 
+               $or: [
+                 { supplier: supplierId },
+                 { "items.supplier": supplierId }
+               ]
+          } },
+          { $unwind: "$items" },
           {
              $group: {
                _id: null,
-               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } },
-               escrowed: { $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } }
+               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
+               escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
              }
           }
         ]);
 
         const snap = summary[0] || { realized: 0, escrowed: 0 };
-        wallet.realizedSavings = snap.realized;
-        wallet.escrowedPoints = snap.escrowed;
         
-        // Ledger-based balance sync
         const ledgerTruth = await Transaction.aggregate([
           { $match: { userId: supplierId, status: 'completed' } },
           {
@@ -494,12 +509,13 @@ export async function POST(request) {
         ]);
 
         wallet.balance = ledgerTruth[0]?.balance || 0;
+        wallet.realizedSavings = snap.realized;
+        wallet.escrowedPoints = snap.escrowed;
         await wallet.save();
-        settlementInfo = { processed: true, amount: orderDoc.total, newBalance: wallet.balance };
-      } catch (e) {
-        console.error("[Auto-Settlement Error]:", e);
-        settlementInfo = { processed: false, reason: e.message };
+        console.log(`[ORDER LOG] COMPLETED Sync for Vendor ${sId} | Balance: ₹${wallet.balance} | Escrow: ₹${wallet.escrowedPoints}`);
       }
+    } catch (e) {
+      console.error("[ORDER LOG] Marketplace Settlement Error:", e);
     }
 
     // 10) Save
@@ -1248,6 +1264,8 @@ export async function PATCH(request) {
 
     const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
     const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
+    
+    console.log(`[PATCH SETTLEMENT] Flow: Update Trigger | Del: ${isDelivered} | Paid: ${isPaid}`);
 
     if (isDelivered && isPaid) {
       try {
@@ -1260,6 +1278,7 @@ export async function PATCH(request) {
         (finalState.items || []).forEach(item => {
            if (item.supplier) suppliers.add(item.supplier.toString());
         });
+        console.log(`[PATCH SETTLEMENT] Marketplace Suppliers in Order: ${[...suppliers].join(', ')}`);
 
         for (const sId of suppliers) {
           const supplierId = new mongoose.Types.ObjectId(sId);
@@ -1282,6 +1301,7 @@ export async function PATCH(request) {
             });
 
             if (!existingTx) {
+              console.log(`[PATCH SETTLEMENT] AWARDING ₹${supplierTotal} to Vendor ${sId}`);
               const settlementTx = new Transaction({
                 userId: supplierId,
                 walletId: wallet._id,
@@ -1293,11 +1313,12 @@ export async function PATCH(request) {
                 metadata: { orderId: finalState._id, orderNumber: finalState.orderNumber }
               });
               await settlementTx.save();
-              console.log(`[Marketplace] Credited ₹${supplierTotal} to Supplier ${sId}`);
+            } else {
+              console.log(`[PATCH SETTLEMENT] Vendor ${sId} already credited. Skipping.`);
             }
           }
 
-          // 2) Force Live Sync for this supplier
+          // 2) Force Live Sync for this supplier (Marketplace Aware)
           const metrics = await Order.aggregate([
             { $match: { 
                  $or: [
@@ -1305,11 +1326,12 @@ export async function PATCH(request) {
                    { "items.supplier": supplierId }
                  ]
             } },
+            { $unwind: "$items" },
             {
                $group: {
                  _id: null,
-                 realized: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } },
-                 escrowed: { $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } }
+                 realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
+                 escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
                }
             }
           ]);
@@ -1338,9 +1360,10 @@ export async function PATCH(request) {
           wallet.realizedSavings = snap.realized;
           wallet.escrowedPoints = snap.escrowed;
           await wallet.save();
+          console.log(`[PATCH SETTLEMENT] SYNC COMPLETE for Vendor ${sId} | Balance: ₹${wallet.balance} | Escrow: ₹${wallet.escrowedPoints}`);
         }
       } catch (e) {
-        console.error("[Marketplace Settlement Failure]:", e);
+        console.error("[PATCH SETTLEMENT] Marketplace Loop Failure:", e);
       }
     }
 
