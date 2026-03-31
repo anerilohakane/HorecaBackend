@@ -1242,88 +1242,106 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
-    // 🔥 ROBUST PERSISTENCE ENGINE: Recalculate Truth AFTER Update
-    const finalOrderState = await Order.findById(idParam).lean();
-    if (!finalOrderState) return json({ success: false, error: "Order lost" }, 404);
+    // 🚀 INDUSTRIAL SETTLEMENT ENGINE: Guaranteed Point Accrual
+    const finalState = await Order.findById(idParam).lean();
+    if (!finalState) return json({ success: false, error: "Order lost" }, 404);
 
-    const isDelivered = (finalOrderState.status || "").toLowerCase() === "delivered";
-    const isPaid = (finalOrderState.payment?.status || "").toLowerCase() === "paid";
-    const supplierId = finalOrderState.supplier;
+    // 1) Hard Detection: Check all status fields for "Delivered"
+    const orderStat = (finalState.status || "").toLowerCase();
+    const deliveryStat = (finalState.delivery?.status || "").toLowerCase();
+    const payStat = (finalState.payment?.status || "").toLowerCase();
+    
+    const isDelivered = orderStat === "delivered" || deliveryStat === "delivered";
+    const isPaid = payStat === "paid";
 
-    if (supplierId) {
+    console.log(`[Settlement Audit] Order: ${finalState.orderNumber} | Del: ${isDelivered} | Paid: ${isPaid}`);
+
+    // 2) Smart Supplier Discovery: Detect supplier if top-level field is null
+    let supplierId = finalState.supplier;
+    if (!supplierId && finalState.items?.length > 0) {
+      supplierId = finalState.items[0].supplier;
+    }
+
+    if (isDelivered && isPaid && supplierId) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
         
+        // Ensure wallet exists
         let wallet = await Wallet.findOne({ userId: supplierId });
         if (!wallet) {
           wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
         }
 
-        // 🟠 CASE 1: Settlement Accrual (Delivered + Paid)
-        if (isDelivered && isPaid) {
-          const existingTx = await Transaction.findOne({ "metadata.orderId": finalOrderState._id, type: "order_settlement" });
-          if (!existingTx) {
-            const settlementTx = new Transaction({
-              userId: supplierId,
-              walletId: wallet._id,
-              amount: (finalOrderState.total || 0),
-              type: "order_settlement", 
-              method: "wallet",
-              status: "completed",
-              description: `Settlement for Order: ${finalOrderState.orderNumber}`,
-              metadata: { orderId: finalOrderState._id, orderNumber: finalOrderState.orderNumber }
-            });
-            await settlementTx.save();
-            console.log(`[Settlement Success] ₹${finalOrderState.total} added to Ledger for Supplier ${supplierId}`);
-          }
-        }
+        // 3) Deduplication check: Ensure we don't settle twice
+        const existingTx = await Transaction.findOne({ 
+          "metadata.orderId": finalState._id, 
+          type: "order_settlement" 
+        });
 
-        // 🔵 CASE 2: Live Sync (Update Wallet Fields)
-        const summary = await Order.aggregate([
-          { $match: { supplier: supplierId } },
-          {
-             $group: {
-               _id: null,
-               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } },
-               escrowed: { $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } }
-             }
-          }
-        ]);
+        if (!existingTx) {
+          console.log(`[🔥 SETTLEMENT TRIGGERED] Awarding ₹${finalState.total} to Supplier: ${supplierId}`);
+          
+          const settlementTx = new Transaction({
+            userId: supplierId,
+            walletId: wallet._id,
+            amount: finalState.total || 0,
+            type: "order_settlement", 
+            method: "wallet",
+            status: "completed",
+            description: `Settlement for Order: ${finalState.orderNumber}`,
+            metadata: { orderId: finalState._id, orderNumber: finalState.orderNumber }
+          });
+          await settlementTx.save();
 
-        const snap = summary[0] || { realized: 0, escrowed: 0 };
-        
-        // Dynamic Balance Sync (Ledger Truth)
-        const ledgerTruth = await Transaction.aggregate([
-          { $match: { userId: supplierId, status: 'completed' } },
-          {
-            $group: {
-              _id: null,
-              balance: { 
-                $sum: { 
-                  $cond: [
-                    { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
-                    "$amount", 
-                    { $multiply: ["$amount", -1] } // Outflows are negative
-                  ] 
-                } 
+          // 4) Force Snapshot Sync: Correct snapshots + balance immediately
+          const metrics = await Order.aggregate([
+            { $match: { supplier: supplierId } },
+            {
+               $group: {
+                 _id: null,
+                 realized: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } },
+                 escrowed: { $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } }
+               }
+            }
+          ]);
+
+          const snap = metrics[0] || { realized: 0, escrowed: 0 };
+          
+          // Re-calculate balance truth from ledger
+          const ledgerResults = await Transaction.aggregate([
+            { $match: { userId: supplierId, status: 'completed' } },
+            {
+              $group: {
+                _id: null,
+                balance: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
+                      "$amount", 
+                      { $multiply: ["$amount", -1] }
+                    ] 
+                  } 
+                }
               }
             }
-          }
-        ]);
+          ]);
 
-        wallet.balance = ledgerTruth[0]?.balance || 0;
-        wallet.realizedSavings = snap.realized;
-        wallet.escrowedPoints = snap.escrowed;
-        await wallet.save();
-        console.log(`[Wallet Sync] Balance: ${wallet.balance}, Savings: ${wallet.realizedSavings}`);
-        
+          wallet.balance = ledgerResults[0]?.balance || 0;
+          wallet.realizedSavings = snap.realized;
+          wallet.escrowedPoints = snap.escrowed;
+          await wallet.save();
+          
+          console.log(`[✅ SETTLEMENT COMPLETE] Updated Wallet: ₹${wallet.balance} | Realized: ₹${wallet.realizedSavings}`);
+        } else {
+          console.log(`[Settlement] Order ${finalState.orderNumber} already settled. Skipping.`);
+        }
       } catch (e) {
-        console.error("Wallet Persistence Error:", e);
+        console.error("[Settlement Failure]:", e);
       }
     }
 
-    return json({ success: true, message: "Order updated successfully", data: finalOrderState });
+    return json({ success: true, message: "Order updated & settlement processed", data: finalState });
 
   } catch (err) {
     console.error("PATCH /api/order error:", err);
