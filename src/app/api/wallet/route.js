@@ -109,6 +109,28 @@ export async function GET(req) {
       }
       if (isChanged) await wallet.save();
     }
+    // 4) 30-DAY ANALYTICS (Inflow vs Outflow)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const stats30 = await Transaction.aggregate([
+      { 
+        $match: { 
+          userId: supplierId,
+          status: 'completed',
+          createdAt: { $gte: thirtyDaysAgo }
+        } 
+      },
+      {
+        $group: {
+          _id: null,
+          in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, "$amount", 0] } },
+          out: { $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, "$amount", 0] } }
+        }
+      }
+    ]);
+
+    const flow30 = stats30[0] || { in: 0, out: 0 };
 
     return NextResponse.json({
       success: true,
