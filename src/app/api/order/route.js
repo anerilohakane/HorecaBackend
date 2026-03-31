@@ -550,7 +550,7 @@ export async function POST(request) {
     return json({ 
       success: true, 
       order: orderDoc,
-      _settlement: settlementInfo // Add settlement result info
+      message: "Marketplace order placed & escrow synchronized"
     }, 201);
   } catch (err) {
     console.error("POST /api/order error:", err);
