@@ -118,13 +118,129 @@ export async function GET(req) {
         status: wallet.status || "active",
         recentTransactions: transactions,
         metrics: {
-          deliveredAmount: wallet.realizedSavings, // REALIZED SAVINGS PERSISTED
-          pendingAmount: wallet.escrowedPoints      // ESCROWED POINTS PERSISTED
+          deliveredAmount: wallet.realizedSavings, 
+          pendingAmount: wallet.escrowedPoints      
+        },
+        stats: {
+          inflow: flow30.in,
+          outflow: flow30.out,
+          netProfit: flow30.in - flow30.out,
+          period: "Last 30 Days"
         }
       }
     });
   } catch (err) {
     console.error("GET /api/wallet error:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
+// 🟢 POST /api/wallet: Request a Withdrawal
+export async function POST(req) {
+  try {
+    await dbConnect();
+    const body = await req.json();
+    const { userId, amount, bankDetails } = body;
+
+    if (!userId || !amount || amount <= 0) {
+      return NextResponse.json({ success: false, error: "userId and positive amount are required" }, { status: 400 });
+    }
+
+    const supplierId = new mongoose.Types.ObjectId(userId);
+    let wallet = await Wallet.findOne({ userId: supplierId });
+
+    if (!wallet || wallet.balance < amount) {
+      return NextResponse.json({ success: false, error: "Insufficient balance for withdrawal" }, { status: 400 });
+    }
+
+    // 1. Record Withdrawal (Pending)
+    const withdrawalTx = new Transaction({
+      userId: supplierId,
+      walletId: wallet._id,
+      amount: amount,
+      type: 'withdrawal',
+      method: 'bank_transfer',
+      status: 'pending',
+      description: `Withdrawal request for ₹${amount}`,
+      metadata: { 
+        bankDetails,
+        requestedAt: new Date().toISOString()
+      }
+    });
+    await withdrawalTx.save();
+
+    // 2. Lock the funds (Deduct from balance)
+    wallet.balance -= amount;
+    await wallet.save();
+
+    return NextResponse.json({
+      success: true,
+      message: "Withdrawal request submitted for processing",
+      data: withdrawalTx
+    });
+
+  } catch (err) {
+    console.error("POST /api/wallet withdrawal error:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
+// 🟠 PATCH /api/wallet: Admin/System manual updates
+export async function PATCH(req) {
+// ... rest of previous patch code ...
+  try {
+    await dbConnect();
+    const body = await req.json();
+    const { userId, amount, type, status, description } = body;
+
+    if (!userId) {
+      return NextResponse.json({ success: false, error: "userId is required" }, { status: 400 });
+    }
+
+    const supplierId = new mongoose.Types.ObjectId(userId);
+    let wallet = await Wallet.findOne({ userId: supplierId });
+
+    if (!wallet) {
+      wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
+    }
+
+    // --- CASE 1: Status/Setting Updates ---
+    if (status) {
+      wallet.status = status;
+    }
+
+    // --- CASE 2: Manual Balance Adjustment (with Audit Trail) ---
+    if (amount && type) {
+      const adjustmentTx = new Transaction({
+        userId: supplierId,
+        walletId: wallet._id,
+        amount: Math.abs(amount),
+        type: type, // 'deposit', 'withdrawal', 'adjustment'
+        method: 'adjustment',
+        status: 'completed',
+        description: description || `Admin adjustment: ${type}`,
+        metadata: { adminNote: "Manual correction via API" }
+      });
+      await adjustmentTx.save();
+      
+      // Update balance field directly as well for fast access
+      if (['deposit', 'transfer', 'adjustment', 'order_settlement'].includes(type)) {
+        wallet.balance += Math.abs(amount);
+      } else {
+        wallet.balance -= Math.abs(amount);
+      }
+    }
+
+    await wallet.save();
+
+    return NextResponse.json({
+      success: true,
+      message: "Wallet updated successfully",
+      data: wallet
+    });
+
+  } catch (err) {
+    console.error("PATCH /api/wallet error:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

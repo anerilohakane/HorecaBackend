@@ -433,44 +433,71 @@ export async function POST(request) {
     };
 
     // 9.5) 🔥 AUTO-SETTLEMENT: If created as 'delivered', credit wallet immediately
-    const isDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
-    let settlementInfo = { processed: false, reason: "Order not delivered at creation" };
+    const isNowDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
+    const isPaidAtCreation = (orderDoc.payment?.status || "").toLowerCase() === "paid";
+    let settlementInfo = { processed: false, reason: "Order not Delivered+Paid at creation" };
 
-    if (isDelivered && orderDoc.supplier) {
+    if (orderDoc.supplier) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
         
-        // Strict casting
         let supplierId = orderDoc.supplier;
-        if (typeof supplierId === 'string') {
-          supplierId = new mongoose.Types.ObjectId(supplierId);
-        }
+        if (typeof supplierId === 'string') supplierId = new mongoose.Types.ObjectId(supplierId);
 
         let wallet = await Wallet.findOne({ userId: supplierId });
         if (!wallet) {
           wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
         }
-        
-        const creditAmt = orderDoc.total || 0;
-        wallet.balance += creditAmt;
-        await wallet.save();
 
-        const tx = new Transaction({
-          userId: supplierId,
-          walletId: wallet._id,
-          amount: creditAmt,
-          type: 'deposit',
-          method: 'order_settlement',
-          status: 'completed',
-          description: `Settlement for Order: ${orderDoc.orderNumber} (Auto-Delivered)`,
-          metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber }
-        });
-        await tx.save();
-        settlementInfo = { processed: true, amount: creditAmt, walletId: wallet._id };
-        console.log(`[Auto-Settlement] Credited ₹${creditAmt} to supplier ${supplierId} for delivered order creation.`);
+        // 🟠 Settlement for 'Auto-Delivered + Paid' orders
+        if (isNowDelivered && isPaidAtCreation) {
+          const settlementTx = new Transaction({
+            userId: supplierId,
+            walletId: wallet._id,
+            amount: (orderDoc.total || 0),
+            type: "order_settlement", 
+            method: "wallet",
+            status: "completed",
+            description: `Settlement for Order: ${orderDoc.orderNumber} (Auto-Delivered)`,
+            metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber }
+          });
+          await settlementTx.save();
+          console.log(`[Auto-Settlement] Credited ₹${orderDoc.total} to ledger for supplier ${supplierId}`);
+        }
+
+        // 🟢 SYNC SNAPSHOT: Ensure Wallet document is correct from Day 1
+        const summary = await Order.aggregate([
+          { $match: { supplier: supplierId } },
+          {
+             $group: {
+               _id: null,
+               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$total", 0] } },
+               escrowed: { $sum: { $cond: [{ $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }, "$total", 0] } }
+             }
+          }
+        ]);
+
+        const snap = summary[0] || { realized: 0, escrowed: 0 };
+        wallet.realizedSavings = snap.realized;
+        wallet.escrowedPoints = snap.escrowed;
+        
+        // Ledger-based balance sync
+        const ledgerTruth = await Transaction.aggregate([
+          { $match: { userId: supplierId, status: 'completed' } },
+          {
+            $group: {
+              _id: null,
+              balance: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, "$amount", { $multiply: ["$amount", -1] }] } }
+            }
+          }
+        ]);
+
+        wallet.balance = ledgerTruth[0]?.balance || 0;
+        await wallet.save();
+        settlementInfo = { processed: true, amount: orderDoc.total, newBalance: wallet.balance };
       } catch (e) {
-        console.error("[Auto-Settlement Error] Failed to credit wallet at creation:", e);
+        console.error("[Auto-Settlement Error]:", e);
         settlementInfo = { processed: false, reason: e.message };
       }
     }
