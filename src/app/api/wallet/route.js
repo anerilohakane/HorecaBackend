@@ -44,6 +44,43 @@ export async function GET(req) {
     }, '_id').lean();
     const validOrderIds = allOrders.map(o => o._id);
 
+    // 🏆 [SELF-HEALING 3.0]: INDESTRUCTIBLE SETTLEMENT (Auto-Release Stuck Points)
+    // Scan for orders that are Delivered + Paid but missing a ledger transaction
+    const potentialSettlements = await Order.find({
+       $or: [ { supplier: supplierId }, { "items.supplier": supplierId } ],
+       status: "delivered",
+       "payment.status": "paid"
+    }).lean();
+
+    for (const order of potentialSettlements) {
+       // Isolate the specific supplier's portion
+       const supplierPortion = (order.items || [])
+          .filter(it => it.supplier?.toString() === userId)
+          .reduce((sum, it) => sum + (it.totalPrice || 0), 0);
+
+       if (supplierPortion > 0) {
+          const settlementTx = await Transaction.findOne({ 
+             userId: supplierId, 
+             "metadata.orderId": order._id,
+             type: "order_settlement" 
+          });
+
+          if (!settlementTx) {
+             console.log(`[FIREWALL RECOVERY] Releasing stuck ₹${supplierPortion} for Order ${order.orderNumber}`);
+             const newTx = new Transaction({
+                userId: supplierId,
+                amount: supplierPortion,
+                type: "order_settlement",
+                method: "wallet",
+                status: "completed",
+                description: `Auto-Recovered Settlement: ${order.orderNumber}`,
+                metadata: { orderId: order._id, orderNumber: order.orderNumber }
+             });
+             await newTx.save();
+          }
+       }
+    }
+
     const ledger = await Transaction.aggregate([
       { 
         $match: { 
@@ -84,9 +121,8 @@ export async function GET(req) {
       .limit(10);
 
     // 2) LIVE METRICS CALCULATION (Marketplace Aware)
-    console.log(`[WALET LOG] Calculating Marketplace Metrics for Supplier: ${supplierId}`);
-    
-    // We must precisely calculate the supplier's portion from only their items
+    // Realized Savings = Total Business Volume (Delivered)
+    // Escrowed Points = Promised Business Volume (Pending/Shipped)
     const orderMetrics = await Order.aggregate([
       { 
         $match: { 
@@ -106,8 +142,7 @@ export async function GET(req) {
                  { 
                    $and: [
                      { $eq: ["$items.supplier", supplierId] },
-                     { $eq: ["$status", "delivered"] },
-                     { $eq: ["$payment.status", "paid"] }
+                     { $eq: ["$status", "delivered"] }
                    ]
                  },
                  "$items.totalPrice", 
