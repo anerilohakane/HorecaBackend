@@ -304,34 +304,10 @@ export async function POST(request) {
       // no transactionId required, no paidAt at creation
     } else if (paymentMethod === "wallet") {
       // 🔹 Wallet/Points payment
-      const Wallet = (await import("@/lib/db/models/wallet")).default;
-      const Transaction = (await import("@/lib/db/models/transaction")).default;
-      
-      const wallet = await Wallet.findOne({ userId: user._id });
-      if (!wallet || wallet.balance < total) {
-        return json({ success: false, error: "Insufficient Unifoods Points in your wallet." }, 400);
-      }
-
-      // Deduct balance
-      wallet.balance -= total;
-      await wallet.save();
-
-      // Create transaction
-      const debitTx = new Transaction({
-        userId: user._id,
-        walletId: wallet._id,
-        amount: -total,
-        type: 'order_payment',
-        method: 'wallet',
-        status: 'completed',
-        description: `Order Payment: ${builtItems.map(i => i.name).join(', ').slice(0, 50)}...`,
-        metadata: { type: 'wallet_debit', timestamp: new Date().toISOString() }
-      });
-      await debitTx.save();
-
+      // DO NOT DEDUCT HERE. The 'Final Debit' at the end of the function handles it securely.
       paymentStatus = "paid";
       paidAt = new Date();
-      transactionId = debitTx._id.toString();
+      // transactionId will be set after debit is confirmed at the finish line
     } else {
       // 🔹 Online payment (UPI, card, netbanking, etc.)
       //  - transactionId is required
