@@ -1215,27 +1215,46 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
-    // 🔥 PERSISTENT SETTLEMENT ENGINE: Sync live snapshots with the Wallet model
-    const newStat = (setData.status || (body.delivery && body.delivery.status) || order.status || "").toLowerCase();
-    const payStat = (setData["payment.status"] || (body.payment && body.payment.status) || order.payment?.status || "").toLowerCase();
-    
-    const isNowDelivered = newStat === "delivered";
-    const isPaid = payStat === "paid";
-    const isSettlable = isNowDelivered && isPaid;
+    // 🔥 ROBUST PERSISTENCE ENGINE: Recalculate Truth AFTER Update
+    const finalOrderState = await Order.findById(idParam).lean();
+    if (!finalOrderState) return json({ success: false, error: "Order lost" }, 404);
 
-    if (order.supplier) {
+    const isDelivered = (finalOrderState.status || "").toLowerCase() === "delivered";
+    const isPaid = (finalOrderState.payment?.status || "").toLowerCase() === "paid";
+    const supplierId = finalOrderState.supplier;
+
+    if (supplierId) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
         const Transaction = (await import("@/lib/db/models/transaction")).default;
         
-        let wallet = await Wallet.findOne({ userId: order.supplier });
+        let wallet = await Wallet.findOne({ userId: supplierId });
         if (!wallet) {
-          wallet = new Wallet({ userId: order.supplier, balance: 0, userType: 'supplier' });
+          wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
         }
 
-        // 🟢 PERSIST: Real-time Snapshot Calculation
-        const metrics = await Order.aggregate([
-          { $match: { supplier: order.supplier } },
+        // 🟠 CASE 1: Settlement Accrual (Delivered + Paid)
+        if (isDelivered && isPaid) {
+          const existingTx = await Transaction.findOne({ "metadata.orderId": finalOrderState._id, type: "order_settlement" });
+          if (!existingTx) {
+            const settlementTx = new Transaction({
+              userId: supplierId,
+              walletId: wallet._id,
+              amount: (finalOrderState.total || 0),
+              type: "order_settlement", 
+              method: "wallet",
+              status: "completed",
+              description: `Settlement for Order: ${finalOrderState.orderNumber}`,
+              metadata: { orderId: finalOrderState._id, orderNumber: finalOrderState.orderNumber }
+            });
+            await settlementTx.save();
+            console.log(`[Settlement Success] ₹${finalOrderState.total} added to Ledger for Supplier ${supplierId}`);
+          }
+        }
+
+        // 🔵 CASE 2: Live Sync (Update Wallet Fields)
+        const summary = await Order.aggregate([
+          { $match: { supplier: supplierId } },
           {
              $group: {
                _id: null,
@@ -1245,37 +1264,39 @@ export async function PATCH(request) {
           }
         ]);
 
-        const snap = metrics[0] || { realized: 0, escrowed: 0 };
+        const snap = summary[0] || { realized: 0, escrowed: 0 };
+        
+        // Dynamic Balance Sync (Ledger Truth)
+        const ledgerTruth = await Transaction.aggregate([
+          { $match: { userId: supplierId, status: 'completed' } },
+          {
+            $group: {
+              _id: null,
+              balance: { 
+                $sum: { 
+                  $cond: [
+                    { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
+                    "$amount", 
+                    { $multiply: ["$amount", -1] } // Outflows are negative
+                  ] 
+                } 
+              }
+            }
+          }
+        ]);
+
+        wallet.balance = ledgerTruth[0]?.balance || 0;
         wallet.realizedSavings = snap.realized;
         wallet.escrowedPoints = snap.escrowed;
-
-        // 🟠 SETTLE: If just became 'Delivered + Paid', record the Ledger entry
-        if (isSettlable) {
-          const existingTx = await Transaction.findOne({ "metadata.orderId": order._id, type: "order_settlement" });
-          if (!existingTx) {
-            const settlementTx = new Transaction({
-              userId: order.supplier,
-              walletId: wallet._id,
-              amount: (order.total || 0),
-              type: "order_settlement", 
-              method: "wallet",
-              status: "completed",
-              description: `Settlement for Order: ${order.orderNumber}`,
-              metadata: { orderId: order._id, orderNumber: order.orderNumber }
-            });
-            await settlementTx.save();
-            // Ledger entry created; balance calculation will update on GET or we can sync it now
-            console.log(`[Persistence] Recorded ₹${order.total} for order ${order.orderNumber}`);
-          }
-        }
         await wallet.save();
+        console.log(`[Wallet Sync] Balance: ${wallet.balance}, Savings: ${wallet.realizedSavings}`);
+        
       } catch (e) {
-        console.error("Persistence sync failed silently:", e);
+        console.error("Wallet Persistence Error:", e);
       }
     }
 
-    const updated = await Order.findById(idParam).lean();
-    return json({ success: true, message: "Order successfully updated & synced", data: updated });
+    return json({ success: true, message: "Order updated successfully", data: finalOrderState });
 
   } catch (err) {
     console.error("PATCH /api/order error:", err);
