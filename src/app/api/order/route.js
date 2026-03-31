@@ -446,8 +446,8 @@ export async function POST(request) {
 
         // Create Debit Transaction (OUTFLOW)
         const debitTx = new Transaction({
-          userId: user._id,
-          walletId: buyerWallet._id,
+          userId: new mongoose.Types.ObjectId(user._id),
+          walletId: new mongoose.Types.ObjectId(buyerWallet._id),
           amount: total,
           type: "order_payment",
           method: "wallet",
@@ -1382,8 +1382,8 @@ export async function PATCH(request) {
                   $sum: { 
                     $cond: [
                       { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
-                      "$amount", 
-                      { $multiply: ["$amount", -1] } // Withdrawal and Order_Payment are negative
+                      { $abs: "$amount" }, 
+                      { $multiply: [{ $abs: "$amount" }, -1] } // Always subtract debits
                     ] 
                   } 
                 }
