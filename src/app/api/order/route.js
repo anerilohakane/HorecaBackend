@@ -432,56 +432,6 @@ export async function POST(request) {
       },
     };
 
-    // --- 9.4) 🔥 AUTOMATIC WALLET DEBIT: Deduct points if paying with wallet ---
-    const isWalletPay = (body.paymentMethod || "").toLowerCase() === "wallet";
-    if (isWalletPay) {
-      try {
-        // --- 🏆 JIT AUDIT: Recalculate Truth Balance Before Debit ---
-        const Transaction = (await import("@/lib/db/models/transaction")).default;
-        const ledger = await Transaction.aggregate([
-          { $match: { userId: new mongoose.Types.ObjectId(user._id), status: 'completed' } },
-          {
-            $group: {
-              _id: null,
-              in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, { $abs: "$amount" }, 0] } },
-              out: { $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, { $abs: "$amount" }, 0] } }
-            }
-          }
-        ]);
-        const truth = ledger[0] || { in: 0, out: 0 };
-        const realBalance = Math.max(0, truth.in - truth.out);
-
-        if (realBalance < total) {
-          throw new Error(`Insufficient wallet balance. Audited Truth: ₹${realBalance} | Order Total: ₹${total}`);
-        }
-
-        let buyerWallet = await Wallet.findOne({ userId: user._id });
-        if (!buyerWallet) {
-           buyerWallet = new Wallet({ userId: user._id, balance: realBalance, userType: 'supplier' });
-        }
-
-        // Create Debit Transaction (OUTFLOW)
-        const debitTx = new Transaction({
-          userId: new mongoose.Types.ObjectId(user._id),
-          walletId: new mongoose.Types.ObjectId(buyerWallet._id),
-          amount: total,
-          type: "order_payment",
-          method: "wallet",
-          status: "completed",
-          description: `Internal Procurement: ${orderDoc.orderNumber}`,
-          metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber, type: "wallet_debit" }
-        });
-        await debitTx.save();
-
-        // Update Balance Immediately to Synced Truth
-        buyerWallet.balance = (realBalance - total);
-        await buyerWallet.save();
-        console.log(`[DEBIT LOG] Dynamic Audit Succesful for ${user._id} | New Balance: ₹${buyerWallet.balance}`);
-      } catch (e) {
-        console.error("[DEBIT FAILURE]:", e);
-        return json({ success: false, error: e.message || "Wallet debit failed" }, 400);
-      }
-    }
 
     // 9.5) 🔥 MARKETPLACE AUTO-SETTLEMENT: Settle for ALL unique suppliers in items
     const isNowDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
@@ -598,10 +548,65 @@ export async function POST(request) {
       req: request
     });
 
+    // --- 🏆 FINAL STEP: AUTOMATIC WALLET DEBIT (Secure Point Deduction) --- 🏆
+    // Only deduct points IF EVERYTHING above passed (Order saved, Stock checked)
+    const isWalletPay = (body.paymentMethod || "").toLowerCase() === "wallet";
+    if (isWalletPay) {
+      try {
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+
+        // JIT Audit: Recalculate Truth Balance from ledger
+        const ledger = await Transaction.aggregate([
+          { $match: { userId: new mongoose.Types.ObjectId(user._id), status: 'completed' } },
+          {
+            $group: {
+              _id: null,
+              in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, { $abs: "$amount" }, 0] } },
+              out: { $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, { $abs: "$amount" }, 0] } }
+            }
+          }
+        ]);
+        const truth = ledger[0] || { in: 0, out: 0 };
+        const realBalance = Math.max(0, truth.in - truth.out);
+
+        if (realBalance < total) {
+           throw new Error(`Insufficient wallet balance. Audited Truth: ₹${realBalance} | Total: ₹${total}`);
+        }
+
+        let buyerWallet = await Wallet.findOne({ userId: user._id });
+        if (!buyerWallet) {
+           buyerWallet = new Wallet({ userId: user._id, balance: realBalance, userType: 'supplier' });
+        }
+
+        // Create Debit Transaction
+        const debitTx = new Transaction({
+          userId: new mongoose.Types.ObjectId(user._id),
+          walletId: new mongoose.Types.ObjectId(buyerWallet._id),
+          amount: total,
+          type: "order_payment",
+          method: "wallet",
+          status: "completed",
+          description: `Internal Procurement: ${orderDoc.orderNumber}`,
+          metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber, type: "wallet_debit" }
+        });
+        await debitTx.save();
+
+        // Update Balance
+        buyerWallet.balance = (realBalance - total);
+        await buyerWallet.save();
+        console.log(`[FINANCE LOG] 🔒 Point Deduction Finalized for Buyer ${user._id} | New Balance: ₹${buyerWallet.balance}`);
+      } catch (e) {
+        console.error("[CRITICAL FINANCE ERROR]: Order placed but debit failed:", e);
+        // We throw here to fail the order if the debit cannot be secured
+        throw new Error(`Payment processing failed. ${e.message}`);
+      }
+    }
+
     return json({ 
       success: true, 
       order: orderDoc,
-      message: "Marketplace order placed & escrow synchronized"
+      message: "Marketplace order placed & points audited"
     }, 201);
   } catch (err) {
     console.error("POST /api/order error:", err);
