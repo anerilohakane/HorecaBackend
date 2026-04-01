@@ -717,57 +717,57 @@ export async function GET(request) {
     const limit = Math.min(100, Number(url.searchParams.get("limit") || 20));
     const skip = (page - 1) * limit;
 
-    const q = {};
-    if (userId) q.user = userId;
-    if (status) q.status = status;
-    if (supplierId) q.supplier = supplierId;
+    // RAW DATABASE QUERY: Bypassing Mongoose to handle variations in ObjectID storage
+    const collection = mongoose.connection.db.collection("orders");
+    const rawQ = {};
+    if (userId) rawQ.user = new mongoose.Types.ObjectId(userId);
+    if (status) rawQ.status = status;
+    if (supplierId) rawQ.supplier = new mongoose.Types.ObjectId(supplierId);
+    
     if (department) {
-      const matchDepts = [department];
-      if (mongoose.Types.ObjectId.isValid(department)) {
-         matchDepts.push(new mongoose.Types.ObjectId(department));
-      }
-      q.$or = [
-        { department: { $in: matchDepts } },
+      const oid = new mongoose.Types.ObjectId(department);
+      rawQ.$or = [
+        { department: department },
+        { department: oid },
         { "department.$oid": department }
       ];
     }
+    
     if (fromDepartment) {
-      const matchFroms = [fromDepartment];
-      if (mongoose.Types.ObjectId.isValid(fromDepartment)) {
-         matchFroms.push(new mongoose.Types.ObjectId(fromDepartment));
-      }
-      
-      const historyFilter = { 
-        $elemMatch: { 
+      const fromOid = new mongoose.Types.ObjectId(fromDepartment);
+      const historyMatch = {
+        $elemMatch: {
           $or: [
-            { from: { $in: matchFroms } },
+            { from: fromDepartment },
+            { from: fromOid },
             { "from.$oid": fromDepartment }
           ]
-        } 
+        }
       };
-
-      if (q.$or) {
-          // If we already have a $or from department, we must wrap everything in $and
-          const existingOr = q.$or;
-          delete q.$or;
-          q.$and = [
-            { $or: existingOr },
-            { departmentHistory: historyFilter }
-          ];
+      
+      if (rawQ.$or) {
+        rawQ.$and = [ { $or: rawQ.$or }, { departmentHistory: historyMatch } ];
+        delete rawQ.$or;
       } else {
-          q.departmentHistory = historyFilter;
+        rawQ.departmentHistory = historyMatch;
       }
     }
 
-    console.log("FINAL ORDER QUERY:", JSON.stringify(q, null, 2));
+    console.log("FINAL RAW QUERY:", JSON.stringify(rawQ, null, 2));
 
+    // Phase 1: Find matching IDs using raw query (bypassing Mongoose casting)
+    const matchingDocs = await collection
+      .find(rawQ, { projection: { _id: 1 } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
 
+    const ids = matchingDocs.map(d => d._id);
+    const total = await collection.countDocuments(rawQ);
 
-
-
-
-
-    let query = Order.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit);
+    // Phase 2: Fetch full documents through Mongoose using those IDs
+    let query = Order.find({ _id: { $in: ids } }).sort({ createdAt: -1 });
 
     query = safePopulateQuery(query, "user", "name email phone");
     query = safePopulateQuery(query, "supplier", "name");
@@ -776,12 +776,7 @@ export async function GET(request) {
     query = safePopulateQuery(query, "departmentHistory.from", "departmentName");
     query = safePopulateQuery(query, "departmentHistory.to", "departmentName");
 
-
-    const [orders, total] = await Promise.all([
-
-      query.lean(),
-      Order.countDocuments(q),
-    ]);
+    const orders = await query.lean();
 
     return json(
       {
@@ -791,6 +786,7 @@ export async function GET(request) {
       },
       200
     );
+
   } catch (err) {
     console.error("GET /api/order error:", err);
     return json({ success: false, error: err.message || "Server error" }, 500);
