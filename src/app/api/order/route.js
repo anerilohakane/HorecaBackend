@@ -109,19 +109,47 @@ function safePopulateQuery(query, path, select = "") {
       supplierId?, ...
    }
 ------------------------------------------------------------------ */
-// Map for normalizing department names to IDs
-const DEPT_MAP = {
-  'odt': 'odt', 'odt management': 'odt', 'operations & data team': 'odt',
-  'art': 'art', 'art reporting': 'art', 'analysis & reporting team': 'art',
-  'acc': 'acc', 'account': 'acc', 'accounts': 'acc', 'accounts & finance': 'acc',
-  'scm': 'scm', 'logistics': 'scm', 'supply chain management': 'scm'
-};
+import Department from "@/lib/db/models/Department";
 
-function normalizeDept(name) {
+async function normalizeDept(name) {
   if (!name) return 'others';
-  const n = name.toString().trim().toLowerCase();
-  return DEPT_MAP[n] || n;
+  
+  // Try to find the exact department in the DB
+  // We check for name, or if it already looks like a valid Mongo ID
+  try {
+    const isObjectId = mongoose.Types.ObjectId.isValid(name);
+    if (isObjectId) return name.toString();
+
+    // Standardize search (case-insensitive for name)
+    const normName = name.toString().trim().toUpperCase();
+    
+    // Look for ODT/ART abbreviations if names are longer, or match directly
+    const dept = await Department.findOne({ 
+      departmentName: { $regex: new RegExp(`^${normName}$`, 'i') } 
+    }).lean();
+
+    if (dept) return dept._id.toString();
+    
+    // Fallback logic for legacy strings if no match found
+    if (['odt', 'odt management'].includes(normName.toLowerCase())) {
+        const odt = await Department.findOne({ departmentName: 'ODT' }).lean();
+        if (odt) return odt._id.toString();
+    }
+    if (['art', 'art reporting'].includes(normName.toLowerCase())) {
+        const art = await Department.findOne({ departmentName: 'ART' }).lean();
+        if (art) return art._id.toString();
+    }
+    
+    return name.toLowerCase(); // Return original lowercase as ID if no DB match
+  } catch (e) {
+    return name.toString();
+  }
 }
+
+
+
+
+
 
 export async function POST(request) {
 
@@ -387,7 +415,8 @@ export async function POST(request) {
 
       notes,
       cancellationReason: "",
-      department: normalizeDept(body.department || "odt"),
+      department: await normalizeDept(body.department || "odt"),
+
 
 
       metadata: body.metadata || null,
@@ -660,8 +689,12 @@ export async function GET(request) {
       query = safePopulateQuery(query, "user", "name email phone");
       query = safePopulateQuery(query, "supplier", "name");
       query = safePopulateQuery(query, "items.product", "name price sku");
+      query = safePopulateQuery(query, "department", "departmentName");
+      query = safePopulateQuery(query, "departmentHistory.from", "departmentName");
+      query = safePopulateQuery(query, "departmentHistory.to", "departmentName");
 
       const order = await query.lean();
+
 
       if (!order) {
         return json({ success: false, error: "Order not found" }, 404);
@@ -694,8 +727,10 @@ export async function GET(request) {
     query = safePopulateQuery(query, "user", "name email phone");
     query = safePopulateQuery(query, "supplier", "name");
     query = safePopulateQuery(query, "items.product", "name price sku");
+    query = safePopulateQuery(query, "department", "departmentName");
 
     const [orders, total] = await Promise.all([
+
       query.lean(),
       Order.countDocuments(q),
     ]);
@@ -1220,8 +1255,9 @@ export async function PATCH(request) {
 
     // --- DEPARTMENT UPDATES ---
     if ("department" in body) {
-      const newDept = normalizeDept(body.department);
-      const oldDept = normalizeDept(order.department);
+      const newDept = await normalizeDept(body.department);
+      const oldDept = await normalizeDept(order.department);
+
 
 
       
@@ -1447,7 +1483,14 @@ export async function PATCH(request) {
       }
     }
 
-    return json({ success: true, message: "Multi-supplier settlement handled", data: finalState });
+    const finalStatePopulated = await Order.findById(idParam)
+      .populate("department", "departmentName")
+      .populate("departmentHistory.from", "departmentName")
+      .populate("departmentHistory.to", "departmentName")
+      .lean();
+
+    return json({ success: true, message: "Multi-supplier settlement handled", data: finalStatePopulated || finalState });
+
 
   } catch (err) {
     console.error("PATCH /api/order error:", err);

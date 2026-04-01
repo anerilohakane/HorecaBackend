@@ -37,13 +37,8 @@ const DELIVERY_STATUSES = [
   "cancelled",
 ];
 
-const ORDER_DEPARTMENTS = [
-  "odt",
-  "art",
-  "acc",
-  "scm",
-  "others",
-];
+
+
 
 
 /* ---------- Sub-schemas ---------- */
@@ -121,8 +116,9 @@ const B2BSchema = new Schema(
 /* Department transition history */
 const DepartmentHistorySchema = new Schema(
   {
-    from: { type: String },
-    to: { type: String },
+    from: { type: Schema.Types.Mixed, ref: "Department" },
+    to: { type: Schema.Types.Mixed, ref: "Department" },
+
 
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
@@ -178,7 +174,8 @@ const OrderSchema = new Schema(
 
     // lifecycle
     status: { type: String, enum: ORDER_STATUSES, default: "pending" },
-    department: { type: String, default: "odt" },
+    department: { type: Schema.Types.Mixed, ref: "Department" },
+
 
 
     departmentHistory: [DepartmentHistorySchema],
