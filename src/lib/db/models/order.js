@@ -37,6 +37,15 @@ const DELIVERY_STATUSES = [
   "cancelled",
 ];
 
+const ORDER_DEPARTMENTS = [
+  "odt",
+  "art",
+  "acc",
+  "scm",
+  "others",
+];
+
+
 /* ---------- Sub-schemas ---------- */
 
 /* Order item: snapshot of product at time of ordering */
@@ -109,6 +118,20 @@ const B2BSchema = new Schema(
   { _id: false }
 );
 
+/* Department transition history */
+const DepartmentHistorySchema = new Schema(
+  {
+    from: { type: String },
+    to: { type: String },
+
+    updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    updatedAt: { type: Date, default: Date.now },
+    notes: { type: String },
+  },
+  { _id: false }
+);
+
+
 /* ---------- Main Order schema ---------- */
 const OrderSchema = new Schema(
   {
@@ -155,7 +178,12 @@ const OrderSchema = new Schema(
 
     // lifecycle
     status: { type: String, enum: ORDER_STATUSES, default: "pending" },
+    department: { type: String, default: "odt" },
+
+
+    departmentHistory: [DepartmentHistorySchema],
     placedAt: { type: Date, default: Date.now },
+
 
     // embedded sub-docs
     invoice: { type: InvoiceSchema },

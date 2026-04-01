@@ -372,8 +372,10 @@ export async function POST(request) {
 
       notes,
       cancellationReason: "",
+      department: body.department || "ODT",
       metadata: body.metadata || null,
     });
+
 
     // 9) AUTO-INVOICE (using your InvoiceSchema)
     const now = new Date();
@@ -656,6 +658,7 @@ export async function GET(request) {
       url.searchParams.get("userId") || url.searchParams.get("user");
     const status = url.searchParams.get("status");
     const supplierId = url.searchParams.get("supplierId");
+    const department = url.searchParams.get("department");
 
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const limit = Math.min(100, Number(url.searchParams.get("limit") || 20));
@@ -665,6 +668,9 @@ export async function GET(request) {
     if (userId) q.user = userId;
     if (status) q.status = status;
     if (supplierId) q.supplier = supplierId;
+    if (department) q.department = department;
+
+
 
     let query = Order.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit);
 
@@ -1194,6 +1200,29 @@ export async function PATCH(request) {
       setData.status = body.status;
       setData["invoice.meta.orderStatus"] = body.status;
     }
+
+    // --- DEPARTMENT UPDATES ---
+    if ("department" in body) {
+      const newDept = body.department;
+      const oldDept = order.department;
+      
+      if (newDept !== oldDept) {
+        setData.department = newDept;
+        
+        // Push to departmentHistory
+        const historyEntry = {
+          from: oldDept,
+          to: newDept,
+          updatedBy: body.changedBy || body.userId || null, // Assuming one of these might be present
+          updatedAt: new Date(),
+          notes: body.departmentNotes || body.notes || ""
+        };
+        
+        if (!update.$push) update.$push = {};
+        update.$push.departmentHistory = historyEntry;
+      }
+    }
+
 
     // --- IMPORTANT PAYMENT SANITY CHECKS ---
     // Prevent clients from arbitrarily writing payment.status = 'refunded' or 'refund_pending'
