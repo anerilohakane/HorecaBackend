@@ -50,7 +50,7 @@ export async function GET(request, { params }) {
     }
 
     let query = Order.findById(id);
-    query = safePopulateQuery(query, "user", "name email phone");
+    query = safePopulateQuery(query, "user", "name email phone address city state pincode");
     query = safePopulateQuery(query, "supplier", "name");
     query = safePopulateQuery(query, "items.product", "name price sku");
 
