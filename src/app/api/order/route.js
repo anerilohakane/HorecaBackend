@@ -726,17 +726,41 @@ export async function GET(request) {
       if (mongoose.Types.ObjectId.isValid(department)) {
          matchDepts.push(new mongoose.Types.ObjectId(department));
       }
-      q.department = { $in: matchDepts };
+      q.$or = [
+        { department: { $in: matchDepts } },
+        { "department.$oid": department }
+      ];
     }
     if (fromDepartment) {
       const matchFroms = [fromDepartment];
       if (mongoose.Types.ObjectId.isValid(fromDepartment)) {
          matchFroms.push(new mongoose.Types.ObjectId(fromDepartment));
       }
-      q.departmentHistory = { 
-        $elemMatch: { from: { $in: matchFroms } } 
+      
+      const historyFilter = { 
+        $elemMatch: { 
+          $or: [
+            { from: { $in: matchFroms } },
+            { "from.$oid": fromDepartment }
+          ]
+        } 
       };
+
+      if (q.$or) {
+          // If we already have a $or from department, we must wrap everything in $and
+          const existingOr = q.$or;
+          delete q.$or;
+          q.$and = [
+            { $or: existingOr },
+            { departmentHistory: historyFilter }
+          ];
+      } else {
+          q.departmentHistory = historyFilter;
+      }
     }
+
+    console.log("FINAL ORDER QUERY:", JSON.stringify(q, null, 2));
+
 
 
 
