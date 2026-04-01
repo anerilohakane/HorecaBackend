@@ -109,7 +109,22 @@ function safePopulateQuery(query, path, select = "") {
       supplierId?, ...
    }
 ------------------------------------------------------------------ */
+// Map for normalizing department names to IDs
+const DEPT_MAP = {
+  'odt': 'odt', 'odt management': 'odt', 'operations & data team': 'odt',
+  'art': 'art', 'art reporting': 'art', 'analysis & reporting team': 'art',
+  'acc': 'acc', 'account': 'acc', 'accounts': 'acc', 'accounts & finance': 'acc',
+  'scm': 'scm', 'logistics': 'scm', 'supply chain management': 'scm'
+};
+
+function normalizeDept(name) {
+  if (!name) return 'others';
+  const n = name.toString().trim().toLowerCase();
+  return DEPT_MAP[n] || n;
+}
+
 export async function POST(request) {
+
   try {
     await dbConnect();
     const body = await request.json();
@@ -372,7 +387,8 @@ export async function POST(request) {
 
       notes,
       cancellationReason: "",
-      department: (body.department || "odt").toLowerCase(),
+      department: normalizeDept(body.department || "odt"),
+
 
       metadata: body.metadata || null,
     });
@@ -1204,8 +1220,9 @@ export async function PATCH(request) {
 
     // --- DEPARTMENT UPDATES ---
     if ("department" in body) {
-      const newDept = (body.department || "").toLowerCase();
-      const oldDept = (order.department || "").toLowerCase();
+      const newDept = normalizeDept(body.department);
+      const oldDept = normalizeDept(order.department);
+
 
       
       if (newDept !== oldDept) {
