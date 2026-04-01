@@ -372,7 +372,8 @@ export async function POST(request) {
 
       notes,
       cancellationReason: "",
-      department: body.department || "ODT",
+      department: (body.department || "odt").toLowerCase(),
+
       metadata: body.metadata || null,
     });
 
@@ -1203,8 +1204,9 @@ export async function PATCH(request) {
 
     // --- DEPARTMENT UPDATES ---
     if ("department" in body) {
-      const newDept = body.department;
-      const oldDept = order.department;
+      const newDept = (body.department || "").toLowerCase();
+      const oldDept = (order.department || "").toLowerCase();
+
       
       if (newDept !== oldDept) {
         setData.department = newDept;
