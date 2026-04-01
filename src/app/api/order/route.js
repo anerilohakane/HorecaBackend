@@ -710,6 +710,8 @@ export async function GET(request) {
     const status = url.searchParams.get("status");
     const supplierId = url.searchParams.get("supplierId");
     const department = url.searchParams.get("department");
+    const fromDepartment = url.searchParams.get("fromDepartment");
+
 
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const limit = Math.min(100, Number(url.searchParams.get("limit") || 20));
@@ -719,7 +721,25 @@ export async function GET(request) {
     if (userId) q.user = userId;
     if (status) q.status = status;
     if (supplierId) q.supplier = supplierId;
-    if (department) q.department = department;
+    if (department) {
+      const matchDepts = [department];
+      if (mongoose.Types.ObjectId.isValid(department)) {
+         matchDepts.push(new mongoose.Types.ObjectId(department));
+      }
+      q.department = { $in: matchDepts };
+    }
+    if (fromDepartment) {
+      const matchFroms = [fromDepartment];
+      if (mongoose.Types.ObjectId.isValid(fromDepartment)) {
+         matchFroms.push(new mongoose.Types.ObjectId(fromDepartment));
+      }
+      q.departmentHistory = { 
+        $elemMatch: { from: { $in: matchFroms } } 
+      };
+    }
+
+
+
 
 
 
@@ -729,6 +749,9 @@ export async function GET(request) {
     query = safePopulateQuery(query, "supplier", "name");
     query = safePopulateQuery(query, "items.product", "name price sku");
     query = safePopulateQuery(query, "department", "departmentName");
+    query = safePopulateQuery(query, "departmentHistory.from", "departmentName");
+    query = safePopulateQuery(query, "departmentHistory.to", "departmentName");
+
 
     const [orders, total] = await Promise.all([
 
