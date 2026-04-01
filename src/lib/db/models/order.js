@@ -116,8 +116,9 @@ const B2BSchema = new Schema(
 /* Department transition history */
 const DepartmentHistorySchema = new Schema(
   {
-    from: { type: Schema.Types.Mixed, ref: "Department" },
-    to: { type: Schema.Types.Mixed, ref: "Department" },
+    from: { type: Schema.Types.ObjectId, ref: "Department" },
+    to: { type: Schema.Types.ObjectId, ref: "Department" },
+
 
 
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
@@ -174,7 +175,8 @@ const OrderSchema = new Schema(
 
     // lifecycle
     status: { type: String, enum: ORDER_STATUSES, default: "pending" },
-    department: { type: Schema.Types.Mixed, ref: "Department" },
+    department: { type: Schema.Types.ObjectId, ref: "Department" },
+
 
 
 
