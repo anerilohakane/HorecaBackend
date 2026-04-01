@@ -114,11 +114,9 @@ import Department from "@/lib/db/models/Department";
 async function normalizeDept(name) {
   if (!name) return 'others';
   
-  // Try to find the exact department in the DB
-  // We check for name, or if it already looks like a valid Mongo ID
   try {
     const isObjectId = mongoose.Types.ObjectId.isValid(name);
-    if (isObjectId) return name.toString();
+    if (isObjectId) return new mongoose.Types.ObjectId(name);
 
     // Standardize search (case-insensitive for name)
     const normName = name.toString().trim().toUpperCase();
@@ -128,23 +126,26 @@ async function normalizeDept(name) {
       departmentName: { $regex: new RegExp(`^${normName}$`, 'i') } 
     }).lean();
 
-    if (dept) return dept._id.toString();
+    if (dept) return new mongoose.Types.ObjectId(dept._id);
     
     // Fallback logic for legacy strings if no match found
     if (['odt', 'odt management'].includes(normName.toLowerCase())) {
         const odt = await Department.findOne({ departmentName: 'ODT' }).lean();
-        if (odt) return odt._id.toString();
+        if (odt) return new mongoose.Types.ObjectId(odt._id);
     }
     if (['art', 'art reporting'].includes(normName.toLowerCase())) {
         const art = await Department.findOne({ departmentName: 'ART' }).lean();
-        if (art) return art._id.toString();
+        if (art) return new mongoose.Types.ObjectId(art._id);
     }
     
     return name.toLowerCase(); // Return original lowercase as ID if no DB match
   } catch (e) {
-    return name.toString();
+    const isObjectId = mongoose.Types.ObjectId.isValid(name);
+    return isObjectId ? new mongoose.Types.ObjectId(name) : name.toString();
   }
 }
+
+
 
 
 
@@ -1268,10 +1269,11 @@ export async function PATCH(request) {
         const historyEntry = {
           from: oldDept,
           to: newDept,
-          updatedBy: body.changedBy || body.userId || null, // Assuming one of these might be present
+          updatedBy: (body.changedBy || body.userId) ? new mongoose.Types.ObjectId(body.changedBy || body.userId) : null,
           updatedAt: new Date(),
           notes: body.departmentNotes || body.notes || ""
         };
+
         
         if (!update.$push) update.$push = {};
         update.$push.departmentHistory = historyEntry;
