@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Wishlist from "@/lib/db/models/wishlist";
 import Product from "@/lib/db/models/product";
+import { logger } from "@/lib/logger";
 // Optional: import getUserFromRequest to derive user from token
 // import { getUserFromRequest } from "@/lib/serverAuth";
 
@@ -65,6 +66,8 @@ export async function POST(request) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
+    await logger({ level: 'info', message: `Added to wishlist: ${productId}`, action: 'WISHLIST_ADD', userId, metadata: { productId, name: product.name }, req: request });
+
     return NextResponse.json({ success: true, data: res });
   } catch (err) {
     console.error("POST /api/wishlist error", err);
@@ -95,6 +98,8 @@ export async function DELETE(request) {
       { $pull: { items: { productId } } },
       { new: true }
     ).select("-__v");
+
+    await logger({ level: 'info', message: `Removed from wishlist: ${productId}`, action: 'WISHLIST_REMOVE', userId, metadata: { productId }, req: request });
 
     return NextResponse.json({ success: true, data: updated || { userId, items: [] } });
   } catch (err) {

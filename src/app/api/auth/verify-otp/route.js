@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import { logger } from "@/lib/logger";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -41,12 +42,14 @@ export async function POST(req) {
         console.log(`[AUTH] Found existing user: ${user._id} (${user.phone})`);
         user.lastLoginAt = new Date();
         await user.save();
+        await logger({ level: 'info', message: `User logged in: ${user.phone}`, action: 'USER_LOGIN', userId: user._id, metadata: { phone: user.phone }, req });
     } else {
         console.log(`[AUTH] Creating new user for: ${standardizedPhone}`);
         user = await Customer.create({
             phone: standardizedPhone,
             lastLoginAt: new Date()
         });
+        await logger({ level: 'info', message: `New user registered: ${user.phone}`, action: 'USER_REGISTERED', userId: user._id, metadata: { phone: user.phone }, req });
     }
 
     // 2️⃣ Create JWT

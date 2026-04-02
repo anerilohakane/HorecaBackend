@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Cart from "@/lib/db/models/cart";
 import Product from "@/lib/db/models/product";
+import { logger } from "@/lib/logger";
 
 export async function GET(req) {
   try {
@@ -141,10 +142,11 @@ export async function POST(request) {
       });
     }
 
-    // recalc subtotal
     cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
     cart.updatedAt = new Date();
     await cart.save();
+
+    await logger({ level: 'info', message: `Added to cart: ${productId} (qty: ${quantity})`, action: 'CART_ADD', userId, metadata: { productId, quantity, totalItems: cart.items.length }, req: request });
 
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
@@ -197,6 +199,9 @@ export async function PATCH(request) {
     cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
     cart.updatedAt = new Date();
     await cart.save();
+    
+    await logger({ level: 'info', message: `Updated cart item: ${productId}`, action: 'CART_UPDATE', userId, metadata: { productId, body }, req: request });
+
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
     console.error("PATCH /api/cart error", err);
@@ -237,6 +242,16 @@ export async function DELETE(request) {
 
     cart.updatedAt = new Date();
     await cart.save();
+
+    await logger({ 
+      level: 'info', 
+      message: productId ? `Removed from cart: ${productId}` : `Cleared cart`, 
+      action: productId ? 'CART_REMOVE' : 'CART_CLEAR', 
+      userId, 
+      metadata: { productId }, 
+      req: request 
+    });
+
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
     console.error("DELETE /api/cart error", err);

@@ -160,6 +160,9 @@ export async function GET(request) {
     const filter = {};
 
     if (q) {
+      // Log search activity
+      await logger({ level: 'info', message: `User searched for: ${q}`, action: 'PRODUCT_SEARCH', metadata: { query: q }, req: request });
+
       // Search in name OR description OR SKU (case-insensitive)
       filter.$or = [
         { name: { $regex: q, $options: "i" } },

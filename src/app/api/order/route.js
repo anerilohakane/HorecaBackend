@@ -569,7 +569,14 @@ export async function POST(request) {
       message: `Order created successfully: ${orderDoc._id}`,
       action: 'ORDER_CREATED',
       userId: user._id,
-      metadata: { orderId: orderDoc._id, subtotal, total },
+      metadata: { 
+        orderId: orderDoc._id, 
+        orderNumber: orderDoc.orderNumber,
+        subtotal, 
+        total,
+        status: orderDoc.status,
+        paymentMethod: body.paymentMethod || "COD" 
+      },
       req: request
     });
 
