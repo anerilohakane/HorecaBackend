@@ -281,7 +281,7 @@ export async function POST(request) {
       });
     }
 
-    if (stockErrors.length > 0) {
+    if (stockErrors.length > 0 && body.decrementStock !== false) {
       return json(
         { success: false, error: "Insufficient stock", details: stockErrors },
         409
