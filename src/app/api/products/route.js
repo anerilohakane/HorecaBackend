@@ -132,6 +132,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
+import { logger } from "@/lib/logger";
 
 /**
  * Helper: basic ObjectId shape check to avoid Mongoose cast errors early
@@ -323,6 +324,20 @@ export async function POST(request) {
       ...product.toObject(),
       category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
     };
+
+    await logger({
+      level: 'info',
+      message: `Product created: ${product.name}`,
+      action: 'PRODUCT_CREATED',
+      userId: body.userId || null,
+      metadata: {
+        productId: product._id,
+        sku: product.sku,
+        name: product.name,
+        categoryId: resolvedCategoryId
+      },
+      req: request
+    });
 
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (err) {

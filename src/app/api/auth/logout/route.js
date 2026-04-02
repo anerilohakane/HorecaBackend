@@ -75,6 +75,7 @@ import dbConnect from '@/lib/db/connect';
 import User from '@/lib/db/models/User';
 import Employee from '@/lib/db/models/payroll/Employee';
 import jwt from 'jsonwebtoken';
+import { logger } from '@/lib/logger';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -97,6 +98,7 @@ export async function POST(req) {
       decoded = jwt.verify(token, JWT_SECRET);
     } catch (error) {
       console.error('Invalid token:', error);
+      await logger({ level: 'warn', message: 'Logout failed: Invalid token', action: 'LOGOUT_FAILED', metadata: { error: error.message }, req });
       return NextResponse.json({ message: 'Invalid or expired session' }, { status: 401 });
     }
 
@@ -110,9 +112,13 @@ export async function POST(req) {
 
     const res = NextResponse.json({ message: 'Logged out successfully' });
     res.cookies.set('authToken', '', { maxAge: 0 }); // Clear cookie
+    
+    await logger({ level: 'info', message: 'User logged out', action: 'USER_LOGOUT', userId: id, metadata: { department, role }, req });
+    
     return res;
   } catch (error) {
     console.error('Logout error:', error);
+    await logger({ level: 'error', message: 'Error during logout', action: 'LOGOUT_ERROR', metadata: { error: error.message, stack: error.stack }, req });
     return NextResponse.json({ message: 'Server error: ' + error.message }, { status: 500 });
   }
 }

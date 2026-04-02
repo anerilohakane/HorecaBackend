@@ -1428,6 +1428,21 @@ export async function PATCH(request) {
     
     console.log(`[PATCH SETTLEMENT] Flow: Update Trigger | Del: ${isDelivered} | Paid: ${isPaid}`);
 
+    await logger({
+      level: 'info',
+      message: `Order updated successfully: ${finalState._id}`,
+      action: 'ORDER_UPDATED',
+      userId: body.userId || body.changedBy || null,
+      metadata: {
+        orderId: finalState._id,
+        orderNumber: finalState.orderNumber,
+        updates: setData,
+        newStatus: finalState.status,
+        newDepartment: finalState.department
+      },
+      req: request
+    });
+
     if (isDelivered && isPaid) {
       try {
         const Wallet = (await import("@/lib/db/models/wallet")).default;
