@@ -14,6 +14,7 @@ import Product from "@/lib/db/models/product";
 import Supplier from "@/lib/db/models/supplier";
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
+import Department from "@/lib/db/models/Department";
 import { logger } from "@/lib/logger";
 
 // (json helper assumed already in file)
@@ -109,7 +110,6 @@ function safePopulateQuery(query, path, select = "") {
       supplierId?, ...
    }
 ------------------------------------------------------------------ */
-import Department from "@/lib/db/models/Department";
 
 async function normalizeDept(name) {
   if (!name) return 'others';
@@ -725,7 +725,7 @@ export async function GET(request) {
     const skip = (page - 1) * limit;
 
     // RAW DATABASE QUERY: Bypassing Mongoose to handle variations in ObjectID storage
-    const collection = mongoose.connection.db.collection("orders");
+    const collection = Order.collection;
     const rawQ = {};
     if (userId) rawQ.user = new mongoose.Types.ObjectId(userId);
     if (status) rawQ.status = status;
@@ -796,7 +796,11 @@ export async function GET(request) {
 
   } catch (err) {
     console.error("GET /api/order error:", err);
-    return json({ success: false, error: err.message || "Server error" }, 500);
+    return json({ 
+        success: false, 
+        error: err.message || "Server error",
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+    }, 500);
   }
 }
 
