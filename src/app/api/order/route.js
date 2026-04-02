@@ -799,7 +799,7 @@ export async function GET(request) {
     return json({ 
         success: false, 
         error: err.message || "Server error",
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+        stack: err.stack // Always return stack for triage
     }, 500);
   }
 }
