@@ -6,6 +6,7 @@ import Order from "@/lib/db/models/order";
 // import Product from "@/lib/db/models/product"; // If needed to update avg rating
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
+import { logger } from "@/lib/logger";
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -108,6 +109,22 @@ export async function POST(request) {
       console.error("Error updating product rating stats:", updateError);
       // We don't fail the review creation if this fails, but it's important to log.
     }
+
+    await logger({
+      level: 'info',
+      message: `Product review created for: ${productId}`,
+      action: 'PRODUCT_REVIEW_CREATED',
+      userId: userId,
+      userModel: 'Customer',
+      metadata: {
+        reviewId: review._id,
+        productId: productId,
+        orderId: orderId,
+        rating,
+        commentHead: comment.substring(0, 50)
+      },
+      req: request
+    });
 
     return json({ success: true, review }, 201);
   } catch (error) {
