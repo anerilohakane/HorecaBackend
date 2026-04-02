@@ -89,6 +89,50 @@ function safePopulateQuery(query, path, select = "") {
   // safe to populate
   return query.populate(path, select);
 }
+
+/**
+ * Manual Population Helper:
+ * Handles cases where 'department' might be a string ("others") or an ObjectId.
+ * Prevents CastError in standard Mongoose population.
+ */
+async function manualPopulateDepartments(orders) {
+  if (!orders) return;
+  const docs = Array.isArray(orders) ? orders : [orders];
+  if (docs.length === 0) return;
+
+  const Department = (await import("@/lib/db/models/Department")).default;
+  
+  // 1. Collect all unique valid ObjectIds
+  const deptIds = new Set();
+  docs.forEach(o => {
+    if (mongoose.Types.ObjectId.isValid(o.department)) deptIds.add(o.department.toString());
+    (o.departmentHistory || []).forEach(h => {
+      if (mongoose.Types.ObjectId.isValid(h.from)) deptIds.add(h.from.toString());
+      if (mongoose.Types.ObjectId.isValid(h.to)) deptIds.add(h.to.toString());
+    });
+  });
+
+  if (deptIds.size === 0) return;
+
+  // 2. Fetch all unique departments in one query
+  const departments = await Department.find({ 
+    _id: { $in: Array.from(deptIds).map(id => new mongoose.Types.ObjectId(id)) } 
+  }).select("departmentName").lean();
+
+  const deptMap = {};
+  departments.forEach(d => { deptMap[d._id.toString()] = d; });
+
+  // 3. Map back to documents
+  docs.forEach(o => {
+    if (o.department && deptMap[o.department.toString()]) {
+      o.department = deptMap[o.department.toString()];
+    }
+    (o.departmentHistory || []).forEach(h => {
+      if (h.from && deptMap[h.from.toString()]) h.from = deptMap[h.from.toString()];
+      if (h.to && deptMap[h.to.toString()]) h.to = deptMap[h.to.toString()];
+    });
+  });
+}
 /* ------------------------------------------------------------------
    POST  -> PLACE ORDER
    Body formats supported:
@@ -697,11 +741,14 @@ export async function GET(request) {
       query = safePopulateQuery(query, "user", "name email phone");
       query = safePopulateQuery(query, "supplier", "name");
       query = safePopulateQuery(query, "items.product", "name price sku");
-      query = safePopulateQuery(query, "department", "departmentName");
-      query = safePopulateQuery(query, "departmentHistory.from", "departmentName");
-      query = safePopulateQuery(query, "departmentHistory.to", "departmentName");
+      // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
+      // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
+      // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
       const order = await query.lean();
+      
+      // Manual population for departments to avoid CastError with "others"
+      await manualPopulateDepartments(order);
 
 
       if (!order) {
@@ -779,11 +826,14 @@ export async function GET(request) {
     query = safePopulateQuery(query, "user", "name email phone");
     query = safePopulateQuery(query, "supplier", "name");
     query = safePopulateQuery(query, "items.product", "name price sku");
-    query = safePopulateQuery(query, "department", "departmentName");
-    query = safePopulateQuery(query, "departmentHistory.from", "departmentName");
-    query = safePopulateQuery(query, "departmentHistory.to", "departmentName");
+    // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
+    // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
+    // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
     const orders = await query.lean();
+    
+    // Manual population for departments to avoid CastError with "others"
+    await manualPopulateDepartments(orders);
 
     return json(
       {
@@ -799,7 +849,7 @@ export async function GET(request) {
     return json({ 
         success: false, 
         error: err.message || "Server error",
-        stack: err.stack // Always return stack for triage
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
     }, 500);
   }
 }
