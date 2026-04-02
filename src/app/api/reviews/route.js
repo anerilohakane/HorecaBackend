@@ -55,13 +55,13 @@ export async function POST(request) {
       );
     }
     
-    // Check if order is delivered (Optional policy: can only review delivered items)
-    if (order.status !== 'delivered' && order.status !== 'completed') {
-        // You might want to allow it, but typically only delivered items are reviewed. 
-        // For now, I'll allow it but warn or strict it if requested. 
-        // Let's strict it to 'delivered' to be safe, or at least 'shipped'.
-        // Assuming 'delivered' is the standard for reviews.
-        // if (order.status !== 'delivered') return json({ success: false, error: "Order must be delivered to leave a review"}, 400);
+    // 2.5 Strict Policy: Only allow reviews for delivered/completed orders
+    const validStatuses = ['delivered', 'completed', 'return_requested'];
+    if (!validStatuses.includes(order.status?.toLowerCase())) {
+        return json({ 
+            success: false, 
+            error: `Order must be delivered before you can leave a review. Current status: ${order.status}` 
+        }, 400);
     }
 
     // Normalize images (handle array of strings or array of objects with url property)
