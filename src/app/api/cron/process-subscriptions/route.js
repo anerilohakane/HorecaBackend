@@ -6,6 +6,7 @@ import Order from '@/lib/db/models/order';
 import Product from '@/lib/db/models/product';
 import Customer from '@/lib/db/models/customer';
 import Notification from '@/lib/db/models/notification';
+import { logger } from '@/lib/logger';
 
 // Mark as dynamic to avoid static generation
 export const dynamic = 'force-dynamic';
@@ -145,6 +146,15 @@ export async function GET(req) {
                              console.error(`[CRON] Failed to create notification:`, notifErr);
                          }
 
+                         await logger({
+                           level: 'warn',
+                           message: `Subscription paused: Out of stock (${sub._id})`,
+                           action: 'SUBSCRIPTION_PAUSED',
+                           userId: sub.user,
+                           userModel: 'Customer',
+                           metadata: { subscriptionId: sub._id, reason: 'stock_out', productId: sub.product._id }
+                         });
+
                          continue;
                     }
 
@@ -177,6 +187,15 @@ export async function GET(req) {
                                  }
                              });
                         } catch (notifErr) { console.error(notifErr); }
+
+                        await logger({
+                          level: 'warn',
+                          message: `Subscription paused: Price changed (${sub._id})`,
+                          action: 'SUBSCRIPTION_PAUSED',
+                          userId: sub.user,
+                          userModel: 'Customer',
+                          metadata: { subscriptionId: sub._id, reason: 'price_change', oldPrice: lockedPrice, newPrice: currentPrice }
+                        });
 
                         continue;
                     }
@@ -232,6 +251,22 @@ export async function GET(req) {
                         isAutoOrder: true, 
                         subscriptionIds: subs.map(s => s._id), // Store array of sub IDs
                         triggeredAt: now
+                    }
+                });
+
+                await logger({
+                    level: 'info',
+                    message: `Auto-order created: ${newOrder.orderNumber}`,
+                    action: 'ORDER_CREATED',
+                    userId: userId,
+                    userModel: 'Customer',
+                    metadata: {
+                        orderId: newOrder._id,
+                        orderNumber: newOrder.orderNumber,
+                        isAutoOrder: true,
+                        subscriptionIds: subs.map(s => s._id),
+                        status: newOrder.status,
+                        total: newOrder.total
                     }
                 });
 
@@ -310,6 +345,18 @@ export async function GET(req) {
                     sub.nextOrderDate = nextDate;
                     sub.lastOrderDate = now;
                     await sub.save();
+
+                    if (sub.status === 'Completed') {
+                        await logger({
+                            level: 'info',
+                            message: `Subscription completed: ${sub._id}`,
+                            action: 'SUBSCRIPTION_COMPLETED',
+                            userId: sub.user,
+                            userModel: 'Customer',
+                            metadata: { subscriptionId: sub._id }
+                        });
+                    }
+
                     results.processed++;
                 }
 
