@@ -15,6 +15,7 @@ export async function GET(request) {
     const userId = searchParams.get("userId");
     const action = searchParams.get("action");
     const level = searchParams.get("level");
+    const userModel = searchParams.get("userModel");
     const limit = parseInt(searchParams.get("limit") || "100");
     const page = parseInt(searchParams.get("page") || "1");
 
@@ -22,6 +23,7 @@ export async function GET(request) {
     if (userId) query.userId = userId;
     if (action) query.action = action;
     if (level) query.level = level;
+    if (userModel) query.userModel = userModel;
 
     const skip = (page - 1) * limit;
 

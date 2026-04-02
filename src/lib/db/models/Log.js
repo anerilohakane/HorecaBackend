@@ -39,8 +39,21 @@ const LogSchema = new mongoose.Schema({
     default: null
   }
 }, {
-  timestamps: true // this adds createdAt and updatedAt
+  timestamps: true, // this adds createdAt and updatedAt
+  autoIndex: true
 });
+
+// 🔥 INDEXING FOR HIGH PERFORMANCE & VOLUME MANAGEMENT
+// 1) Fast lookup by user (timeline)
+LogSchema.index({ userId: 1, createdAt: -1 });
+
+// 2) Fast lookup by action type
+LogSchema.index({ action: 1, createdAt: -1 });
+
+// 3) 🔥 DATA PURGE (TTL Index) - Automatically remove logs older than 90 days
+// to keep database size under control as requested by user.
+// 90 days = 60 * 60 * 24 * 90 = 7,776,000 seconds
+LogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7776000 });
 
 const Log = mongoose.models.Log || mongoose.model('Log', LogSchema);
 
