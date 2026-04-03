@@ -233,6 +233,50 @@ OrderSchema.pre("validate", function (next) {
 /* ---------- Exports ---------- */
 const Order = mongoose.models.Order || mongoose.model("Order", OrderSchema);
 
+// --- 🔔 AUTOMATIC NOTIFICATIONS HOOK ---
+// This hook ensures that every order status change triggers a notification to the user.
+OrderSchema.post("save", async function (doc) {
+  try {
+    const Notification = mongoose.models.Notification || (await import("./notification")).default;
+    
+    // Determine if we should notify
+    // Note: We use metadata or a custom flag if possible, but status change is reliable
+    const statusMap = {
+      pending: { title: "Order Placed", message: `Your order ${doc.orderNumber} has been placed successfully.` },
+      confirmed: { title: "Order Confirmed", message: `Great news! Your order ${doc.orderNumber} has been confirmed.` },
+      packed: { title: "Order Packed", message: `Your order ${doc.orderNumber} is packed and ready for dispatch.` },
+      shipped: { title: "Order Shipped", message: `Your order ${doc.orderNumber} is on its way!` },
+      out_for_delivery: { title: "Out for Delivery", message: `Your order ${doc.orderNumber} is out for delivery with our partner.` },
+      delivered: { title: "Order Delivered", message: `Your order ${doc.orderNumber} has been delivered. Enjoy!` },
+      cancelled: { title: "Order Cancelled", message: `Your order ${doc.orderNumber} has been cancelled.` },
+      returned: { title: "Return Received", message: `We have received your return for order ${doc.orderNumber}.` },
+    };
+
+    const alert = statusMap[doc.status];
+    if (alert) {
+      // Robust check for existing notification using dot-notation
+      const existing = await Notification.findOne({ 
+        user: doc.user, 
+        "metadata.orderId": doc._id, 
+        "metadata.status": doc.status 
+      });
+
+      if (!existing) {
+        await Notification.create({
+          user: doc.user,
+          title: alert.title,
+          message: alert.message,
+          type: doc.status === "cancelled" || doc.status === "failed" ? "error" : "success",
+          metadata: { orderId: doc._id, orderNumber: doc.orderNumber, status: doc.status }
+        });
+        console.log(`[NOTIFY] Status alert sent to User ${doc.user} for order ${doc.orderNumber}`);
+      }
+    }
+  } catch (err) {
+    console.error("[NOTIFY ERROR] Failed to send order notification:", err);
+  }
+});
+
 // Re-export ReturnRequest from its own file for backward compatibility
 import ReturnRequest from "./returnRequest";
 

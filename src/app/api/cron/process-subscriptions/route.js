@@ -294,6 +294,21 @@ export async function GET(req) {
                 console.log(`[CRON] Order ${newOrder.orderNumber} created for User ${userId}`);
                 results.ordersCreated++;
 
+                // Notify User of Successful Auto-Order
+                try {
+                     await Notification.create({
+                         user: userId,
+                         title: "Subscription Order Placed",
+                         message: `A new recurring order ${newOrder.orderNumber} has been placed automatically for your subscription items.`,
+                         type: "success",
+                         metadata: { 
+                             orderId: newOrder._id, 
+                             orderNumber: newOrder.orderNumber,
+                             isAutoOrder: true
+                         }
+                     });
+                } catch (notifErr) { console.error(`[CRON] Notification failed:`, notifErr); }
+
                 // --- STOCK UPDATE LOGIC ---
                 console.log(`[CRON] Decrementing stock for Order ${newOrder.orderNumber}`);
                 for (const item of items) {
