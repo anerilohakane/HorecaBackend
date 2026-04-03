@@ -114,8 +114,10 @@ export async function GET(req) {
                 
                 // Build Items Array & Total
                 const items = [];
-                let orderTotal = 0;
                 let subtotal = 0;
+                let totalShipping = 0;
+                let totalPlatform = 0;
+                let totalGst = 0;
 
                 for (const sub of subs) {
                     // --- TC-OM-014: Out of Stock Handling ---
@@ -210,13 +212,29 @@ export async function GET(req) {
                     const price = sub.product.price || 0;
                     const total = price * sub.quantity;
                     
+                    let subShipping = 0;
+                    let subPlatform = 0;
+                    let subGst = 0;
+
+                    if (sub.metadata) {
+                        subShipping = Number(sub.metadata.shippingCharges || 0);
+                        subPlatform = Number(sub.metadata.platformFee || 0);
+                        subGst = Number(sub.metadata.gstAmount || 0);
+                    }
+
+                    totalShipping += subShipping;
+                    totalPlatform += subPlatform;
+                    totalGst += subGst;
+
                     items.push({
                         product: sub.product._id,
                         name: sub.product.name,
                         quantity: sub.quantity,
                         unitPrice: price,
                         totalPrice: total,
-                        image: sub.product.images?.[0]?.url || sub.product.image
+                        image: sub.product.images?.[0]?.url || sub.product.image,
+                        sku: sub.product.sku,
+                        gst: subGst // Item level GST
                     });
 
                     subtotal += total;
@@ -229,8 +247,7 @@ export async function GET(req) {
                     continue; 
                 }
                 
-                // Add shipping/tax logic here if needed (skipping for simplicity)
-                orderTotal = subtotal;
+                const orderTotal = subtotal + totalShipping + totalPlatform + totalGst;
 
                 // Create Consolidated Order
                 const uniqueSuffix = Date.now().toString(36).toUpperCase();
@@ -240,16 +257,20 @@ export async function GET(req) {
                 const newOrder = await Order.create({
                     orderNumber,
                     user: userId,
+                    userModel: 'Customer',
                     items: items,
                     shippingAddress: shippingAddress,
                     subtotal: subtotal,
+                    shippingCharges: totalShipping,
+                    platformFee: totalPlatform,
+                    gstAmount: totalGst,
                     total: orderTotal,
                     status: 'pending',
                  
                     payment: { method: (lastOrder && lastOrder.payment && lastOrder.payment.method) || 'cash_on_delivery', status: 'pending' },
                     metadata: { 
                         isAutoOrder: true, 
-                        subscriptionIds: subs.map(s => s._id), // Store array of sub IDs
+                        subscriptionIds: subs.map(s => s._id),
                         triggeredAt: now
                     }
                 });
