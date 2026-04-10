@@ -7,6 +7,7 @@ import Category from "@/lib/db/models/category";
 import Subscription from "@/lib/db/models/subscription";
 import RestockRequest from "@/lib/db/models/RestockRequest";
 import Notification from "@/lib/db/models/notification";
+import { logger } from "@/lib/logger";
 
 /** Validate ObjectId */
 function isValidObjectIdString(id) {
@@ -144,6 +145,14 @@ export async function PUT(request, { params }) {
     // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
     await processRestockNotifications(updated);
 
+    await logger({
+      level: 'info',
+      message: `Product updated (PUT): ${updated.name}`,
+      action: 'PRODUCT_UPDATED',
+      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null },
+      req: request
+    });
+
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     console.error("PUT /api/products/[id] error:", err);
@@ -212,6 +221,14 @@ export async function PATCH(request, { params }) {
 
     // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
     await processRestockNotifications(updated);
+
+    await logger({
+      level: 'info',
+      message: `Product updated (PATCH): ${updated.name}`,
+      action: 'PRODUCT_UPDATED',
+      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null },
+      req: request
+    });
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {

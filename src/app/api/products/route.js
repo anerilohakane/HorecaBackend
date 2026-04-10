@@ -156,6 +156,7 @@ export async function GET(request) {
     const isActive = url.searchParams.get("isActive");
     const sort = url.searchParams.get("sort") || "-createdAt";
     const sku = url.searchParams.get("sku");
+    const locationId = url.searchParams.get("locationId");
 
     const filter = {};
 
@@ -204,6 +205,7 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
+    if (locationId) filter.locationId = locationId;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
@@ -337,7 +339,8 @@ export async function POST(request) {
         productId: product._id,
         sku: product.sku,
         name: product.name,
-        categoryId: resolvedCategoryId
+        categoryId: resolvedCategoryId,
+        locationId: product.locationId || null
       },
       req: request
     });
