@@ -340,7 +340,9 @@ export async function POST(request) {
         sku: product.sku,
         name: product.name,
         categoryId: resolvedCategoryId,
-        locationId: product.locationId || null
+        locationId: product.locationId || null,
+        locationName: product.locationName || null,
+        locationPath: product.locationPath || null
       },
       req: request
     });

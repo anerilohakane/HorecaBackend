@@ -149,7 +149,7 @@ export async function PUT(request, { params }) {
       level: 'info',
       message: `Product updated (PUT): ${updated.name}`,
       action: 'PRODUCT_UPDATED',
-      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null },
+      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null, locationName: updated.locationName || null, locationPath: updated.locationPath || null },
       req: request
     });
 
@@ -226,7 +226,7 @@ export async function PATCH(request, { params }) {
       level: 'info',
       message: `Product updated (PATCH): ${updated.name}`,
       action: 'PRODUCT_UPDATED',
-      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null },
+      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null, locationName: updated.locationName || null, locationPath: updated.locationPath || null },
       req: request
     });
 
