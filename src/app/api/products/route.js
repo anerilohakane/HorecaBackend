@@ -132,6 +132,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
+import { logger } from "@/lib/logger";
 
 /**
  * Helper: basic ObjectId shape check to avoid Mongoose cast errors early
@@ -155,10 +156,14 @@ export async function GET(request) {
     const isActive = url.searchParams.get("isActive");
     const sort = url.searchParams.get("sort") || "-createdAt";
     const sku = url.searchParams.get("sku");
+    const locationId = url.searchParams.get("locationId");
 
     const filter = {};
 
     if (q) {
+      // Log search activity
+      await logger({ level: 'info', message: `User searched for: ${q}`, action: 'PRODUCT_SEARCH', metadata: { query: q }, req: request });
+
       // Search in name OR description OR SKU (case-insensitive)
       filter.$or = [
         { name: { $regex: q, $options: "i" } },
@@ -200,6 +205,7 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
+    if (locationId) filter.locationId = locationId;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
@@ -323,6 +329,23 @@ export async function POST(request) {
       ...product.toObject(),
       category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
     };
+
+    await logger({
+      level: 'info',
+      message: `Product created: ${product.name}`,
+      action: 'PRODUCT_CREATED',
+      userId: body.userId || null,
+      metadata: {
+        productId: product._id,
+        sku: product.sku,
+        name: product.name,
+        categoryId: resolvedCategoryId,
+        locationId: product.locationId || null,
+        locationName: product.locationName || null,
+        locationPath: product.locationPath || null
+      },
+      req: request
+    });
 
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (err) {

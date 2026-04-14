@@ -4,6 +4,7 @@ import dbConnect from '@/lib/db/connect';
 import Subscription from '@/lib/db/models/subscription';
 import Product from '@/lib/db/models/product';
 import User from '@/lib/db/models/User';
+import { logger } from '@/lib/logger';
 
 export async function POST(req) {
     try {
@@ -115,6 +116,22 @@ export async function POST(req) {
             lockedPrice: product.price,
         });
 
+        await logger({
+            level: 'info',
+            message: `New subscription created: ${newSubscription._id}`,
+            action: 'SUBSCRIPTION_CREATED',
+            userId: userId,
+            userModel: 'Customer', // usually customers create these
+            metadata: {
+                subscriptionId: newSubscription._id,
+                productId: productId,
+                productName: product.name,
+                frequency,
+                quantity: quantity || 1
+            },
+            req
+        });
+
         return NextResponse.json({ success: true, data: newSubscription }, { status: 201 });
 
     } catch (error) {
@@ -176,6 +193,20 @@ export async function PATCH(req) {
         if (!updated) {
             return NextResponse.json({ success: false, error: 'Subscription not found' }, { status: 404 });
         }
+
+        await logger({
+            level: 'info',
+            message: `Subscription updated: ${subscriptionId}`,
+            action: 'SUBSCRIPTION_UPDATED',
+            userId: updated.user,
+            userModel: 'Customer',
+            metadata: {
+                subscriptionId: updated._id,
+                updates: updates,
+                newStatus: updated.status
+            },
+            req
+        });
 
         return NextResponse.json({ success: true, data: updated }, { status: 200 });
 

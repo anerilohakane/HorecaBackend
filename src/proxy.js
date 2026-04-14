@@ -276,15 +276,27 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:3001",
+  "http://localhost:3002",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://127.0.0.1:3002",
   "https://horeca-user-end.vercel.app"
 ];
 
 // Allow only real frontends
 function getAllowedOrigin(origin) {
   if (!origin) return ALLOWED_ORIGINS[0];
-  return ALLOWED_ORIGINS.includes(origin)
-    ? origin
-    : ALLOWED_ORIGINS[0];
+  
+  // Exact match
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+
+  // Localhost fallback (for development)
+  if (origin.includes("localhost:")) return origin;
+
+  // Vercel deployment fallback
+  if (origin.endsWith(".vercel.app")) return origin;
+
+  return ALLOWED_ORIGINS[0];
 }
 
 export default async function proxy(req) {

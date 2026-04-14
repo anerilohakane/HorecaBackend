@@ -56,6 +56,8 @@ import dbConnect from "@/lib/db/connect";
 import Category from "@/lib/db/models/category";
 import Product from "@/lib/db/models/product"; // optional if you later want to include products
 
+
+
 // /app/api/categories/route.js (GET only root categories + populate children)
 export async function GET(request) {
   await dbConnect();

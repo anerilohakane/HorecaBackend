@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Cart from "@/lib/db/models/cart";
 import Product from "@/lib/db/models/product";
+import { logger } from "@/lib/logger";
 
 export async function GET(req) {
   try {
@@ -39,11 +40,16 @@ export async function GET(req) {
       return {
         productId: p?._id?.toString(),
         quantity: item.quantity,
+        name: item.name,
+        price: item.price,
+        unit: item.unit,
+        gst: item.gst || 0,
         product: {
           id: p?._id?.toString(),
           name: p?.name,
           price: p?.price,
           unit: p?.unit,
+          gst: p?.gst || 0,
           image:
             p?.images?.[0]?.url ||
             p?.image ||
@@ -105,7 +111,8 @@ export async function POST(request) {
         name: product.name,
         price: product.price,
         thumbnail: product.images?.[0]?.url || "",
-        unit: product.unit
+        unit: product.unit,
+        gst: product.gst || 0
       };
       const newCart = new Cart({ userId, items: [item], subtotal: product.price * quantity, updatedAt: new Date() });
       await newCart.save();
@@ -116,6 +123,9 @@ export async function POST(request) {
     const existingIndex = cart.items.findIndex(i => String(i.productId) === String(productId));
     if (existingIndex > -1) {
       cart.items[existingIndex].quantity += quantity;
+      // update price/gst snapshots just in case
+      cart.items[existingIndex].price = product.price;
+      cart.items[existingIndex].gst = product.gst || 0;
       // clamp to stock if needed
       if (product.stockQuantity != null && cart.items[existingIndex].quantity > product.stockQuantity) {
         cart.items[existingIndex].quantity = product.stockQuantity;
@@ -127,14 +137,16 @@ export async function POST(request) {
         name: product.name,
         price: product.price,
         thumbnail: product.images?.[0]?.url || "",
-        unit: product.unit
+        unit: product.unit,
+        gst: product.gst || 0
       });
     }
 
-    // recalc subtotal
     cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
     cart.updatedAt = new Date();
     await cart.save();
+
+    await logger({ level: 'info', message: `Added to cart: ${productId} (qty: ${quantity})`, action: 'CART_ADD', userId, metadata: { productId, quantity, totalItems: cart.items.length }, req: request });
 
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
@@ -187,6 +199,9 @@ export async function PATCH(request) {
     cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
     cart.updatedAt = new Date();
     await cart.save();
+    
+    await logger({ level: 'info', message: `Updated cart item: ${productId}`, action: 'CART_UPDATE', userId, metadata: { productId, body }, req: request });
+
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
     console.error("PATCH /api/cart error", err);
@@ -227,6 +242,16 @@ export async function DELETE(request) {
 
     cart.updatedAt = new Date();
     await cart.save();
+
+    await logger({ 
+      level: 'info', 
+      message: productId ? `Removed from cart: ${productId}` : `Cleared cart`, 
+      action: productId ? 'CART_REMOVE' : 'CART_CLEAR', 
+      userId, 
+      metadata: { productId }, 
+      req: request 
+    });
+
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
     console.error("DELETE /api/cart error", err);

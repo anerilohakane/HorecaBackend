@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import { logger } from "@/lib/logger";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
 export async function POST(req) {
   try {
-    const { phone, otp } = await req.json();
+    const { phone, otp, lat, lng } = await req.json();
 
     if (!phone || !otp) {
       return NextResponse.json({ success: false, error: "Missing fields" });
@@ -40,13 +41,19 @@ export async function POST(req) {
     if (user) {
         console.log(`[AUTH] Found existing user: ${user._id} (${user.phone})`);
         user.lastLoginAt = new Date();
+        if (lat !== undefined) user.lat = lat;
+        if (lng !== undefined) user.lng = lng;
         await user.save();
+        await logger({ level: 'info', message: `User logged in: ${user.phone}`, action: 'USER_LOGIN', userId: user._id, userModel: 'Customer', metadata: { phone: user.phone }, req });
     } else {
         console.log(`[AUTH] Creating new user for: ${standardizedPhone}`);
         user = await Customer.create({
             phone: standardizedPhone,
-            lastLoginAt: new Date()
+            lastLoginAt: new Date(),
+            lat: lat || null,
+            lng: lng || null
         });
+        await logger({ level: 'info', message: `New user registered: ${user.phone}`, action: 'USER_REGISTERED', userId: user._id, userModel: 'Customer', metadata: { phone: user.phone }, req });
     }
 
     // 2️⃣ Create JWT

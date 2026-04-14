@@ -25,9 +25,28 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Email and password required" }, { status: 400 });
     }
 
-    const existing = await Supplier.findOne({ email: body.email.toLowerCase().trim() });
+    const { email, phone, gstNumber, panNumber } = body;
+    
+    const existing = await Supplier.findOne({ 
+      $or: [
+        { email: email?.toLowerCase().trim() },
+        { phone },
+        { gstNumber },
+        { panNumber }
+      ] 
+    });
+
     if (existing) {
-      return NextResponse.json({ success: false, error: "Email already registered" }, { status: 400 });
+      let conflictField = "Credential";
+      if (existing.email === email?.toLowerCase().trim()) conflictField = "Email";
+      else if (existing.phone === phone) conflictField = "Phone Number";
+      else if (existing.gstNumber === gstNumber) conflictField = "GST Number";
+      else if (existing.panNumber === panNumber) conflictField = "PAN ID";
+
+      return NextResponse.json({ 
+        success: false, 
+        error: `${conflictField} is already registered in the central system.` 
+      }, { status: 400 });
     }
 
     const supplier = new Supplier(body);
@@ -59,6 +78,8 @@ export async function POST(request) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+
 
 export async function GET() {
   await dbConnect();

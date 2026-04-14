@@ -14,6 +14,7 @@ import Product from "@/lib/db/models/product";
 import Supplier from "@/lib/db/models/supplier";
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
+import Department from "@/lib/db/models/Department";
 import { logger } from "@/lib/logger";
 
 // (json helper assumed already in file)
@@ -37,7 +38,9 @@ function safePopulateQuery(query, path, select = "") {
   function resolveRefForPath(p) {
     // direct path e.g. 'supplier' or 'user' on Order schema
     const sp = Order.schema.path(p);
-    if (sp && sp.options && sp.options.ref) return sp.options.ref;
+    if (!sp) return null;
+    if (sp.options && sp.options.ref) return sp.options.ref;
+    if (sp.options && sp.options.refPath) return "POLYMORPHIC"; // indicator
 
     // handle nested path like 'items.product'
     if (p.includes(".")) {
@@ -52,15 +55,12 @@ function safePopulateQuery(query, path, select = "") {
           casterSchema.path(subPath) &&
           casterSchema.path(subPath).options
         ) {
-          return casterSchema.path(subPath).options.ref;
+           const osp = casterSchema.path(subPath).options;
+           if (osp.ref) return osp.ref;
+           if (osp.refPath) return "POLYMORPHIC";
         }
       }
     }
-
-    // as a fallback, try reading options.ref from nested path string directly
-    const nested = Order.schema.path(p);
-    if (nested && nested.options && nested.options.ref)
-      return nested.options.ref;
 
     return null;
   }
@@ -69,14 +69,15 @@ function safePopulateQuery(query, path, select = "") {
 
   if (!refModel) {
     // no ref defined in schema for this path -> don't populate
-    // but still attempt to call populate (it will no-op), however to avoid strictPopulate error, skip it.
     console.warn(
-      `[safePopulate] No ref found in Order.schema for path "${path}" — skipping populate.`
+      `[safePopulate] No ref or refPath found in Order.schema for path "${path}" — skipping populate.`
     );
     return query;
   }
 
-  if (!registered.includes(refModel)) {
+  // If polymorphic, we just trust Mongoose to handle it if the models are registered.
+  // Standard non-polymorphic check
+  if (refModel !== "POLYMORPHIC" && !registered.includes(refModel)) {
     console.warn(
       `[safePopulate] Model "${refModel}" for path "${path}" is NOT registered. Skipping populate. Registered models: ${registered.join(
         ", "
@@ -87,6 +88,50 @@ function safePopulateQuery(query, path, select = "") {
 
   // safe to populate
   return query.populate(path, select);
+}
+
+/**
+ * Manual Population Helper:
+ * Handles cases where 'department' might be a string ("others") or an ObjectId.
+ * Prevents CastError in standard Mongoose population.
+ */
+async function manualPopulateDepartments(orders) {
+  if (!orders) return;
+  const docs = Array.isArray(orders) ? orders : [orders];
+  if (docs.length === 0) return;
+
+  const Department = (await import("@/lib/db/models/Department")).default;
+  
+  // 1. Collect all unique valid ObjectIds
+  const deptIds = new Set();
+  docs.forEach(o => {
+    if (mongoose.Types.ObjectId.isValid(o.department)) deptIds.add(o.department.toString());
+    (o.departmentHistory || []).forEach(h => {
+      if (mongoose.Types.ObjectId.isValid(h.from)) deptIds.add(h.from.toString());
+      if (mongoose.Types.ObjectId.isValid(h.to)) deptIds.add(h.to.toString());
+    });
+  });
+
+  if (deptIds.size === 0) return;
+
+  // 2. Fetch all unique departments in one query
+  const departments = await Department.find({ 
+    _id: { $in: Array.from(deptIds).map(id => new mongoose.Types.ObjectId(id)) } 
+  }).select("departmentName").lean();
+
+  const deptMap = {};
+  departments.forEach(d => { deptMap[d._id.toString()] = d; });
+
+  // 3. Map back to documents
+  docs.forEach(o => {
+    if (o.department && deptMap[o.department.toString()]) {
+      o.department = deptMap[o.department.toString()];
+    }
+    (o.departmentHistory || []).forEach(h => {
+      if (h.from && deptMap[h.from.toString()]) h.from = deptMap[h.from.toString()];
+      if (h.to && deptMap[h.to.toString()]) h.to = deptMap[h.to.toString()];
+    });
+  });
 }
 /* ------------------------------------------------------------------
    POST  -> PLACE ORDER
@@ -109,31 +154,77 @@ function safePopulateQuery(query, path, select = "") {
       supplierId?, ...
    }
 ------------------------------------------------------------------ */
+
+async function normalizeDept(name) {
+  if (!name) return 'others';
+  
+  try {
+    const isObjectId = mongoose.Types.ObjectId.isValid(name);
+    if (isObjectId) return new mongoose.Types.ObjectId(name);
+
+    // Standardize search (case-insensitive for name)
+    const normName = name.toString().trim().toUpperCase();
+    
+    // Look for ODT/ART abbreviations if names are longer, or match directly
+    const dept = await Department.findOne({ 
+      departmentName: { $regex: new RegExp(`^${normName}$`, 'i') } 
+    }).lean();
+
+    if (dept) return new mongoose.Types.ObjectId(dept._id);
+    
+    // Fallback logic for legacy strings if no match found
+    if (['odt', 'odt management'].includes(normName.toLowerCase())) {
+        const odt = await Department.findOne({ departmentName: 'ODT' }).lean();
+        if (odt) return new mongoose.Types.ObjectId(odt._id);
+    }
+    if (['art', 'art reporting'].includes(normName.toLowerCase())) {
+        const art = await Department.findOne({ departmentName: 'ART' }).lean();
+        if (art) return new mongoose.Types.ObjectId(art._id);
+    }
+    
+    return name.toLowerCase(); // Return original lowercase as ID if no DB match
+  } catch (e) {
+    const isObjectId = mongoose.Types.ObjectId.isValid(name);
+    return isObjectId ? new mongoose.Types.ObjectId(name) : name.toString();
+  }
+}
+
+
+
+
+
+
+
+
 export async function POST(request) {
+
   try {
     await dbConnect();
     const body = await request.json();
 
     const shippingAddress = body.shippingAddress || null; // ⭐ REQUIRED
 
-    // 1) userId (or user)
-    const userId = body.userId || body.user;
-    if (!userId) {
-      return json({ success: false, error: "userId is required" }, 400);
+    // 1) Identify Who is Placing the Order (User, Customer, or Supplier)
+    const placerId = body.userId || body.user || body.supplierId;
+    if (!placerId) {
+      return json({ success: false, error: "Identification (userId or supplierId) is required" }, 400);
     }
 
-    // const user = await User.findById(userId);
-    // if (!user) {
-    //   return json({ success: false, error: "User not found" }, 404);
-    // }
+    let user = await User.findById(placerId);
+    let userModel = "User";
 
-    let user = await User.findById(userId);
     if (!user) {
-      user = await Customer.findById(userId);
+      user = await Customer.findById(placerId);
+      userModel = "Customer";
     }
 
     if (!user) {
-      return json({ success: false, error: "Customer/User not found" }, 404);
+      user = await Supplier.findById(placerId);
+      userModel = "Supplier";
+    }
+
+    if (!user) {
+      return json({ success: false, error: "Customer/User/Supplier not found with the provided ID" }, 404);
     }
 
     // 2) items array or single-item shortcut
@@ -227,13 +318,14 @@ export async function POST(request) {
         quantity: qty,
         unitPrice,
         totalPrice,
+        gst: product.gst || 0, // Persist GST from product model
         supplier: product.supplierId || product.supplier || null,
         image: it.image || product.image || null, // ✅ Added image persistence
         attributes: it.attributes || null,
       });
     }
 
-    if (stockErrors.length > 0) {
+    if (stockErrors.length > 0 && body.decrementStock !== false) {
       return json(
         { success: false, error: "Insufficient stock", details: stockErrors },
         409
@@ -241,11 +333,14 @@ export async function POST(request) {
     }
 
     // 4) Totals mapped to your schema
-    const tax = Number(body.tax ?? 0);
+    const gstAmount = Number(body.gstAmount ?? body.taxAmount ?? body.tax ?? 0);
     const shippingCharges = Number(body.shippingCharges ?? 0);
     const platformFee = Number(body.platformFee ?? 0);
     const discounts = Number(body.discounts ?? 0);
-    const total = subtotal + tax + shippingCharges + platformFee - discounts;
+    const total = subtotal + gstAmount + shippingCharges + platformFee - discounts;
+
+    // Calculate aggregated GST percentage
+    const orderGst = subtotal > 0 ? (gstAmount / subtotal) * 100 : 0;
 
     // 5) Supplier ref
     let supplierRef = null;
@@ -295,6 +390,12 @@ export async function POST(request) {
       paymentMethod = "cod";
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
+    } else if (paymentMethod === "wallet") {
+      // 🔹 Wallet/Points payment
+      // DO NOT DEDUCT HERE. The 'Final Debit' at the end of the function handles it securely.
+      paymentStatus = "paid";
+      paidAt = new Date();
+      // transactionId will be set after debit is confirmed at the finish line
     } else {
       // 🔹 Online payment (UPI, card, netbanking, etc.)
       //  - transactionId is required
@@ -329,13 +430,15 @@ export async function POST(request) {
     // 8) Build orderDoc according to your OrderSchema
     const orderDoc = new Order({
       user: user._id,
+      userModel: userModel,
       supplier: supplierRef,
       items: builtItems,
       
       shippingAddress: shippingAddress,
 
       subtotal,
-      tax,
+      gst: Math.round(orderGst), // Store percentage (branded as GST in db)
+      gstAmount,
       shippingCharges,
       platformFee,
       discounts,
@@ -357,8 +460,13 @@ export async function POST(request) {
 
       notes,
       cancellationReason: "",
+      department: await normalizeDept(body.department || "odt"),
+
+
+
       metadata: body.metadata || null,
     });
+
 
     // 9) AUTO-INVOICE (using your InvoiceSchema)
     const now = new Date();
@@ -379,7 +487,8 @@ export async function POST(request) {
         user: orderDoc.user,
         supplier: orderDoc.supplier,
         subtotal,
-        tax,
+        gst: Math.round(orderGst),
+        gstAmount,
         shippingCharges,
         platformFee,
         discounts,
@@ -387,10 +496,97 @@ export async function POST(request) {
         currency: orderDoc.currency,
         notes: body.invoiceNotes || "",
         paymentMethod,
-        paymentStatus,
-        paidAt: paidAt || null,
+        paymentStatus: orderDoc.payment.status, // Use live status
+        paidAt: orderDoc.payment.paidAt || null,
       },
     };
+
+
+    // 9.5) 🔥 MARKETPLACE AUTO-SETTLEMENT: Settle for ALL unique suppliers in items
+    const isNowDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
+    const isPaidAtCreation = (orderDoc.payment?.status || "").toLowerCase() === "paid";
+    
+    console.log(`[ORDER LOG] Flow: Auto-Settlement Check | Del: ${isNowDelivered} | Paid: ${isPaidAtCreation}`);
+
+    try {
+      const Wallet = (await import("@/lib/db/models/wallet")).default;
+      const Transaction = (await import("@/lib/db/models/transaction")).default;
+
+      // 🟢 IDENTIFY UNIQUE SUPPLIERS
+      const suppliers = new Set();
+      if (orderDoc.supplier) suppliers.add(orderDoc.supplier.toString());
+      (orderDoc.items || []).forEach(item => {
+         if (item.supplier) suppliers.add(item.supplier.toString());
+      });
+      console.log(`[ORDER LOG] Marketplace Detected Suppliers: ${[...suppliers].join(', ')}`);
+
+      for (const sId of suppliers) {
+        const supplierId = new mongoose.Types.ObjectId(sId);
+        
+        let wallet = await Wallet.findOne({ userId: supplierId });
+        if (!wallet) {
+          wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
+        }
+
+        // 1) Auto-Settle items if order is already Delivered + Paid
+        const supplierTotal = (orderDoc.items || [])
+          .filter(item => item.supplier?.toString() === sId)
+          .reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+
+        if (isNowDelivered && isPaidAtCreation && supplierTotal > 0) {
+          console.log(`[ORDER LOG] Triggering AUTO-SETTLEMENT for Vendor: ${sId} | Amount: ₹${supplierTotal}`);
+          const settlementTx = new Transaction({
+            userId: supplierId,
+            walletId: wallet._id,
+            amount: supplierTotal,
+            type: "order_settlement", 
+            method: "wallet",
+            status: "completed",
+            description: `Auto-Settlement for Order Items: ${orderDoc.orderNumber}`,
+            metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber }
+          });
+          await settlementTx.save();
+        }
+
+        // 2) Force Sync Snapshot for EVERY involved supplier (Marketplace Aware)
+        const summary = await Order.aggregate([
+          { $match: { 
+               $or: [
+                 { supplier: supplierId },
+                 { "items.supplier": supplierId }
+               ]
+          } },
+          { $unwind: "$items" },
+          {
+             $group: {
+               _id: null,
+               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
+               escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
+             }
+          }
+        ]);
+
+        const snap = summary[0] || { realized: 0, escrowed: 0 };
+        
+        const ledgerTruth = await Transaction.aggregate([
+          { $match: { userId: supplierId, status: 'completed' } },
+          {
+            $group: {
+              _id: null,
+              balance: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, "$amount", { $multiply: ["$amount", -1] }] } }
+            }
+          }
+        ]);
+
+        wallet.balance = ledgerTruth[0]?.balance || 0;
+        wallet.realizedSavings = snap.realized;
+        wallet.escrowedPoints = snap.escrowed;
+        await wallet.save();
+        console.log(`[ORDER LOG] COMPLETED Sync for Vendor ${sId} | Balance: ₹${wallet.balance} | Escrow: ₹${wallet.escrowedPoints}`);
+      }
+    } catch (e) {
+      console.error("[ORDER LOG] Marketplace Settlement Error:", e);
+    }
 
     // 10) Save
     await orderDoc.save();
@@ -417,11 +613,77 @@ export async function POST(request) {
       message: `Order created successfully: ${orderDoc._id}`,
       action: 'ORDER_CREATED',
       userId: user._id,
-      metadata: { orderId: orderDoc._id, subtotal, total },
+      metadata: { 
+        orderId: orderDoc._id, 
+        orderNumber: orderDoc.orderNumber,
+        subtotal, 
+        total,
+        status: orderDoc.status,
+        paymentMethod: body.paymentMethod || "COD" 
+      },
       req: request
     });
 
-    return json({ success: true, order: orderDoc }, 201);
+    // --- 🏆 FINAL STEP: AUTOMATIC WALLET DEBIT (Secure Point Deduction) --- 🏆
+    // Only deduct points IF EVERYTHING above passed (Order saved, Stock checked)
+    const isWalletPay = (body.paymentMethod || "").toLowerCase() === "wallet";
+    if (isWalletPay) {
+      try {
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+
+        // JIT Audit: Recalculate Truth Balance from ledger
+        const ledger = await Transaction.aggregate([
+          { $match: { userId: new mongoose.Types.ObjectId(user._id), status: 'completed' } },
+          {
+            $group: {
+              _id: null,
+              in: { $sum: { $cond: [{ $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, { $abs: "$amount" }, 0] } },
+              out: { $sum: { $cond: [{ $in: ["$type", ["withdrawal", "order_payment"]] }, { $abs: "$amount" }, 0] } }
+            }
+          }
+        ]);
+        const truth = ledger[0] || { in: 0, out: 0 };
+        const realBalance = Math.max(0, truth.in - truth.out);
+
+        if (realBalance < total) {
+           throw new Error(`Insufficient wallet balance. Audited Truth: ₹${realBalance} | Total: ₹${total}`);
+        }
+
+        let buyerWallet = await Wallet.findOne({ userId: user._id });
+        if (!buyerWallet) {
+           buyerWallet = new Wallet({ userId: user._id, balance: realBalance, userType: 'supplier' });
+        }
+
+        // Create Debit Transaction
+        const debitTx = new Transaction({
+          userId: new mongoose.Types.ObjectId(user._id),
+          walletId: new mongoose.Types.ObjectId(buyerWallet._id),
+          amount: total,
+          type: "order_payment",
+          method: "wallet",
+          status: "completed",
+          description: `Internal Procurement: ${orderDoc.orderNumber}`,
+          metadata: { orderId: orderDoc._id, orderNumber: orderDoc.orderNumber, type: "wallet_debit" }
+        });
+        await debitTx.save();
+
+        // Update Balance
+        buyerWallet.balance = (realBalance - total);
+        await buyerWallet.save();
+        console.log(`[FINANCE LOG] 🔒 Point Deduction Finalized for Buyer ${user._id} | New Balance: ₹${buyerWallet.balance}`);
+      } catch (e) {
+        console.error("[CRITICAL FINANCE ERROR]: Order placed but debit failed:", e);
+        // We throw here to fail the order if the debit cannot be secured
+        throw new Error(`Payment processing failed. ${e.message}`);
+      }
+    }
+
+    return json({ 
+      success: true, 
+      order: orderDoc,
+      message: "Marketplace order placed & points audited"
+    }, 201);
   } catch (err) {
     console.error("POST /api/order error:", err);
     await logger({
@@ -479,8 +741,15 @@ export async function GET(request) {
       query = safePopulateQuery(query, "user", "name email phone");
       query = safePopulateQuery(query, "supplier", "name");
       query = safePopulateQuery(query, "items.product", "name price sku");
+      // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
+      // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
+      // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
       const order = await query.lean();
+      
+      // Manual population for departments to avoid CastError with "others"
+      await manualPopulateDepartments(order);
+
 
       if (!order) {
         return json({ success: false, error: "Order not found" }, 404);
@@ -494,26 +763,77 @@ export async function GET(request) {
       url.searchParams.get("userId") || url.searchParams.get("user");
     const status = url.searchParams.get("status");
     const supplierId = url.searchParams.get("supplierId");
+    const department = url.searchParams.get("department");
+    const fromDepartment = url.searchParams.get("fromDepartment");
+
 
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const limit = Math.min(100, Number(url.searchParams.get("limit") || 20));
     const skip = (page - 1) * limit;
 
-    const q = {};
-    if (userId) q.user = userId;
-    if (status) q.status = status;
-    if (supplierId) q.supplier = supplierId;
+    // RAW DATABASE QUERY: Bypassing Mongoose to handle variations in ObjectID storage
+    const collection = Order.collection;
+    const rawQ = {};
+    if (userId) rawQ.user = new mongoose.Types.ObjectId(userId);
+    if (status) rawQ.status = status;
+    if (supplierId) rawQ.supplier = new mongoose.Types.ObjectId(supplierId);
+    
+    if (department) {
+      const oid = new mongoose.Types.ObjectId(department);
+      rawQ.$or = [
+        { department: department },
+        { department: oid },
+        { "department.$oid": department }
+      ];
+    }
+    
+    if (fromDepartment) {
+      const fromOid = new mongoose.Types.ObjectId(fromDepartment);
+      const historyMatch = {
+        $elemMatch: {
+          $or: [
+            { from: fromDepartment },
+            { from: fromOid },
+            { "from.$oid": fromDepartment }
+          ]
+        }
+      };
+      
+      if (rawQ.$or) {
+        rawQ.$and = [ { $or: rawQ.$or }, { departmentHistory: historyMatch } ];
+        delete rawQ.$or;
+      } else {
+        rawQ.departmentHistory = historyMatch;
+      }
+    }
 
-    let query = Order.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit);
+    console.log("FINAL RAW QUERY:", JSON.stringify(rawQ, null, 2));
+
+    // Phase 1: Find matching IDs using raw query (bypassing Mongoose casting)
+    const matchingDocs = await collection
+      .find(rawQ, { projection: { _id: 1 } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    const ids = matchingDocs.map(d => d._id);
+    const total = await collection.countDocuments(rawQ);
+
+    // Phase 2: Fetch full documents through Mongoose using those IDs
+    let query = Order.find({ _id: { $in: ids } }).sort({ createdAt: -1 });
 
     query = safePopulateQuery(query, "user", "name email phone");
     query = safePopulateQuery(query, "supplier", "name");
     query = safePopulateQuery(query, "items.product", "name price sku");
+    // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
+    // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
+    // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
-    const [orders, total] = await Promise.all([
-      query.lean(),
-      Order.countDocuments(q),
-    ]);
+    const orders = await query.lean();
+    
+    // Manual population for departments to avoid CastError with "others"
+    await manualPopulateDepartments(orders);
 
     return json(
       {
@@ -523,9 +843,14 @@ export async function GET(request) {
       },
       200
     );
+
   } catch (err) {
     console.error("GET /api/order error:", err);
-    return json({ success: false, error: err.message || "Server error" }, 500);
+    return json({ 
+        success: false, 
+        error: err.message || "Server error",
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+    }, 500);
   }
 }
 
@@ -1033,6 +1358,33 @@ export async function PATCH(request) {
       setData["invoice.meta.orderStatus"] = body.status;
     }
 
+    // --- DEPARTMENT UPDATES ---
+    if ("department" in body) {
+      const newDept = await normalizeDept(body.department);
+      const oldDept = await normalizeDept(order.department);
+
+
+
+      
+      if (newDept !== oldDept) {
+        setData.department = newDept;
+        
+        // Push to departmentHistory
+        const historyEntry = {
+          from: oldDept,
+          to: newDept,
+          updatedBy: (body.changedBy || body.userId) ? new mongoose.Types.ObjectId(body.changedBy || body.userId) : null,
+          updatedAt: new Date(),
+          notes: body.departmentNotes || body.notes || ""
+        };
+
+        
+        if (!update.$push) update.$push = {};
+        update.$push.departmentHistory = historyEntry;
+      }
+    }
+
+
     // --- IMPORTANT PAYMENT SANITY CHECKS ---
     // Prevent clients from arbitrarily writing payment.status = 'refunded' or 'refund_pending'
     // unless this request was processed by the above cancel/return flows.
@@ -1118,6 +1470,7 @@ export async function PATCH(request) {
       );
     }
 
+    // --- CRITICAL: EXECUTE THE UPDATE ---
     const result = await Order.collection.updateOne(
       { _id: new mongoose.Types.ObjectId(idParam) },
       update
@@ -1127,32 +1480,141 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
-    const updated = await Order.findById(idParam).lean();
-    if (!updated)
-      return json(
-        { success: false, error: "Order not found after update" },
-        404
-      );
+    // 🔥 THE MARKETPLACE SETTLEMENT ENGINE: Settle for EVERY Supplier in the order
+    const finalState = await Order.findById(idParam).lean();
+    if (!finalState) return json({ success: false, error: "Order lost" }, 404);
 
-    return json({ success: true, data: updated }, 200);
-  } catch (err) {
-    console.error("PATCH /api/orders error:", err);
+    const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
+    const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
     
-    // Attempt to extract order ID from URL if parsing failed
-    let orderIdFromParams = null;
-    try {
-      const url = new URL(request.url);
-      orderIdFromParams = url.searchParams.get("id") || url.searchParams.get("orderId");
-    } catch (_) {}
+    console.log(`[PATCH SETTLEMENT] Flow: Update Trigger | Del: ${isDelivered} | Paid: ${isPaid}`);
 
     await logger({
-      level: 'error',
-      message: 'Error during order update (PATCH)',
-      action: 'ORDER_UPDATE_ERROR',
-      metadata: { orderId: orderIdFromParams, error: err.message, stack: err.stack },
+      level: 'info',
+      message: `Order updated successfully: ${finalState._id}`,
+      action: 'ORDER_UPDATED',
+      userId: body.userId || body.changedBy || null,
+      metadata: {
+        orderId: finalState._id,
+        orderNumber: finalState.orderNumber,
+        updates: setData,
+        newStatus: finalState.status,
+        newDepartment: finalState.department
+      },
       req: request
     });
 
+    if (isDelivered && isPaid) {
+      try {
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+
+        // 🟢 IDENTIFY UNIQUE SUPPLIERS
+        const suppliers = new Set();
+        if (finalState.supplier) suppliers.add(finalState.supplier.toString());
+        (finalState.items || []).forEach(item => {
+           if (item.supplier) suppliers.add(item.supplier.toString());
+        });
+        console.log(`[PATCH SETTLEMENT] Marketplace Suppliers in Order: ${[...suppliers].join(', ')}`);
+
+        for (const sId of suppliers) {
+          const supplierId = new mongoose.Types.ObjectId(sId);
+          
+          let wallet = await Wallet.findOne({ userId: supplierId });
+          if (!wallet) {
+            wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
+          }
+
+          // 1) Settle items belonging to this specific supplier
+          const supplierTotal = (finalState.items || [])
+            .filter(item => item.supplier?.toString() === sId)
+            .reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+
+          if (supplierTotal > 0) {
+            const existingTx = await Transaction.findOne({ 
+              "metadata.orderId": finalState._id, 
+              userId: supplierId,
+              type: "order_settlement" 
+            });
+
+            if (!existingTx) {
+              console.log(`[PATCH SETTLEMENT] AWARDING ₹${supplierTotal} to Vendor ${sId}`);
+              const settlementTx = new Transaction({
+                userId: supplierId,
+                walletId: wallet._id,
+                amount: supplierTotal,
+                type: "order_settlement", 
+                method: "wallet",
+                status: "completed",
+                description: `Settlement for Order Items: ${finalState.orderNumber}`,
+                metadata: { orderId: finalState._id, orderNumber: finalState.orderNumber }
+              });
+              await settlementTx.save();
+            } else {
+              console.log(`[PATCH SETTLEMENT] Vendor ${sId} already credited. Skipping.`);
+            }
+          }
+
+          // 2) Force Live Sync for this supplier (Marketplace Aware)
+          const metrics = await Order.aggregate([
+            { $match: { 
+                 $or: [
+                   { supplier: supplierId },
+                   { "items.supplier": supplierId }
+                 ]
+            } },
+            { $unwind: "$items" },
+            {
+               $group: {
+                 _id: null,
+                 realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
+                 escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
+               }
+            }
+          ]);
+
+          const snap = metrics[0] || { realized: 0, escrowed: 0 };
+          
+          const ledgerTruth = await Transaction.aggregate([
+            { $match: { userId: supplierId, status: 'completed' } },
+            {
+              $group: {
+                _id: null,
+                balance: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
+                      { $abs: "$amount" }, 
+                      { $multiply: [{ $abs: "$amount" }, -1] } // Always subtract debits
+                    ] 
+                  } 
+                }
+              }
+            }
+          ]);
+
+          wallet.balance = ledgerTruth[0]?.balance || 0;
+          wallet.realizedSavings = snap.realized;
+          wallet.escrowedPoints = snap.escrowed;
+          await wallet.save();
+          console.log(`[PATCH SETTLEMENT] SYNC COMPLETE for Vendor ${sId} | Balance: ₹${wallet.balance} | Escrow: ₹${wallet.escrowedPoints}`);
+        }
+      } catch (e) {
+        console.error("[PATCH SETTLEMENT] Marketplace Loop Failure:", e);
+      }
+    }
+
+    const finalStatePopulated = await Order.findById(idParam)
+      .populate("department", "departmentName")
+      .populate("departmentHistory.from", "departmentName")
+      .populate("departmentHistory.to", "departmentName")
+      .lean();
+
+    return json({ success: true, message: "Multi-supplier settlement handled", data: finalStatePopulated || finalState });
+
+
+  } catch (err) {
+    console.error("PATCH /api/order error:", err);
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }

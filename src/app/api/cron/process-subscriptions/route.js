@@ -6,6 +6,7 @@ import Order from '@/lib/db/models/order';
 import Product from '@/lib/db/models/product';
 import Customer from '@/lib/db/models/customer';
 import Notification from '@/lib/db/models/notification';
+import { logger } from '@/lib/logger';
 
 // Mark as dynamic to avoid static generation
 export const dynamic = 'force-dynamic';
@@ -113,8 +114,10 @@ export async function GET(req) {
                 
                 // Build Items Array & Total
                 const items = [];
-                let orderTotal = 0;
                 let subtotal = 0;
+                let totalShipping = 0;
+                let totalPlatform = 0;
+                let totalGst = 0;
 
                 for (const sub of subs) {
                     // --- TC-OM-014: Out of Stock Handling ---
@@ -144,6 +147,15 @@ export async function GET(req) {
                          } catch (notifErr) {
                              console.error(`[CRON] Failed to create notification:`, notifErr);
                          }
+
+                         await logger({
+                           level: 'warn',
+                           message: `Subscription paused: Out of stock (${sub._id})`,
+                           action: 'SUBSCRIPTION_PAUSED',
+                           userId: sub.user,
+                           userModel: 'Customer',
+                           metadata: { subscriptionId: sub._id, reason: 'stock_out', productId: sub.product._id }
+                         });
 
                          continue;
                     }
@@ -178,6 +190,15 @@ export async function GET(req) {
                              });
                         } catch (notifErr) { console.error(notifErr); }
 
+                        await logger({
+                          level: 'warn',
+                          message: `Subscription paused: Price changed (${sub._id})`,
+                          action: 'SUBSCRIPTION_PAUSED',
+                          userId: sub.user,
+                          userModel: 'Customer',
+                          metadata: { subscriptionId: sub._id, reason: 'price_change', oldPrice: lockedPrice, newPrice: currentPrice }
+                        });
+
                         continue;
                     }
 
@@ -191,13 +212,29 @@ export async function GET(req) {
                     const price = sub.product.price || 0;
                     const total = price * sub.quantity;
                     
+                    let subShipping = 0;
+                    let subPlatform = 0;
+                    let subGst = 0;
+
+                    if (sub.metadata) {
+                        subShipping = Number(sub.metadata.shippingCharges || 0);
+                        subPlatform = Number(sub.metadata.platformFee || 0);
+                        subGst = Number(sub.metadata.gstAmount || 0);
+                    }
+
+                    totalShipping += subShipping;
+                    totalPlatform += subPlatform;
+                    totalGst += subGst;
+
                     items.push({
                         product: sub.product._id,
                         name: sub.product.name,
                         quantity: sub.quantity,
                         unitPrice: price,
                         totalPrice: total,
-                        image: sub.product.images?.[0]?.url || sub.product.image
+                        image: sub.product.images?.[0]?.url || sub.product.image,
+                        sku: sub.product.sku,
+                        gst: subGst // Item level GST
                     });
 
                     subtotal += total;
@@ -210,8 +247,7 @@ export async function GET(req) {
                     continue; 
                 }
                 
-                // Add shipping/tax logic here if needed (skipping for simplicity)
-                orderTotal = subtotal;
+                const orderTotal = subtotal + totalShipping + totalPlatform + totalGst;
 
                 // Create Consolidated Order
                 const uniqueSuffix = Date.now().toString(36).toUpperCase();
@@ -221,22 +257,57 @@ export async function GET(req) {
                 const newOrder = await Order.create({
                     orderNumber,
                     user: userId,
+                    userModel: 'Customer',
                     items: items,
                     shippingAddress: shippingAddress,
                     subtotal: subtotal,
+                    shippingCharges: totalShipping,
+                    platformFee: totalPlatform,
+                    gstAmount: totalGst,
                     total: orderTotal,
                     status: 'pending',
                  
                     payment: { method: (lastOrder && lastOrder.payment && lastOrder.payment.method) || 'cash_on_delivery', status: 'pending' },
                     metadata: { 
                         isAutoOrder: true, 
-                        subscriptionIds: subs.map(s => s._id), // Store array of sub IDs
+                        subscriptionIds: subs.map(s => s._id),
                         triggeredAt: now
+                    }
+                });
+
+                await logger({
+                    level: 'info',
+                    message: `Auto-order created: ${newOrder.orderNumber}`,
+                    action: 'ORDER_CREATED',
+                    userId: userId,
+                    userModel: 'Customer',
+                    metadata: {
+                        orderId: newOrder._id,
+                        orderNumber: newOrder.orderNumber,
+                        isAutoOrder: true,
+                        subscriptionIds: subs.map(s => s._id),
+                        status: newOrder.status,
+                        total: newOrder.total
                     }
                 });
 
                 console.log(`[CRON] Order ${newOrder.orderNumber} created for User ${userId}`);
                 results.ordersCreated++;
+
+                // Notify User of Successful Auto-Order
+                try {
+                     await Notification.create({
+                         user: userId,
+                         title: "Subscription Order Placed",
+                         message: `A new recurring order ${newOrder.orderNumber} has been placed automatically for your subscription items.`,
+                         type: "success",
+                         metadata: { 
+                             orderId: newOrder._id, 
+                             orderNumber: newOrder.orderNumber,
+                             isAutoOrder: true
+                         }
+                     });
+                } catch (notifErr) { console.error(`[CRON] Notification failed:`, notifErr); }
 
                 // --- STOCK UPDATE LOGIC ---
                 console.log(`[CRON] Decrementing stock for Order ${newOrder.orderNumber}`);
@@ -310,6 +381,18 @@ export async function GET(req) {
                     sub.nextOrderDate = nextDate;
                     sub.lastOrderDate = now;
                     await sub.save();
+
+                    if (sub.status === 'Completed') {
+                        await logger({
+                            level: 'info',
+                            message: `Subscription completed: ${sub._id}`,
+                            action: 'SUBSCRIPTION_COMPLETED',
+                            userId: sub.user,
+                            userModel: 'Customer',
+                            metadata: { subscriptionId: sub._id }
+                        });
+                    }
+
                     results.processed++;
                 }
 

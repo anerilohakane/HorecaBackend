@@ -177,7 +177,10 @@ const productSchema = new Schema({
   isFeatured: { type: Boolean, default: false },
   isTrending: { type: Boolean, default: false },
   discountStartDate: { type: Date },
-  discountEndDate: { type: Date }
+  discountEndDate: { type: Date },
+  locationId: { type: String, default: null },
+  locationName: { type: String, default: null },
+  locationPath: { type: String, default: null }
 }, { timestamps: true });
 
 // Robust pre-save

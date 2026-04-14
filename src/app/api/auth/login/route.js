@@ -213,13 +213,13 @@ export async function POST(req) {
 
       // Verify password (bcrypt)
       if (!user.password) {
-        await logger({ level: 'warn', message: 'Login failed: Invalid credentials (No password)', action: 'LOGIN_FAILED', userId: user._id, metadata: { email, department }, req });
+        await logger({ level: 'warn', message: 'Login failed: Invalid credentials (No password)', action: 'LOGIN_FAILED', userId: user._id, userModel: 'User', metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
-        await logger({ level: 'warn', message: 'Login failed: Invalid password', action: 'LOGIN_FAILED', userId: user._id, metadata: { email, department }, req });
+        await logger({ level: 'warn', message: 'Login failed: Invalid password', action: 'LOGIN_FAILED', userId: user._id, userModel: 'User', metadata: { email, department }, req });
         return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
       }
 
@@ -249,7 +249,7 @@ export async function POST(req) {
       });
 
       console.log('Admin login success:', email);
-      await logger({ level: 'info', message: 'Admin login success', action: 'USER_LOGIN', userId: user._id, metadata: { email, department: 'admin' }, req });
+      await logger({ level: 'info', message: 'Admin login success', action: 'USER_LOGIN', userId: user._id, userModel: 'User', metadata: { email, department: 'admin' }, req });
       return res;
     }
 
@@ -323,7 +323,7 @@ export async function POST(req) {
       });
 
       console.log('Employee login success:', email, 'dept:', department);
-      await logger({ level: 'info', message: 'Employee login success', action: 'USER_LOGIN', userId: employee._id, metadata: { email, department }, req });
+      await logger({ level: 'info', message: 'Employee login success', action: 'USER_LOGIN', userId: employee._id, userModel: 'Employee', metadata: { email, department }, req });
       return res;
     }
 
