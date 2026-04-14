@@ -15,6 +15,7 @@ import Supplier from "@/lib/db/models/supplier";
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
 import Department from "@/lib/db/models/Department";
+import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
 
 // (json helper assumed already in file)
@@ -288,12 +289,15 @@ export async function POST(request) {
         );
       }
 
-      const unitPrice =
-        typeof it.unitPrice === "number"
-          ? it.unitPrice
-          : typeof it.price === "number"
-          ? it.price
-          : product.price ?? 0;
+      const user = await getUserFromRequest(request);
+      const customerCategory = user?.category;
+      let displayPrice = product.price;
+
+      if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory]) {
+        displayPrice = product.categoryPrices[customerCategory];
+      }
+
+      const unitPrice = displayPrice;
 
       const totalPrice = unitPrice * qty;
       subtotal += totalPrice;

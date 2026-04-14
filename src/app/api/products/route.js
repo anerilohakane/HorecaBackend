@@ -133,6 +133,7 @@ import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
 import { logger } from "@/lib/logger";
+import { getUserFromRequest } from "@/lib/serverAuth";
 
 /**
  * Helper: basic ObjectId shape check to avoid Mongoose cast errors early
@@ -227,10 +228,23 @@ export async function GET(request) {
     const categories = categoryIds.length ? await Category.find({ _id: { $in: categoryIds } }).select('_id name image slug').lean() : [];
     const categoryMap = new Map(categories.map(c => [String(c._id), c]));
 
+    const user = await getUserFromRequest(request);
+    const customerCategory = user?.category;
+
     const itemsWithCategory = items.map(item => {
       const cat = categoryMap.get(String(item.categoryId)) || null;
+      
+      // Determine price based on customer category
+      let displayPrice = item.price;
+      
+      if (customerCategory && item.categoryPrices && item.categoryPrices[customerCategory]) {
+        displayPrice = item.categoryPrices[customerCategory];
+      }
+
       return {
         ...item,
+        price: displayPrice,
+        originalPrice: item.price,
         category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
       };
     });
@@ -259,6 +273,7 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
+    console.log(`[POST PRODUCT] Incoming Category Prices:`, body.categoryPrices);
 
     // Basic server-side validation
     if (!body.name || body.price == null || body.stockQuantity == null || !body.images || !Array.isArray(body.images) || body.images.length === 0) {
@@ -321,6 +336,7 @@ export async function POST(request) {
     // Create product; Product model's pre-save hook will auto-generate SKUs if missing
     const product = new Product(payload);
     await product.save();
+    console.log(`[POST PRODUCT] Saved State Category Prices:`, product.categoryPrices);
 
     // populate category basic info for response
     const cat = await Category.findById(resolvedCategoryId).select('_id name image slug').lean();

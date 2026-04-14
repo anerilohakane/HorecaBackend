@@ -3,6 +3,7 @@ import dbConnect from "@/lib/db/connect";
 import Cart from "@/lib/db/models/cart";
 import Product from "@/lib/db/models/product";
 import { logger } from "@/lib/logger";
+import { getUserFromRequest } from "@/lib/serverAuth";
 
 export async function GET(req) {
   try {
@@ -102,6 +103,14 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Requested quantity exceeds available stock" }, { status: 400 });
     }
 
+    const user = await getUserFromRequest(request);
+    const customerCategory = user?.category;
+    let displayPrice = product.price;
+
+    if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory]) {
+      displayPrice = product.categoryPrices[customerCategory];
+    }
+
     // Upsert cart
     const cart = await Cart.findOne({ userId });
     if (!cart) {
@@ -109,7 +118,7 @@ export async function POST(request) {
         productId,
         quantity,
         name: product.name,
-        price: product.price,
+        price: displayPrice,
         thumbnail: product.images?.[0]?.url || "",
         unit: product.unit,
         gst: product.gst || 0
@@ -124,7 +133,7 @@ export async function POST(request) {
     if (existingIndex > -1) {
       cart.items[existingIndex].quantity += quantity;
       // update price/gst snapshots just in case
-      cart.items[existingIndex].price = product.price;
+      cart.items[existingIndex].price = displayPrice;
       cart.items[existingIndex].gst = product.gst || 0;
       // clamp to stock if needed
       if (product.stockQuantity != null && cart.items[existingIndex].quantity > product.stockQuantity) {
@@ -135,7 +144,7 @@ export async function POST(request) {
         productId,
         quantity,
         name: product.name,
-        price: product.price,
+        price: displayPrice,
         thumbnail: product.images?.[0]?.url || "",
         unit: product.unit,
         gst: product.gst || 0

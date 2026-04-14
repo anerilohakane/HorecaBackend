@@ -34,6 +34,17 @@ const CustomerSchema = new mongoose.Schema(
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+
+    category: {
+      type: String,
+      enum: ["A", "B", "C", "D", "E"],
+      default: "D"
+    },
+
     lastLoginAt: {
       type: Date,
       default: null

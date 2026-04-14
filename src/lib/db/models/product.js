@@ -180,7 +180,14 @@ const productSchema = new Schema({
   discountEndDate: { type: Date },
   locationId: { type: String, default: null },
   locationName: { type: String, default: null },
-  locationPath: { type: String, default: null }
+  locationPath: { type: String, default: null },
+  categoryPrices: {
+    A: { type: Number, default: 0 },
+    B: { type: Number, default: 0 },
+    C: { type: Number, default: 0 },
+    D: { type: Number, default: 0 },
+    E: { type: Number, default: 0 }
+  }
 }, { timestamps: true });
 
 // Robust pre-save
@@ -243,7 +250,7 @@ productSchema.methods.isDiscountActive = function() {
   }
   return now >= this.discountStartDate && now <= this.discountEndDate;
 };
-
+delete mongoose.models.Product;
 const Product = mongoose.models.Product || mongoose.model("Product", productSchema);
 
 export default Product;

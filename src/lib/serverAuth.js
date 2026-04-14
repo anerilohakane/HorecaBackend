@@ -17,6 +17,7 @@ export async function getUserFromRequest(request) {
     id: decoded.id || decoded._id || null,
     role: decoded.role || null,
     email: decoded.email || null,
+    category: decoded.category || null,
     // keep full token payload if needed:
     payload: decoded
   };
