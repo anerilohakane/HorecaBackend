@@ -239,7 +239,7 @@ export async function GET(request) {
           limit,
           pages: Math.ceil(total / limit)
         }
-      }
+      } 
     });
   } catch (err) {
     console.error("GET /api/products error:", err);
