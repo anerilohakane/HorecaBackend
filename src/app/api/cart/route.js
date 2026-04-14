@@ -56,6 +56,7 @@ export async function GET(req) {
             p?.image ||
             "/images/placeholder-product.png",
           stockQuantity: p?.stockQuantity,
+          categoryPrices: p?.categoryPrices,
         },
       };
     });
