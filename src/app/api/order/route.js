@@ -736,11 +736,18 @@ export async function GET(request) {
        FETCH SINGLE ORDER BY ID
     ------------------------------*/
     if (idParam) {
-      if (!mongoose.Types.ObjectId.isValid(idParam)) {
-        return json({ success: false, error: "Invalid orderId" }, 400);
+      let query;
+      if (mongoose.Types.ObjectId.isValid(idParam)) {
+        query = Order.findById(idParam);
+      } else {
+        // Assume it's an orderNumber
+        query = Order.findOne({ 
+          $or: [
+            { orderNumber: idParam },
+            { orderNumber: { $regex: new RegExp(`^${idParam}$`, 'i') } }
+          ]
+        });
       }
-
-      let query = Order.findById(idParam);
 
       query = safePopulateQuery(query, "user", "name email phone");
       query = safePopulateQuery(query, "supplier", "name");
