@@ -6,7 +6,10 @@ const grnItemSchema = new mongoose.Schema({
   sku: { type: String, default: "" },
   orderedQty: { type: Number, required: true },
   receivedQty: { type: Number, required: true },
+  rejectedQty: { type: Number, default: 0 },
   shortageQty: { type: Number, default: 0 },
+  batch: { type: String },
+  expiry: { type: Date },
   unitPrice: { type: Number, required: true },
   shortageValue: { type: Number, default: 0 },
 });
@@ -31,6 +34,24 @@ const goodsReceivedNoteSchema = new mongoose.Schema(
     receivedBy: { type: String, default: "Admin" },
     receivedDate: { type: Date, default: Date.now },
     remarks: { type: String, default: "" },
+    warehouseId: { type: String },
+    binId: { type: String },
+    status: {
+      type: String,
+      enum: ["Kachha", "Pakka"],
+      default: "Kachha",
+    },
+    isKachha: { type: Boolean, default: true },
+    qcStatus: {
+      type: String,
+      enum: ["Pending", "Passed", "Failed", "Partial"],
+      default: "Pending",
+    },
+    qcDetails: {
+      damagePercentage: { type: Number, default: 0 },
+      remarks: { type: String },
+      fileUrls: [String],
+    },
     hasShortage: { type: Boolean, default: false },
   },
   { timestamps: true }
