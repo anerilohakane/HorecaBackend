@@ -28,7 +28,7 @@ const ORDER_STATUSES = [
   "replacement_sent",
 ];
 
-const PAYMENT_STATUSES = ["pending", "paid", "failed", "refunded"];
+const PAYMENT_STATUSES = ["pending", "paid", "partially_paid", "failed", "refunded"];
 const DELIVERY_STATUSES = [
   "pending",
   "out_for_delivery",
@@ -78,6 +78,8 @@ const PaymentSchema = new Schema(
     status: { type: String, enum: PAYMENT_STATUSES, default: "pending" },
     transactionId: { type: String },
     paidAt: { type: Date },
+    paidAmount: { type: Number, default: 0 },
+    balanceAmount: { type: Number, default: 0 },
     meta: { type: Schema.Types.Mixed },
   },
   { _id: false }

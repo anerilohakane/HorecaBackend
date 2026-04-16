@@ -1392,39 +1392,54 @@ export async function PATCH(request) {
     // --- IMPORTANT PAYMENT SANITY CHECKS ---
     // Prevent clients from arbitrarily writing payment.status = 'refunded' or 'refund_pending'
     // unless this request was processed by the above cancel/return flows.
-    if ("paymentStatus" in body || (body.payment && "status" in body.payment)) {
-      const attempted = (body.paymentStatus ?? body.payment.status)
+    if ("paymentStatus" in body || (body.payment && typeof body.payment === "object")) {
+      const attempted = (body.paymentStatus ?? (body.payment?.status || ""))
         .toString()
         .toLowerCase();
+        
       if (attempted === "refunded" || attempted === "refund_pending") {
-        return json(
-          {
-            success: false,
-            error: `Directly setting payment status to "${attempted}" is not allowed. Use cancellation / return flows which validate refunds.`,
-          },
-          400
-        );
-      } else {
-        // allow other safe statuses (paid, pending, failed)
-        setData["payment.status"] = body.paymentStatus ?? body.payment.status;
-        setData["invoice.meta.paymentStatus"] =
-          body.paymentStatus ?? body.payment.status;
-        if (
-          (body.paymentStatus ?? body.payment.status) === "paid" &&
-          !body.paymentPaidAt
-        ) {
-          setData["payment.paidAt"] = new Date();
-          setData["invoice.meta.paidAt"] = new Date();
+        return json({ success: false, error: 'Direct status set to "refunded" or "refund_pending" not allowed.' }, 400);
+      }
+
+      // Safe to process payments
+      if (body.payment && typeof body.payment === "object") {
+        if ("status" in body.payment) {
+          setData["payment.status"] = body.payment.status;
+          setData["invoice.meta.paymentStatus"] = body.payment.status;
+          
+          if (body.payment.status === "paid" || body.payment.status === "partially_paid") {
+             setData["payment.paidAt"] = new Date();
+             setData["invoice.meta.paidAt"] = new Date();
+          }
+        }
+
+        if ("method" in body.payment)
+          setData["payment.method"] = body.payment.method;
+        
+        if ("paidAmount" in body.payment) {
+          const paidAmount = Number(body.payment.paidAmount);
+          setData["payment.paidAmount"] = paidAmount;
+          
+          // If order total available, calculate balance
+          const currentOrder = await Order.findById(idParam).lean();
+          if (currentOrder && currentOrder.total) {
+            const balance = Math.max(0, currentOrder.total - paidAmount);
+            setData["payment.balanceAmount"] = balance;
+            
+            if (paidAmount >= currentOrder.total) {
+               setData["payment.status"] = "paid";
+            } else if (paidAmount > 0) {
+               setData["payment.status"] = "partially_paid";
+            }
+          }
+        }
+
+        if ("meta" in body.payment) {
+          setData["payment.meta"] = {
+             ...(body.payment.meta || {})
+          };
         }
       }
-    }
-
-    if (body.payment && typeof body.payment === "object") {
-      if ("method" in body.payment)
-        setData["payment.method"] = body.payment.method;
-      if ("amount" in body.payment)
-        setData["payment.amount"] = Number(body.payment.amount);
-      // Do NOT accept client-sent refundAmount here — refunds only through cancel/return flows
     }
 
     if ("paymentMethod" in body) {
@@ -1482,6 +1497,41 @@ export async function PATCH(request) {
 
     if (result.matchedCount === 0) {
       return json({ success: false, error: "Order not found" }, 404);
+    }
+
+    // 💰 RECORD TRANSACTION FOR DOORSTEP COLLECTION
+    if (body.payment?.paidAmount && Number(body.payment.paidAmount) > 0) {
+      try {
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+        
+        const orderDoc = await Order.findById(idParam).lean();
+        if (orderDoc) {
+          const cash = Number(body.payment.meta?.cash || 0);
+          const online = Number(body.payment.meta?.online || 0);
+          const totalCollected = cash + online || Number(body.payment.paidAmount);
+
+          const tx = new Transaction({
+            userId: orderDoc.user,
+            amount: totalCollected,
+            type: "order_payment",
+            method: cash > 0 && online > 0 ? "mixed" : (cash > 0 ? "cash" : "online"),
+            status: "completed",
+            description: `Payment for Order ${orderDoc.orderNumber} collected at delivery`,
+            metadata: {
+               orderId: orderDoc._id,
+               orderNumber: orderDoc.orderNumber,
+               cashAmount: cash,
+               onlineAmount: online,
+               collectedBy: body.payment.meta?.capturedVia || "Delivery Partner"
+            }
+          });
+          await tx.save();
+          console.log(`[TRANSACTION] Recorded ₹${totalCollected} collection for Order ${orderDoc.orderNumber}`);
+        }
+      } catch (txErr) {
+        console.error("[TRANSACTION ERROR] Failed to record doorstep collection:", txErr);
+      }
     }
 
     // 🔥 THE MARKETPLACE SETTLEMENT ENGINE: Settle for EVERY Supplier in the order
@@ -1608,17 +1658,26 @@ export async function PATCH(request) {
       }
     }
 
-    const finalStatePopulated = await Order.findById(idParam)
-      .populate("department", "departmentName")
-      .populate("departmentHistory.from", "departmentName")
-      .populate("departmentHistory.to", "departmentName")
-      .lean();
+    // --- FINAL RESPONSE ---
+    try {
+      const finalStatePopulated = await Order.findById(idParam)
+        .populate("department", "departmentName")
+        .populate("departmentHistory.from", "departmentName")
+        .populate("departmentHistory.to", "departmentName")
+        .lean();
 
-    return json({ success: true, message: "Multi-supplier settlement handled", data: finalStatePopulated || finalState });
-
+      return json({ 
+        success: true, 
+        message: "Order updated and settlement processed", 
+        data: finalStatePopulated || finalState 
+      });
+    } catch (finalErr) {
+      console.error("[PATCH] Final population error:", finalErr);
+      return json({ success: true, message: "Order updated but response population failed", data: finalState });
+    }
 
   } catch (err) {
-    console.error("PATCH /api/order error:", err);
+    console.error("PATCH /api/order overall error:", err);
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }
