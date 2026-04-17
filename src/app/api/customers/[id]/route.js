@@ -60,7 +60,10 @@ export async function GET(req, { params }) {
   try {
     await dbConnect();
     const { id } = params;
+    console.log(`🔎 [BACKEND] GET /api/customers/${id} - Searching for customer...`);
+    
     const customer = await Customer.findById(id).lean();
+    console.log(`📦 [BACKEND] Customer found:`, customer ? "YES" : "NO");
 
     if (!customer) {
       return NextResponse.json(
