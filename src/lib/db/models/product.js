@@ -137,6 +137,7 @@ const variationSubSchema = new Schema({
 const productSchema = new Schema({
   supplierId: { type: Schema.Types.ObjectId, required: [true, "Supplier ID is required"], ref: "Supplier" },
   categoryId: { type: Schema.Types.ObjectId, required: [true, "Category ID is required"], ref: "Category" },
+  subcategoryId: { type: Schema.Types.ObjectId, ref: "Category" },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
   price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },

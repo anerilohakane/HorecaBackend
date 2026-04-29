@@ -55,17 +55,17 @@ export async function POST(request) {
 
     // Create products in the global Product collection
     if (body.products && Array.isArray(body.products)) {
-      const productDocs = body.products.map(p => ({
-        supplierId: supplier._id,
-        name: p.productName,
-        sku: p.productCode || p.productId, // Use productCode if provided
-        categoryId: p.category,
-        unit: p.uom,
-        images: p.image ? [{ url: p.image, publicId: `sup_${supplier._id}_${Date.now()}`, isMain: true }] : []
-      }));
-      
-      if (productDocs.length > 0) {
-        await Product.insertMany(productDocs);
+      for (const p of body.products) {
+        const productDoc = new Product({
+          supplierId: supplier._id,
+          name: p.productName,
+          sku: p.productCode,
+          categoryId: p.category,
+          subcategoryId: p.subcategory,
+          unit: p.uom,
+          images: p.image ? [{ url: p.image, publicId: `sup_${supplier._id}_${Date.now()}`, isMain: true }] : []
+        });
+        await productDoc.save();
       }
     }
 
@@ -89,10 +89,10 @@ export async function POST(request) {
   } catch (err) {
     console.error("POST /api/suppliers error", err);
     if (err.name === "ValidationError") {
-      const errors = Object.values(err.errors).map(e => e.message);
+      const errors = Object.values(err.errors).map((e) => e.message);
       return NextResponse.json({ success: false, error: "Validation failed", details: errors }, { status: 400 });
     }
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message, details: err.details || [] }, { status: 500 });
   }
 }
 
