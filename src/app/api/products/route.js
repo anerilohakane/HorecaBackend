@@ -224,7 +224,7 @@ export async function GET(request) {
     ]);
 
     // populate category info client-side friendly (map)
-    const categoryIds = Array.from(new Set(items.map(i => String(i.categoryId)).filter(Boolean)));
+    const categoryIds = Array.from(new Set(items.map(i => i.categoryId).filter(id => id && isValidObjectIdString(String(id)))));
     const categories = categoryIds.length ? await Category.find({ _id: { $in: categoryIds } }).select('_id name image slug').lean() : [];
     const categoryMap = new Map(categories.map(c => [String(c._id), c]));
 
@@ -232,7 +232,8 @@ export async function GET(request) {
     const customerCategory = user?.category;
 
     const itemsWithCategory = items.map(item => {
-      const cat = categoryMap.get(String(item.categoryId)) || null;
+      const catId = item.categoryId ? String(item.categoryId) : null;
+      const cat = catId ? categoryMap.get(catId) : null;
       
       // Determine price based on customer category
       let displayPrice = item.price;
