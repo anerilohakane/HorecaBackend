@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
+import Product from "@/lib/db/models/product";
 import jwt from "jsonwebtoken";
 
 // cloudinary server-side config - available if you want to process images server-side later
@@ -51,6 +52,22 @@ export async function POST(request) {
 
     const supplier = new Supplier(body);
     await supplier.save();
+
+    // Create products in the global Product collection
+    if (body.products && Array.isArray(body.products)) {
+      const productDocs = body.products.map(p => ({
+        supplierId: supplier._id,
+        name: p.productName,
+        sku: p.productCode || p.productId, // Use productCode if provided
+        categoryId: p.category,
+        unit: p.uom,
+        images: p.image ? [{ url: p.image, publicId: `sup_${supplier._id}_${Date.now()}`, isMain: true }] : []
+      }));
+      
+      if (productDocs.length > 0) {
+        await Product.insertMany(productDocs);
+      }
+    }
 
     const safeObj = supplier.toObject();
     delete safeObj.password;

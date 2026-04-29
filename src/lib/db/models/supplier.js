@@ -68,14 +68,6 @@ const supplierSchema = new Schema(
       terms: { type: String, required: true }
     }],
 
-    products: [{
-      productName: { type: String, required: true },
-      productId: { type: String, required: true },
-      category: { type: String },
-      subcategory: { type: String },
-      uom: { type: String },
-      image: { type: String }
-    }],
 
     bankDetails: {
       accountHolderName: { type: String },

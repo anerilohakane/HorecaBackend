@@ -139,17 +139,13 @@ const productSchema = new Schema({
   categoryId: { type: Schema.Types.ObjectId, required: [true, "Category ID is required"], ref: "Category" },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
-  price: { type: Number, required: [true, "Price is required"], min: [0, "Price cannot be negative"] },
+  price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
-  stockQuantity: { type: Number, required: [true, "Stock quantity is required"], min: [0, "Stock quantity cannot be negative"] },
-  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen"], default: "kg" },
+  stockQuantity: { type: Number, default: 0, min: [0, "Stock quantity cannot be negative"] },
+  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "Kg", "Gram", "Liter", "Ml", "Piece", "Box", "Dozen", "Pack", "Ton"], default: "Kg" },
   images: {
     type: [imageSubSchema],
-    validate: {
-      validator: function(value) { return Array.isArray(value) && value.length > 0; },
-      message: 'At least one product image is required'
-    },
-    required: [true, 'Product images are required']
+    default: []
   },
   isActive: { type: Boolean, default: true },
   discountedPrice: {
