@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 
+if (!process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  console.error("CRITICAL: Cloudinary credentials missing from environment variables!");
+}
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -12,6 +16,10 @@ export async function POST(request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
+
+    if (!process.env.CLOUDINARY_API_KEY) {
+      return NextResponse.json({ success: false, error: "Cloudinary is not configured on the server. Please add API keys to Vercel environment variables." }, { status: 500 });
+    }
 
     if (!file) {
       return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 });
