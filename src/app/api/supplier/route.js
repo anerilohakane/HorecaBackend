@@ -60,8 +60,8 @@ export async function POST(request) {
           supplierId: supplier._id,
           name: p.productName,
           sku: p.productCode,
-          categoryId: p.category,
-          subcategoryId: p.subcategory,
+          categoryId: p.category || undefined,
+          subcategoryId: p.subcategory || undefined,
           unit: p.uom,
           images: p.image ? [{ url: p.image, publicId: `sup_${supplier._id}_${Date.now()}`, isMain: true }] : []
         });
