@@ -63,6 +63,8 @@ export async function POST(request) {
           categoryId: p.category || undefined,
           subcategoryId: p.subcategory || undefined,
           unit: p.uom,
+          basePrice: Number(p.basePrice || 0),
+          assuredMargin: Number(p.assuredMargin || 0),
           images: p.image ? [{ url: p.image, publicId: `sup_${supplier._id}_${Date.now()}`, isMain: true }] : []
         });
         await productDoc.save();

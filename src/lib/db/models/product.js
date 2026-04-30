@@ -140,6 +140,8 @@ const productSchema = new Schema({
   subcategoryId: { type: Schema.Types.ObjectId, ref: "Category" },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
+  basePrice: { type: Number, default: 0, min: [0, "Base price cannot be negative"] },
+  assuredMargin: { type: Number, default: 0, min: [0, "Assured margin cannot be negative"] },
   price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
   stockQuantity: { type: Number, default: 0, min: [0, "Stock quantity cannot be negative"] },
