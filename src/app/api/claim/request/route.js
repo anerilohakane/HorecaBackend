@@ -117,7 +117,11 @@ export async function POST(req) {
       });
     }
 
-    return NextResponse.json({ success: true, message: "Claim request sent for approval", claimId });
+    return NextResponse.json({ 
+      success: true, 
+      message: `Claim request sent to ${salesPersonEmail} for approval`, 
+      claimId 
+    });
   } catch (error) {
     console.error("Claim request error:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
