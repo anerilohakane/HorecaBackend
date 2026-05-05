@@ -50,7 +50,7 @@ const claimSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["REQUESTED", "APPROVED", "REJECTED", "RAISED", "SETTLED"],
+      enum: ["REQUESTED", "APPROVED", "REJECTED", "PENDING", "RAISED", "SETTLED"], // Keeping old ones for compatibility
       default: "REQUESTED"
     },
     fileUrl: {
