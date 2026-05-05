@@ -60,23 +60,83 @@ export async function POST(req) {
     const rejectLink = `${process.env.NEXT_PUBLIC_APP_URL}/api/claim/reject?token=${approvalToken}`;
 
     const emailHtml = `
-      <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-        <h2 style="color: #f59e0b;">Claim Approval Request</h2>
-        <p>A price reduction has been requested for your product.</p>
-        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
-          <p><strong>Product:</strong> ${product.name}</p>
-          <p><strong>SKU:</strong> ${product.sku}</p>
-          <p><strong>Base Price:</strong> ₹${basePrice}</p>
-          <p><strong>Expected Selling Price:</strong> ₹${expectedSellingPrice.toFixed(2)}</p>
-          <p><strong>Requested Selling Price:</strong> <span style="color: #e11d48; font-weight: bold;">₹${requestedPrice}</span></p>
-          <p><strong>Loss Impact:</strong> ₹${lossAmount.toFixed(2)}</p>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #334155; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 20px auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+          .header { background: #f8fafc; padding: 32px 24px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+          .header h1 { margin: 0; color: #0f172a; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; }
+          .content { padding: 32px 24px; background: #ffffff; }
+          .summary-card { background: #f1f5f9; border-radius: 12px; padding: 24px; margin: 24px 0; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+          .info-item { margin-bottom: 12px; }
+          .label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; margin-bottom: 4px; }
+          .value { font-size: 15px; font-weight: 600; color: #1e293b; }
+          .price-impact { font-size: 20px; font-weight: 800; color: #e11d48; }
+          .actions { margin-top: 32px; display: flex; gap: 12px; }
+          .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 14px; transition: all 0.2s; }
+          .btn-approve { background: #10b981; color: #ffffff !important; }
+          .btn-reject { background: #f1f5f9; color: #475569 !important; border: 1px solid #e2e8f0; }
+          .footer { background: #f8fafc; padding: 20px 24px; font-size: 12px; color: #94a3b8; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Price Reduction Claim</h1>
+            <p style="margin: 8px 0 0; color: #64748b; font-size: 14px;">Reference ID: ${claimId}</p>
+          </div>
+          <div class="content">
+            <p>Hello <strong>${salesPersonName || 'Team'}</strong>,</p>
+            <p>A price reduction request has been initiated by the SCM ODT team for the following product. Your approval is required to proceed with the claim settlement.</p>
+            
+            <div class="summary-card">
+              <div class="info-item">
+                <div class="label">Product Name</div>
+                <div class="value">${product.name}</div>
+              </div>
+              <div style="display: table; width: 100%; margin-top: 16px;">
+                <div style="display: table-cell; width: 50%;">
+                  <div class="label">SKU / Code</div>
+                  <div class="value">${product.sku}</div>
+                </div>
+                <div style="display: table-cell; width: 50%;">
+                  <div class="label">Loss Recovery Amount</div>
+                  <div class="value" style="color: #e11d48;">₹${lossAmount.toFixed(2)}</div>
+                </div>
+              </div>
+              
+              <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+              
+              <div style="display: table; width: 100%;">
+                <div style="display: table-cell; width: 50%;">
+                  <div class="label">Current Expected Price</div>
+                  <div class="value">₹${expectedSellingPrice.toFixed(2)}</div>
+                </div>
+                <div style="display: table-cell; width: 50%;">
+                  <div class="label">Requested Selling Price</div>
+                  <div class="price-impact">₹${requestedPrice}</div>
+                </div>
+              </div>
+            </div>
+
+            <p style="font-size: 14px; color: #64748b;">Please review the requested adjustment and provide your decision using the buttons below.</p>
+            
+            <div style="margin-top: 32px; text-align: center;">
+              <a href="${approvalLink}" class="btn btn-approve">Approve Adjustment</a>
+              &nbsp;
+              <a href="${rejectLink}" class="btn btn-reject">Decline Request</a>
+            </div>
+          </div>
+          <div class="footer">
+            <p>This is an automated system notification from Unifoods SCM Platform.</p>
+            <p>&copy; 2026 Unifoods Procurement Team. All rights reserved.</p>
+          </div>
         </div>
-        <div style="display: flex; gap: 10px;">
-          <a href="${approvalLink}" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Approve</a>
-          <a href="${rejectLink}" style="background: #ef4444; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 10px;">Reject</a>
-        </div>
-        <p style="font-size: 12px; color: #64748b; margin-top: 20px;">Reference ID: ${claimId}</p>
-      </div>
+      </body>
+      </html>
     `;
 
     console.log(`[CLAIM] Preparing to send email. SMTP_USER defined: ${!!process.env.SMTP_USER}`);
