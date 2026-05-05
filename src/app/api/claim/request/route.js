@@ -79,18 +79,42 @@ export async function POST(req) {
       </div>
     `;
 
+    console.log(`[CLAIM] Preparing to send email. SMTP_USER defined: ${!!process.env.SMTP_USER}`);
+
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+       console.warn("[CLAIM] SMTP credentials missing in environment variables.");
+       return NextResponse.json({ 
+          success: true, 
+          message: "Claim created, but email could not be sent (SMTP credentials missing on server).",
+          claimId 
+       });
+    }
+
     console.log(`[CLAIM] Dispatching email to: ${salesPersonEmail}`);
     
-    const mailResult = await sendEmail({
-      to: salesPersonEmail,
-      subject: `Claim Approval Required: ${product.name}`,
-      html: emailHtml
-    });
+    try {
+      const mailResult = await sendEmail({
+        to: salesPersonEmail,
+        subject: `Claim Approval Required: ${product.name}`,
+        html: emailHtml
+      });
 
-    console.log(`[CLAIM] Mail Result:`, mailResult);
+      console.log(`[CLAIM] Mail Result:`, mailResult);
 
-    if (!mailResult.success) {
-       return NextResponse.json({ success: false, error: "Failed to send email: " + mailResult.error }, { status: 500 });
+      if (!mailResult.success) {
+         return NextResponse.json({ 
+            success: true, 
+            message: "Claim created, but email delivery failed: " + mailResult.error,
+            claimId 
+         });
+      }
+    } catch (mailErr) {
+      console.error("[CLAIM] Critical mailer error:", mailErr);
+      return NextResponse.json({ 
+        success: true, 
+        message: "Claim created, but mailer crashed: " + mailErr.message,
+        claimId 
+      });
     }
 
     return NextResponse.json({ success: true, message: "Claim request sent for approval", claimId });
