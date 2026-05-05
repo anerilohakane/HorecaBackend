@@ -1,19 +1,17 @@
 import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true, // Use SSL
+  service: "gmail",
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
   },
 });
 
 export const sendEmail = async ({ to, subject, html }) => {
   try {
     const info = await transporter.sendMail({
-      from: `"Unifoods Security" <${process.env.EMAIL_FROM}>`,
+      from: `"Unifoods Security" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,

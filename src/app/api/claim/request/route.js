@@ -139,13 +139,13 @@ export async function POST(req) {
       </html>
     `;
 
-    console.log(`[CLAIM] Preparing to send email. SMTP_USER defined: ${!!process.env.SMTP_USER}`);
+    console.log(`[CLAIM] Preparing to send email. EMAIL_USER defined: ${!!process.env.EMAIL_USER}`);
 
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
        console.warn("[CLAIM] SMTP credentials missing in environment variables.");
        return NextResponse.json({ 
           success: true, 
-          message: "Claim created, but email could not be sent (SMTP credentials missing on server).",
+          message: "Claim created, but email could not be sent (EMAIL_USER or EMAIL_PASSWORD missing on server).",
           claimId 
        });
     }
