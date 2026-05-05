@@ -18,7 +18,11 @@ export async function POST(request) {
     const file = formData.get("file");
 
     if (!process.env.CLOUDINARY_API_KEY) {
-      return NextResponse.json({ success: false, error: "Cloudinary is not configured on the server. Please add API keys to Vercel environment variables." }, { status: 500 });
+      console.error("[UPLOAD] Cloudinary API Key is missing in environment variables.");
+      return NextResponse.json({ 
+        success: false, 
+        error: "Cloudinary is not configured. Please add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your Vercel Project Settings." 
+      }, { status: 500 });
     }
 
     if (!file) {
