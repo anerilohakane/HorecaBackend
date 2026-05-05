@@ -18,6 +18,7 @@ export async function GET(req) {
     const claims = await Claim.find(query)
       .populate("vendorId", "businessName email phone")
       .populate("productId", "name sku basePrice assuredMargin")
+      .populate("orderId", "orderNumber status placedAt total")
       .sort({ createdAt: -1 });
 
     return NextResponse.json({ success: true, data: claims });
