@@ -79,11 +79,19 @@ export async function POST(req) {
       </div>
     `;
 
-    await sendEmail({
+    console.log(`[CLAIM] Dispatching email to: ${salesPersonEmail}`);
+    
+    const mailResult = await sendEmail({
       to: salesPersonEmail,
       subject: `Claim Approval Required: ${product.name}`,
       html: emailHtml
     });
+
+    console.log(`[CLAIM] Mail Result:`, mailResult);
+
+    if (!mailResult.success) {
+       return NextResponse.json({ success: false, error: "Failed to send email: " + mailResult.error }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, message: "Claim request sent for approval", claimId });
   } catch (error) {
