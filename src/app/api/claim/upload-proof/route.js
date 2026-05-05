@@ -13,7 +13,7 @@ export async function POST(req) {
 
     const claim = await Claim.findByIdAndUpdate(
       claimId,
-      { proofUrl, status: 'RAISED' }, // Automatically move to RAISED if proof is uploaded? Or just update proof.
+      { proofUrl, status: 'APPROVED' }, 
       { new: true }
     );
 
