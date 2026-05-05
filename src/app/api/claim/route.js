@@ -3,6 +3,7 @@ import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
 import Product from "@/lib/db/models/product";
 import Supplier from "@/lib/db/models/supplier";
+import Order from "@/lib/db/models/order";
 
 export async function GET(req) {
   try {
