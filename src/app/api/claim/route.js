@@ -15,12 +15,14 @@ export async function GET(req) {
     if (status && status !== "ALL") query.status = status;
     if (vendorId) query.vendorId = vendorId;
 
+    console.log("[GET /api/claim] Query:", query);
     const claims = await Claim.find(query)
       .populate("vendorId", "businessName email phone")
       .populate("productId", "name sku basePrice assuredMargin")
       .populate("orderId", "orderNumber status placedAt total")
       .sort({ createdAt: -1 });
 
+    console.log(`[GET /api/claim] Found ${claims.length} claims`);
     return NextResponse.json({ success: true, data: claims });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
