@@ -56,6 +56,9 @@ const claimSchema = new Schema(
     fileUrl: {
       type: String
     },
+    proofUrl: {
+      type: String
+    },
     approvalToken: {
       type: String
     },
