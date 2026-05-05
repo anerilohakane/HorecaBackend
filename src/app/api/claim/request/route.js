@@ -9,10 +9,10 @@ import crypto from "crypto";
 export async function POST(req) {
   try {
     await connectDB();
-    const { productId, requestedPrice, orderId } = await req.json();
+    const { productId, requestedPrice, orderId, salesPersonEmail, salesPersonName } = await req.json();
 
-    if (!productId || requestedPrice === undefined) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    if (!productId || requestedPrice === undefined || !salesPersonEmail) {
+      return NextResponse.json({ success: false, error: "Missing required fields (product, price, or salesperson)" }, { status: 400 });
     }
 
     // Fetch product with supplier details
@@ -42,33 +42,20 @@ export async function POST(req) {
       vendorId: supplier._id,
       productId: product._id,
       claimTemplateId: product.claimTemplateId,
-      claimType: "PLUS_MINUS", // Default or should be configurable? User said support 4 types.
+      claimType: "PLUS_MINUS",
       requestedPrice,
       actualSellingPrice: requestedPrice,
       expectedSellingPrice,
       lossAmount,
       status: "REQUESTED",
       approvalToken,
-      orderId
+      orderId,
+      approvedBy: salesPersonName // Store selected person's name as initial reference
     });
 
     await claim.save();
 
-    // Fetch Vendor Sales Person
-    // Assuming supplier.salesPersons is an array of objects { name, email, phone, position }
-    const salesPerson = supplier.salesPersons && supplier.salesPersons.length > 0 
-      ? supplier.salesPersons[0] 
-      : null;
-
-    if (!salesPerson || !salesPerson.email) {
-      return NextResponse.json({ 
-        success: true, 
-        message: "Claim requested, but no vendor sales person email found for approval.",
-        claim 
-      });
-    }
-
-    // Send approval email
+    // Send approval email to selected person
     const approvalLink = `${process.env.NEXT_PUBLIC_APP_URL}/api/claim/approve?token=${approvalToken}`;
     const rejectLink = `${process.env.NEXT_PUBLIC_APP_URL}/api/claim/reject?token=${approvalToken}`;
 
@@ -93,7 +80,7 @@ export async function POST(req) {
     `;
 
     await sendEmail({
-      to: salesPerson.email,
+      to: salesPersonEmail,
       subject: `Claim Approval Required: ${product.name}`,
       html: emailHtml
     });
