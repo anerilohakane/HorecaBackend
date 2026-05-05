@@ -31,11 +31,6 @@ export async function POST(req) {
 
     const product = claim.productId;
     const vendor = claim.vendorId;
-    const template = claim.claimTemplateId;
-
-    if (!template) {
-      return NextResponse.json({ success: false, error: "No claim template associated with this product" }, { status: 400 });
-    }
 
     // Prepare data for Excel
     const data = [{
@@ -74,7 +69,7 @@ export async function POST(req) {
     });
 
     claim.fileUrl = uploadResult.secure_url;
-    claim.status = "RAISED";
+    claim.status = "APPROVED"; // User requested to use APPROVED status
     await claim.save();
 
     // Send email to Vendor Sales Person
@@ -82,16 +77,16 @@ export async function POST(req) {
     if (salesPerson && salesPerson.email) {
         await sendEmail({
             to: salesPerson.email,
-            subject: `New Claim Raised: ${claim.claimId} - ${product.name}`,
+            subject: `Claim Approved: ${claim.claimId} - ${product.name}`,
             html: `
               <div style="font-family: sans-serif; padding: 20px;">
-                <h2 style="color: #e11d48;">Claim Notification</h2>
-                <p>A new claim has been raised for product sales compensation.</p>
+                <h2 style="color: #059669;">Claim Approved</h2>
+                <p>The following claim has been approved and processed.</p>
                 <p><strong>Claim ID:</strong> ${claim.claimId}</p>
                 <p><strong>Total Loss Amount:</strong> ₹${claim.lossAmount.toFixed(2)}</p>
-                <p>Please find the detailed claim report attached via the link below:</p>
-                <a href="${claim.fileUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Download Claim Excel</a>
-                <p style="margin-top: 20px;">Please process the reimbursement as per the agreement.</p>
+                <p>Please find the finalized claim report attached via the link below:</p>
+                <a href="${claim.fileUrl}" style="display: inline-block; background: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Download Claim Excel</a>
+                <p style="margin-top: 20px;">The reimbursement has been marked as approved in our system.</p>
               </div>
             `
         });
