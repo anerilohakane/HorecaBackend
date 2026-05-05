@@ -31,26 +31,42 @@ export async function POST(req) {
 
     const product = claim.productId;
     const vendor = claim.vendorId;
+    const template = claim.claimTemplateId;
 
-    // Prepare data for Excel
-    const data = [{
+    // Mapping helper for template fields to actual data
+    const dataMap = {
       "Product Name": product.name,
       "Product Code": product.sku,
       "SKU": product.sku,
       "Base Price": product.basePrice,
       "Margin (%)": product.assuredMargin,
-      "Expected Selling Price": claim.expectedSellingPrice.toFixed(2),
-      "Actual Selling Price": claim.actualSellingPrice.toFixed(2),
-      "Loss Amount": claim.lossAmount.toFixed(2),
+      "Expected Selling Price": claim.expectedSellingPrice?.toFixed(2),
+      "Actual Selling Price": claim.actualSellingPrice?.toFixed(2),
+      "Loss Amount": claim.lossAmount?.toFixed(2),
       "Claim ID": claim.claimId,
       "Vendor": vendor.businessName,
-      "Date": new Date().toLocaleDateString()
-    }];
+      "Vendor Email": vendor.email,
+      "Vendor Phone": vendor.phone,
+      "Date": new Date().toLocaleDateString(),
+      "Requested Price": claim.requestedPrice
+    };
+
+    // Prepare data for Excel dynamically based on template
+    let finalData = {};
+    if (template && template.fields && template.fields.length > 0) {
+      template.fields.forEach(field => {
+        // Try to find matching data or use empty string
+        finalData[field] = dataMap[field] !== undefined ? dataMap[field] : "";
+      });
+    } else {
+      // Fallback to default set if no template or fields
+      finalData = dataMap;
+    }
 
     // Generate Excel Buffer
-    const worksheet = XLSX.utils.json_to_sheet(data);
+    const worksheet = XLSX.utils.json_to_sheet([finalData]);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Claim Data");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Claim Report");
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
     // Upload to Cloudinary
