@@ -187,7 +187,14 @@ const productSchema = new Schema({
     D: { type: Number, default: 0 },
     E: { type: Number, default: 0 }
   },
-  poTemplateId: { type: Schema.Types.ObjectId, ref: "POTemplate", default: null }
+  poTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: "POTemplate"
+  },
+  claimTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: "ClaimTemplate"
+  }
 }, { timestamps: true });
 
 // Robust pre-save
