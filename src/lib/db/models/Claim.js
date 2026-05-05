@@ -23,6 +23,10 @@ const claimSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "ClaimTemplate"
     },
+    orderId: {
+      type: Schema.Types.ObjectId,
+      ref: "Order"
+    },
     claimType: {
       type: String,
       enum: ["PLUS_MINUS", "PRIMARY", "SECONDARY", "REVERSE"],
