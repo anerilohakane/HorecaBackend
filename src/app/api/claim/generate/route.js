@@ -74,8 +74,8 @@ export async function POST(req) {
       cloudinary.uploader.upload_stream(
         {
           folder: "claims",
-          resource_type: "auto",
-          public_id: claim.claimId
+          resource_type: "raw", // Use raw for non-image files like XLSX
+          public_id: `${claim.claimId}.xlsx` // Add extension to public_id
         },
         (error, result) => {
           if (error) reject(error);
