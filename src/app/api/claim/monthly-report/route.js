@@ -35,14 +35,19 @@ export async function GET(request) {
 
     const claims = await Claim.find(query)
     .populate("vendorId", "businessName email phone")
-    .populate("productId", "name sku basePrice assuredMargin")
+    .populate("productId", "name sku basePrice assuredMargin categoryId unit")
+    .populate("claimTemplateId")
     .lean();
 
     if (!claims || claims.length === 0) {
       return NextResponse.json({ success: false, error: "No approved claims found for this period" }, { status: 404 });
     }
 
-    // Group claims by Vendor
+    // Comprehensive Mapping helper (same as generate/route.js)
+    const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    // Prepare data for Excel
+    const workbook = XLSX.utils.book_new();
     const vendorGroups = {};
     let totalLoss = 0;
 
@@ -51,26 +56,78 @@ export async function GET(request) {
       if (!vendorGroups[vendorName]) vendorGroups[vendorName] = [];
       
       const product = claim.productId || {};
+      const vendor = claim.vendorId || {};
       totalLoss += (claim.lossAmount || 0);
 
-      vendorGroups[vendorName].push({
-        "Product Name": product.name || "N/A",
-        "SKU": product.sku || "N/A",
-        "Base Price": product.basePrice || 0,
-        "Assured Margin (%)": product.assuredMargin || 0,
-        "Expected Selling Price": claim.expectedSellingPrice || 0,
-        "Approved Selling Price": claim.actualSellingPrice || 0,
-        "Loss Amount": claim.lossAmount || 0,
+      // Create data map for this specific claim
+      const dataMap = {
+        "Product Name": product.name,
+        "Product Code": product.sku,
+        "SKU": product.sku,
+        "Item Name": product.name,
+        "Base Price": product.basePrice,
+        "Margin (%)": product.assuredMargin,
+        "Assured Margin": product.assuredMargin,
+        "Assurred Margin": product.assuredMargin,
+        "Margin": product.assuredMargin,
+        "Expected Price": claim.expectedSellingPrice,
+        "Expected Selling Price": claim.expectedSellingPrice,
+        "Actual Price": claim.actualSellingPrice,
+        "Actual Selling Price": claim.actualSellingPrice,
+        "Loss Amount": claim.lossAmount,
+        "Amount": claim.lossAmount,
+        "Claim ID": claim.claimId,
+        "Vendor Name": vendor.businessName,
+        "Vendor": vendor.businessName,
+        "Vendor Email": vendor.email,
+        "Vendor Phone": vendor.phone,
+        "Requested Price": claim.requestedPrice,
         "Approved Date": claim.approvalDate 
           ? new Date(claim.approvalDate).toLocaleDateString() 
-          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A")
+          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
+        "Status": claim.status,
+        "Category": product.categoryId?.name || "",
+        "Unit": product.unit || ""
+      };
+
+      const normalizedMap = {};
+      Object.keys(dataMap).forEach(key => {
+        normalizedMap[normalize(key)] = dataMap[key];
       });
+
+      // Use template fields if available
+      const template = claim.claimTemplateId;
+      let finalRow = {};
+
+      if (template && template.fields && template.fields.length > 0) {
+        template.fields.forEach(field => {
+          const normField = normalize(field);
+          if (dataMap[field] !== undefined) {
+            finalRow[field] = dataMap[field];
+          } else if (normalizedMap[normField] !== undefined) {
+            finalRow[field] = normalizedMap[normField];
+          } else {
+            finalRow[field] = "";
+          }
+        });
+      } else {
+        // Fallback to standard set
+        finalRow = {
+          "Product Name": product.name || "N/A",
+          "SKU": product.sku || "N/A",
+          "Base Price": product.basePrice || 0,
+          "Assured Margin (%)": product.assuredMargin || 0,
+          "Expected Selling Price": claim.expectedSellingPrice || 0,
+          "Approved Selling Price": claim.actualSellingPrice || 0,
+          "Loss Amount": claim.lossAmount || 0,
+          "Approved Date": dataMap["Approved Date"]
+        };
+      }
+
+      vendorGroups[vendorName].push(finalRow);
     });
 
-    // Generate Excel Workbook
-    const workbook = XLSX.utils.book_new();
-
-    // 1. Create Global Summary Sheet
+    // 1. Global Summary Sheet
     const summaryData = [
       ["MONTHLY VENDOR-WISE CLAIM SETTLEMENT REPORT"],
       ["Month", `${new Date(year, month - 1).toLocaleString('default', { month: 'long' })} ${year}`],
@@ -84,33 +141,17 @@ export async function GET(request) {
 
     Object.keys(vendorGroups).forEach(vendorName => {
       const vendorClaims = vendorGroups[vendorName];
-      const vendorTotalLoss = vendorClaims.reduce((sum, c) => sum + c["Loss Amount"], 0);
+      const vendorTotalLoss = vendorClaims.reduce((sum, c) => sum + (c["Loss Amount"] || c["Amount"] || 0), 0);
       summaryData.push([vendorName, vendorClaims.length, `₹${vendorTotalLoss.toFixed(2)}`]);
     });
 
-    const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(workbook, summaryWs, "Global Summary");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryData), "Global Summary");
 
-    // 2. Create Individual Vendor Sheets
+    // 2. Vendor Specific Sheets
     Object.keys(vendorGroups).forEach(vendorName => {
       const vendorData = vendorGroups[vendorName];
-      // Sheet names must be <= 31 chars
       const sheetName = vendorName.substring(0, 31);
       const ws = XLSX.utils.json_to_sheet(vendorData);
-      
-      // Auto-size columns
-      const wscols = [
-        { wch: 35 }, // Product Name
-        { wch: 15 }, // SKU
-        { wch: 12 }, // Base Price
-        { wch: 15 }, // Margin
-        { wch: 18 }, // Expected
-        { wch: 18 }, // Approved
-        { wch: 12 }, // Loss
-        { wch: 12 }  // Date
-      ];
-      ws["!cols"] = wscols;
-
       XLSX.utils.book_append_sheet(workbook, ws, sheetName);
     });
 
