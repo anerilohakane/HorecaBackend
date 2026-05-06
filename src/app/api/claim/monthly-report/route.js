@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 // Monthly Report Generation API
-import dbConnect from "@/lib/db/connect";
+import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
 import * as XLSX from "xlsx";
 
 export async function GET(request) {
-  await dbConnect();
-
   try {
+    await connectDB();
     const { searchParams } = new URL(request.url);
     const month = parseInt(searchParams.get("month")); // 1-12
     const year = parseInt(searchParams.get("year"));
@@ -62,40 +61,10 @@ export async function GET(request) {
     // Here we'll just sort it to group them visually.
     reportData.sort((a, b) => a["Vendor Name"].localeCompare(b["Vendor Name"]));
 
-    // Summary Section
-    const summaryData = [
-      ["MONTHLY CLAIM SETTLEMENT REPORT"],
-      ["Month", `${new Date(year, month - 1).toLocaleString('default', { month: 'long' })} ${year}`],
-      ["Total Approved Products", claims.length],
-      ["Total Loss Amount", `₹${totalLoss.toFixed(2)}`],
-      [], // Empty row
-    ];
-
     // Generate Excel Buffer
     const workbook = XLSX.utils.book_new();
-    
-    // Create Summary Sheet
-    const ws = XLSX.utils.aoa_to_sheet(summaryData);
-    
-    // Append Table Data starting after summary
-    XLSX.utils.sheet_add_json(ws, reportData, { origin: "A6" });
-
-    // Set Column Widths
-    const wscols = [
-      { wch: 30 }, // Vendor Name
-      { wch: 30 }, // Product Name
-      { wch: 15 }, // Product Code
-      { wch: 15 }, // SKU
-      { wch: 12 }, // Base Price
-      { wch: 15 }, // Assured Margin
-      { wch: 20 }, // Expected Price
-      { wch: 20 }, // Approved Price
-      { wch: 15 }, // Loss Amount
-      { wch: 15 }  // Date
-    ];
-    ws["!cols"] = wscols;
-
-    XLSX.utils.book_append_sheet(workbook, ws, "Monthly Report");
+    const worksheet = XLSX.utils.json_to_sheet(reportData);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Monthly Report");
 
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
