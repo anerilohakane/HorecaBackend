@@ -4,6 +4,7 @@ import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
+import ClaimTemplate from "@/lib/db/models/ClaimTemplate";
 import * as XLSX from "xlsx";
 
 export async function GET(request) {
