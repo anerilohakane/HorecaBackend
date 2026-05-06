@@ -22,7 +22,10 @@ export async function GET(request) {
 
     const claims = await Claim.find({
       status: "APPROVED",
-      approvalDate: { $gte: startDate, $lte: endDate }
+      $or: [
+        { approvalDate: { $gte: startDate, $lte: endDate } },
+        { approvalDate: { $exists: false }, updatedAt: { $gte: startDate, $lte: endDate } }
+      ]
     })
     .populate("vendorId", "businessName email phone")
     .populate("productId", "name sku basePrice assuredMargin")
@@ -52,7 +55,9 @@ export async function GET(request) {
         "Expected Selling Price": claim.expectedSellingPrice || 0,
         "Approved Selling Price": claim.actualSellingPrice || 0,
         "Loss Amount": claim.lossAmount || 0,
-        "Approved Date": claim.approvalDate ? new Date(claim.approvalDate).toLocaleDateString() : "N/A"
+        "Approved Date": claim.approvalDate 
+          ? new Date(claim.approvalDate).toLocaleDateString() 
+          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A")
       });
     });
 
