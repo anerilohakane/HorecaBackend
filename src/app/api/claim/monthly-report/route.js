@@ -12,6 +12,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const month = parseInt(searchParams.get("month")); // 1-12
     const year = parseInt(searchParams.get("year"));
+    const vendorId = searchParams.get("vendorId");
 
     if (!month || !year) {
       return NextResponse.json({ success: false, error: "Month and Year are required" }, { status: 400 });
@@ -20,13 +21,19 @@ export async function GET(request) {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59, 999);
 
-    const claims = await Claim.find({
+    const query = {
       status: "APPROVED",
       $or: [
         { approvalDate: { $gte: startDate, $lte: endDate } },
         { approvalDate: { $exists: false }, updatedAt: { $gte: startDate, $lte: endDate } }
       ]
-    })
+    };
+
+    if (vendorId && vendorId !== "ALL") {
+      query.vendorId = vendorId;
+    }
+
+    const claims = await Claim.find(query)
     .populate("vendorId", "businessName email phone")
     .populate("productId", "name sku basePrice assuredMargin")
     .lean();
