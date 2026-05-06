@@ -35,20 +35,19 @@ export async function GET(request) {
       return NextResponse.json({ success: false, error: "No approved claims found for this period" }, { status: 404 });
     }
 
-    // Prepare data for Excel
-    const reportData = [];
+    // Group claims by Vendor
+    const vendorGroups = {};
     let totalLoss = 0;
 
     claims.forEach(claim => {
-      const vendor = claim.vendorId || {};
-      const product = claim.productId || {};
+      const vendorName = claim.vendorId?.businessName || "Unknown Vendor";
+      if (!vendorGroups[vendorName]) vendorGroups[vendorName] = [];
       
+      const product = claim.productId || {};
       totalLoss += (claim.lossAmount || 0);
 
-      reportData.push({
-        "Vendor Name": vendor.businessName || "N/A",
+      vendorGroups[vendorName].push({
         "Product Name": product.name || "N/A",
-        "Product Code": product.sku || "N/A",
         "SKU": product.sku || "N/A",
         "Base Price": product.basePrice || 0,
         "Assured Margin (%)": product.assuredMargin || 0,
@@ -61,15 +60,52 @@ export async function GET(request) {
       });
     });
 
-    // Grouping by Vendor (Optional but requested)
-    // For Excel, we usually just sort by vendor or add sub-summaries.
-    // Here we'll just sort it to group them visually.
-    reportData.sort((a, b) => a["Vendor Name"].localeCompare(b["Vendor Name"]));
-
-    // Generate Excel Buffer
+    // Generate Excel Workbook
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(reportData);
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Monthly Report");
+
+    // 1. Create Global Summary Sheet
+    const summaryData = [
+      ["MONTHLY VENDOR-WISE CLAIM SETTLEMENT REPORT"],
+      ["Month", `${new Date(year, month - 1).toLocaleString('default', { month: 'long' })} ${year}`],
+      ["Total Vendors", Object.keys(vendorGroups).length],
+      ["Total Approved Products", claims.length],
+      ["Total Loss Amount", `₹${totalLoss.toFixed(2)}`],
+      [],
+      ["Vendor Breakdowns:"],
+      ["Vendor Name", "Product Count", "Total Loss"]
+    ];
+
+    Object.keys(vendorGroups).forEach(vendorName => {
+      const vendorClaims = vendorGroups[vendorName];
+      const vendorTotalLoss = vendorClaims.reduce((sum, c) => sum + c["Loss Amount"], 0);
+      summaryData.push([vendorName, vendorClaims.length, `₹${vendorTotalLoss.toFixed(2)}`]);
+    });
+
+    const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(workbook, summaryWs, "Global Summary");
+
+    // 2. Create Individual Vendor Sheets
+    Object.keys(vendorGroups).forEach(vendorName => {
+      const vendorData = vendorGroups[vendorName];
+      // Sheet names must be <= 31 chars
+      const sheetName = vendorName.substring(0, 31);
+      const ws = XLSX.utils.json_to_sheet(vendorData);
+      
+      // Auto-size columns
+      const wscols = [
+        { wch: 35 }, // Product Name
+        { wch: 15 }, // SKU
+        { wch: 12 }, // Base Price
+        { wch: 15 }, // Margin
+        { wch: 18 }, // Expected
+        { wch: 18 }, // Approved
+        { wch: 12 }, // Loss
+        { wch: 12 }  // Date
+      ];
+      ws["!cols"] = wscols;
+
+      XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+    });
 
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
@@ -77,7 +113,7 @@ export async function GET(request) {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="Monthly_Claim_Report_${month}_${year}.xlsx"`
+        "Content-Disposition": `attachment; filename="Monthly_Vendor_Claims_${month}_${year}.xlsx"`
       }
     });
   } catch (err) {
