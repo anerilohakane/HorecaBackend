@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+// Monthly Report Generation API
 import dbConnect from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
 import Supplier from "@/lib/db/models/supplier";
