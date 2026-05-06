@@ -29,16 +29,6 @@ export async function GET(request) {
     .populate("productId", "name sku basePrice assuredMargin")
     .lean();
 
-    return NextResponse.json({ success: true, count: claims.length, data: claims });
-
-    // (Temporarily commented out Excel generation for debugging)
-    /*
-
-    return NextResponse.json({ success: true, count: claims.length, data: claims });
-
-    // (Temporarily commented out Excel generation for debugging)
-    /*
-
     if (!claims || claims.length === 0) {
       return NextResponse.json({ success: false, error: "No approved claims found for this period" }, { status: 404 });
     }
@@ -116,7 +106,6 @@ export async function GET(request) {
         "Content-Disposition": `attachment; filename="Monthly_Claim_Report_${month}_${year}.xlsx"`
       }
     });
-    */
   } catch (err) {
     console.error("Monthly Report Error:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
