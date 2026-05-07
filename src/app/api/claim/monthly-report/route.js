@@ -91,6 +91,10 @@ export async function GET(request) {
       }
     });
 
+    if (searchParams.get("format") === "json") {
+      return NextResponse.json({ success: true, data: reportData });
+    }
+
     const worksheet = XLSX.utils.json_to_sheet(reportData);
     
     // Auto-size columns
