@@ -62,7 +62,7 @@ export async function GET(request) {
         "Product Code": product.sku || "N/A",
         "SKU": product.sku || "N/A",
         "Base Price": product.basePrice || 0,
-        "Assured M": product.assuredMargin || 0,
+        "Assured Margin": product.assuredMargin || 0,
         "Expected Selling Price": claim.expectedSellingPrice || 0,
         "Approved Selling Price": claim.actualSellingPrice || 0,
         "Loss Amount": claim.lossAmount || 0,
@@ -100,7 +100,7 @@ export async function GET(request) {
       { wch: 15 }, // Code
       { wch: 15 }, // SKU
       { wch: 12 }, // Base Price
-      { wch: 12 }, // Assured M
+      { wch: 15 }, // Assured Margin
       { wch: 20 }, // Expected
       { wch: 20 }, // Approved
       { wch: 15 }, // Loss
