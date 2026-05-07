@@ -36,6 +36,9 @@ const claimSchema = new Schema(
       type: Number,
       required: true
     },
+    actualPrice: {
+      type: Number
+    },
     actualSellingPrice: {
       type: Number,
       required: true

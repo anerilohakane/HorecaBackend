@@ -9,7 +9,7 @@ import crypto from "crypto";
 export async function POST(req) {
   try {
     await connectDB();
-    const { productId, requestedPrice, orderId, salesPersonEmail, salesPersonName } = await req.json();
+    const { productId, requestedPrice, orderId, salesPersonEmail, salesPersonName, actualPrice } = await req.json();
 
     if (!productId || requestedPrice === undefined || !salesPersonEmail) {
       return NextResponse.json({ success: false, error: "Missing required fields (product, price, or salesperson)" }, { status: 400 });
@@ -44,6 +44,7 @@ export async function POST(req) {
       claimTemplateId: product.claimTemplateId,
       claimType: "PLUS_MINUS",
       requestedPrice,
+      actualPrice,
       actualSellingPrice: requestedPrice,
       expectedSellingPrice,
       lossAmount,
