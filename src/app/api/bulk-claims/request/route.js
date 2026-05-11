@@ -19,38 +19,37 @@ export async function POST(req) {
     const productIds = claims.map(c => c.productId);
     const products = await Product.find({ _id: { $in: productIds } }).populate("supplierId");
 
-    // Group claims by supplierId
+    // Group claims by supplierId and salesPersonEmail
     const supplierGroups = {};
     for (const claimRequest of claims) {
       const product = products.find(p => p._id.toString() === claimRequest.productId);
       if (!product || !product.supplierId) continue;
 
       const supplierIdStr = product.supplierId._id.toString();
-      if (!supplierGroups[supplierIdStr]) {
-        supplierGroups[supplierIdStr] = {
+      const spEmail = claimRequest.salesPersonEmail || product.supplierId.email;
+      const groupKey = `${supplierIdStr}_${spEmail}`;
+      
+      if (!supplierGroups[groupKey]) {
+        supplierGroups[groupKey] = {
           supplier: product.supplierId,
+          salesPersonEmail: spEmail,
+          salesPersonName: claimRequest.salesPersonName || product.supplierId.ownerName || product.supplierId.businessName,
           products: [],
           claimRequests: []
         };
       }
-      supplierGroups[supplierIdStr].products.push(product);
-      supplierGroups[supplierIdStr].claimRequests.push(claimRequest);
+      supplierGroups[groupKey].products.push(product);
+      supplierGroups[groupKey].claimRequests.push(claimRequest);
     }
 
     const results = [];
 
     // Process each vendor group
-    for (const supplierId of Object.keys(supplierGroups)) {
-      const group = supplierGroups[supplierId];
+    for (const groupKey of Object.keys(supplierGroups)) {
+      const group = supplierGroups[groupKey];
       const supplier = group.supplier;
-
-      // Determine sales person
-      let salesPersonEmail = supplier.email;
-      let salesPersonName = supplier.ownerName || supplier.businessName;
-      if (supplier.salesPersons && supplier.salesPersons.length > 0) {
-        salesPersonEmail = supplier.salesPersons[0].email;
-        salesPersonName = supplier.salesPersons[0].name;
-      }
+      const salesPersonEmail = group.salesPersonEmail;
+      const salesPersonName = group.salesPersonName;
 
       const approvalToken = crypto.randomBytes(32).toString("hex");
 
