@@ -19,6 +19,16 @@ export async function POST(req) {
     const productIds = claims.map(c => c.productId);
     const products = await Product.find({ _id: { $in: productIds } }).populate("supplierId");
 
+    // Check for existing claims to prevent duplicates
+    const existingClaims = await Claim.find({
+      orderId,
+      productId: { $in: productIds },
+      status: { $in: ["REQUESTED", "APPROVED"] }
+    });
+    if (existingClaims.length > 0) {
+      return NextResponse.json({ success: false, error: "One or more products already have an active claim for this order." }, { status: 400 });
+    }
+
     // Group claims by supplierId and salesPersonEmail
     const supplierGroups = {};
     for (const claimRequest of claims) {
