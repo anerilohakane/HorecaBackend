@@ -174,15 +174,27 @@ export async function POST(req) {
         </html>
       `;
 
-      if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+      console.log(`[BULK_CLAIM] Preparing to send email to ${salesPersonEmail}. EMAIL_USER defined: ${!!process.env.EMAIL_USER}`);
+
+      let emailStatus = "Sent";
+      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+        console.warn("[BULK_CLAIM] SMTP credentials missing in environment variables.");
+        emailStatus = "Failed (Missing Credentials)";
+      } else {
+        console.log(`[BULK_CLAIM] Dispatching email to: ${salesPersonEmail}`);
         try {
-          await sendEmail({
+          const mailResult = await sendEmail({
             to: salesPersonEmail,
             subject: `Bulk Claim Approval Required for Order ${orderId}`,
             html: emailHtml
           });
+          console.log(`[BULK_CLAIM] Mail Result for ${salesPersonEmail}:`, mailResult);
+          if (!mailResult || !mailResult.success) {
+            emailStatus = `Failed: ${mailResult?.error || 'Unknown error'}`;
+          }
         } catch (mailErr) {
-          console.error("[BULK_CLAIM] Mailer error for vendor " + supplier.businessName, mailErr);
+          console.error(`[BULK_CLAIM] Critical mailer error for ${salesPersonEmail}:`, mailErr);
+          emailStatus = `Crashed: ${mailErr.message}`;
         }
       }
 
@@ -190,7 +202,8 @@ export async function POST(req) {
         vendorId: supplier._id,
         vendorName: supplier.businessName,
         claimsCreated: createdClaims.length,
-        salesPersonEmailed: salesPersonEmail
+        salesPersonEmailed: salesPersonEmail,
+        emailStatus: emailStatus
       });
     }
 
