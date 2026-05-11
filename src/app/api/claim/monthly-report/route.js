@@ -51,12 +51,16 @@ export async function GET(request) {
     const workbook = XLSX.utils.book_new();
     const reportData = [];
 
+    // Group rows vendor-wise by sorting
+    claims.sort((a, b) => (a.vendorId?.businessName || "").localeCompare(b.vendorId?.businessName || ""));
+
     claims.forEach(claim => {
       const product = claim.productId || {};
       const vendor = claim.vendorId || {};
 
       // Create data map for this specific claim
       const dataMap = {
+        "Order ID": claim.orderId?.orderNumber || claim.orderId || "N/A",
         "Vendor Name": vendor.businessName || "N/A",
         "Product Name": product.name || "N/A",
         "Product Code": product.sku || "N/A",
@@ -67,6 +71,7 @@ export async function GET(request) {
         "Expected Selling Price": claim.expectedSellingPrice || 0,
         "Approved Selling Price": claim.actualSellingPrice || 0,
         "Loss Amount": claim.lossAmount || 0,
+        "Claim Status": claim.status || "APPROVED",
         "Approved Date": claim.approvalDate 
           ? new Date(claim.approvalDate).toLocaleDateString() 
           : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A")
@@ -100,6 +105,7 @@ export async function GET(request) {
     
     // Auto-size columns
     const wscols = [
+      { wch: 20 }, // Order ID
       { wch: 25 }, // Vendor
       { wch: 30 }, // Product
       { wch: 15 }, // Code
@@ -110,6 +116,7 @@ export async function GET(request) {
       { wch: 20 }, // Expected
       { wch: 20 }, // Approved
       { wch: 15 }, // Loss
+      { wch: 15 }, // Claim Status
       { wch: 15 }  // Date
     ];
     worksheet["!cols"] = wscols;
