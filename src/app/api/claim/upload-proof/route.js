@@ -13,7 +13,7 @@ export async function POST(req) {
 
     const claim = await Claim.findByIdAndUpdate(
       claimId,
-      { proofUrl, status: 'APPROVED' }, 
+      { proofUrl, status: 'SETTLED' }, 
       { new: true }
     );
 
