@@ -40,8 +40,26 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Business name is required" }, { status: 400 });
     }
 
+    const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    if (!gstNumber || !gstRegex.test(gstNumber.toUpperCase())) {
+      return NextResponse.json({ success: false, error: "Valid GST number is required" }, { status: 400 });
+    }
+
     if (!address || address.trim().length < 5) {
       return NextResponse.json({ success: false, error: "Valid business address is required" }, { status: 400 });
+    }
+
+    if (!city || city.trim().length < 2) {
+      return NextResponse.json({ success: false, error: "City is required" }, { status: 400 });
+    }
+
+    if (!state || state.trim().length < 2) {
+      return NextResponse.json({ success: false, error: "State is required" }, { status: 400 });
+    }
+
+    const pinRegex = /^[1-9][0-9]{5}$/;
+    if (!pincode || !pinRegex.test(pincode)) {
+      return NextResponse.json({ success: false, error: "Valid 6-digit PIN code is required" }, { status: 400 });
     }
 
     if (!licenseImage) {
