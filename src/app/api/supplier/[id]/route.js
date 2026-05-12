@@ -64,13 +64,18 @@ export async function PATCH(request, { params }) {
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
     const body = await request.json();
+    
+    // Do not update password here (pre-save hooks won't run). Use a dedicated password-change route if needed.
+    if (body.password !== undefined) {
+      delete body.password;
+    }
+
     if (body.email) {
       const exists = await Supplier.findOne({ email: body.email.toLowerCase().trim(), _id: { $ne: id } });
       if (exists) return NextResponse.json({ success: false, error: "Email already in use" }, { status: 400 });
       body.email = body.email.toLowerCase().trim();
     }
 
-    // Do not update password here (pre-save hooks won't run). Use a dedicated password-change route if needed.
     const updated = await Supplier.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true, context: "query" }).select("-password");
     if (!updated) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 
