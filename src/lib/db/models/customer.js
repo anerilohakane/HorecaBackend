@@ -15,9 +15,40 @@ const CustomerSchema = new mongoose.Schema(
       trim: true
     },
 
+    username: {
+      type: String,
+      sparse: true,
+      unique: true,
+      trim: true
+    },
+
+    password: {
+      type: String,
+      trim: true
+    },
+
+    businessName: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
+    gstNumber: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
+    licenseImage: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
     email: {
       type: String,
-      default: null,
+      sparse: true,
+      unique: true,
       trim: true,
       lowercase: true
     },
