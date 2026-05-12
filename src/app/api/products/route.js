@@ -158,6 +158,7 @@ export async function GET(request) {
     const sort = url.searchParams.get("sort") || "-createdAt";
     const sku = url.searchParams.get("sku");
     const locationId = url.searchParams.get("locationId");
+    const openStorage = url.searchParams.get("openStorage");
 
     const filter = {};
 
@@ -207,6 +208,7 @@ export async function GET(request) {
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
     if (locationId) filter.locationId = locationId;
+    if (openStorage === "true") filter.locationId = null;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
