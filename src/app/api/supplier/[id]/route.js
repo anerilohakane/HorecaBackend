@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
+import Product from "@/lib/db/models/product";
 
 // cloudinary setup (server-side)
 import cloudinary from "cloudinary";
@@ -78,6 +79,36 @@ export async function PATCH(request, { params }) {
 
     const updated = await Supplier.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true, context: "query" }).select("-password");
     if (!updated) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
+
+    // Update or Create products in the global Product collection
+    if (body.products && Array.isArray(body.products) && body.products.length > 0) {
+      for (const p of body.products) {
+        if (!p.productName || !p.productCode) continue;
+
+        const productData = {
+          supplierId: id,
+          name: p.productName,
+          sku: p.productCode,
+          categoryId: p.category || undefined,
+          subcategoryId: p.subcategory || undefined,
+          unit: p.uom || "Kg",
+          basePrice: Number(p.basePrice || 0),
+          assuredMargin: Number(p.assuredMargin || 0),
+          poTemplateId: p.poTemplateId || undefined,
+          claimTemplateId: p.claimTemplateId || undefined,
+        };
+
+        if (p.image) {
+          productData.images = [{ url: p.image, publicId: `sup_${id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, isMain: true }];
+        }
+
+        await Product.findOneAndUpdate(
+          { sku: p.productCode },
+          { $set: productData },
+          { upsert: true, new: true, runValidators: true }
+        );
+      }
+    }
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
