@@ -15,8 +15,37 @@ export async function POST(req) {
       licenseImage, name, address, city, state, pincode 
     } = body;
 
-    if (!username || !password || !email || !phone || !businessName || !licenseImage || !name || !address) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    if (!username || username.length < 3) {
+      return NextResponse.json({ success: false, error: "Username must be at least 3 characters" }, { status: 400 });
+    }
+
+    if (!password || password.length < 8) {
+      return NextResponse.json({ success: false, error: "Password must be at least 8 characters" }, { status: 400 });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      return NextResponse.json({ success: false, error: "Invalid email address" }, { status: 400 });
+    }
+
+    if (!phone || phone.replace(/\D/g, "").length < 10) {
+      return NextResponse.json({ success: false, error: "Invalid phone number" }, { status: 400 });
+    }
+
+    if (!name || name.trim().length < 2) {
+      return NextResponse.json({ success: false, error: "Full name is required" }, { status: 400 });
+    }
+
+    if (!businessName || businessName.trim().length < 2) {
+      return NextResponse.json({ success: false, error: "Business name is required" }, { status: 400 });
+    }
+
+    if (!address || address.trim().length < 5) {
+      return NextResponse.json({ success: false, error: "Valid business address is required" }, { status: 400 });
+    }
+
+    if (!licenseImage) {
+      return NextResponse.json({ success: false, error: "Business license image is required" }, { status: 400 });
     }
 
     await dbConnect();
