@@ -10,7 +10,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { username, password, email, phone, businessName, gstNumber, licenseImage, name, address } = body;
+    const { 
+      username, password, email, phone, businessName, gstNumber, 
+      licenseImage, name, address, city, state, pincode 
+    } = body;
 
     if (!username || !password || !email || !phone || !businessName || !licenseImage || !name || !address) {
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
@@ -50,6 +53,9 @@ export async function POST(req) {
       phone: standardizedPhone,
       name: name.trim(),
       address: address.trim(),
+      city: city || null,
+      state: state || null,
+      pincode: pincode || null,
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       licenseImage,
