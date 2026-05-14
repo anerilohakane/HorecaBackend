@@ -231,15 +231,24 @@ export async function POST(request) {
     }
 
     if (!identifiedUser) {
+      // 🕵️ FALLBACK: If ID lookup fails, try to see if the user exists at all by checking the token or other body fields
+      // This helps diagnose if the frontend is sending an ID that doesn't match the DB
       const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
       const registeredModels = mongoose.modelNames();
-      console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Models: ${registeredModels.join(', ')}`);
+      
+      // Sample a few IDs to see what we're connected to
+      const sample = await Customer.find().limit(3).select('_id').lean();
+      const sampleIds = sample.map(s => s._id.toString()).join(', ');
+
+      console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Samples: ${sampleIds}`);
       
       return json({ 
         success: false, 
         error: "Customer/User/Supplier not found with the provided ID",
         debugId: placerId,
-        debugDb: dbName
+        debugDb: dbName,
+        debugSamples: sampleIds,
+        debugModels: registeredModels
       }, 404);
     }
 
