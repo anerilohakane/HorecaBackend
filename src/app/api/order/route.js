@@ -233,24 +233,30 @@ export async function POST(request) {
     if (!identifiedUser) {
       // 🕵️ FALLBACK 1: Try finding by phone number from shipping address
       const phone = shippingAddress?.phone;
-      if (phone) {
-         // Normalize phone for search (basic version)
-         const numericPhone = phone.replace(/\D/g, "");
-         identifiedUser = await Customer.findOne({ 
-           $or: [
-             { phone: { $regex: numericPhone } },
-             { phone: phone }
-           ]
-         });
+      const email = shippingAddress?.email || body.email;
+      
+      if (phone || email) {
+         const query = [];
+         if (phone) {
+            const numericPhone = phone.replace(/\D/g, "");
+            query.push({ phone: { $regex: numericPhone } });
+            query.push({ phone: phone });
+         }
+         if (email) {
+            query.push({ email: email.toLowerCase() });
+         }
+
+         identifiedUser = await Customer.findOne({ $or: query });
+         
          if (identifiedUser) {
             userModel = "Customer";
-            console.log(`[ORDER INFO] User identified via PHONE fallback: ${phone} (Original ID ${placerId} not found)`);
+            console.log(`[ORDER INFO] User auto-linked via PHONE/EMAIL fallback: ${phone || email} (Original ID ${placerId} not found)`);
          }
       }
     }
 
     if (!identifiedUser) {
-      // 🕵️ FALLBACK 2: Deep search in ALL collections to see where this ID actually is
+      // 🕵️ FALLBACK 2: Try finding in ALL collections (raw)
       const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
       
       // Try to find where this ID actually exists
