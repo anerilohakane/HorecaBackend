@@ -36,3 +36,30 @@ export async function GET(req) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+
+export async function POST(req) {
+  try {
+    await connectDB();
+    const { claimId } = await req.json();
+
+    if (!claimId) {
+      return NextResponse.json({ success: false, error: "Claim ID is required" }, { status: 400 });
+    }
+
+    const claim = await Claim.findOne({ claimId });
+    if (!claim) {
+      return NextResponse.json({ success: false, error: "Claim not found" }, { status: 404 });
+    }
+
+    if (claim.status !== "PENDING" && claim.status !== "REQUESTED") {
+      return NextResponse.json({ success: false, error: `Claim cannot be rejected in its current status: ${claim.status}` }, { status: 400 });
+    }
+
+    claim.status = "REJECTED";
+    await claim.save();
+
+    return NextResponse.json({ success: true, message: "Claim rejected successfully", data: claim });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}

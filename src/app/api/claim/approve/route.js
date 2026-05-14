@@ -23,14 +23,8 @@ export async function GET(req) {
 
     claim.status = "APPROVED";
     claim.approvalDate = new Date();
-    // In a real scenario, we'd capture the name/email of the person who clicked.
-    // For now, we'll mark as approved by sales person.
     claim.approvedBy = "Sales Representative"; 
     await claim.save();
-
-    // Trigger claim generation logic? 
-    // The user said: IF Approved: Claim is generated.
-    // We can call the generation API or trigger it here.
     
     return new Response(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px;">
@@ -40,6 +34,35 @@ export async function GET(req) {
       </div>
     `, { headers: { "Content-Type": "text/html" } });
 
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+export async function POST(req) {
+  try {
+    await connectDB();
+    const { claimId } = await req.json();
+
+    if (!claimId) {
+      return NextResponse.json({ success: false, error: "Claim ID is required" }, { status: 400 });
+    }
+
+    const claim = await Claim.findOne({ claimId });
+    if (!claim) {
+      return NextResponse.json({ success: false, error: "Claim not found" }, { status: 404 });
+    }
+
+    if (claim.status !== "PENDING" && claim.status !== "REQUESTED") {
+      return NextResponse.json({ success: false, error: `Claim cannot be approved in its current status: ${claim.status}` }, { status: 400 });
+    }
+
+    claim.status = "APPROVED";
+    claim.approvalDate = new Date();
+    claim.approvedBy = "Admin Dashboard";
+    await claim.save();
+
+    return NextResponse.json({ success: true, message: "Claim approved successfully", data: claim });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
