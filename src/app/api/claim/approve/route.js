@@ -42,7 +42,7 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     await connectDB();
-    const { claimId } = await req.json();
+    const { claimId, proofUrl } = await req.json();
 
     if (!claimId) {
       return NextResponse.json({ success: false, error: "Claim ID is required" }, { status: 400 });
@@ -60,6 +60,7 @@ export async function POST(req) {
     claim.status = "APPROVED";
     claim.approvalDate = new Date();
     claim.approvedBy = "Admin Dashboard";
+    if (proofUrl) claim.proofUrl = proofUrl;
     await claim.save();
 
     return NextResponse.json({ success: true, message: "Claim approved successfully", data: claim });
