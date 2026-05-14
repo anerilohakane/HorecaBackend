@@ -231,24 +231,58 @@ export async function POST(request) {
     }
 
     if (!identifiedUser) {
-      // 🕵️ FALLBACK: If ID lookup fails, try to see if the user exists at all by checking the token or other body fields
-      // This helps diagnose if the frontend is sending an ID that doesn't match the DB
+      // 🕵️ FALLBACK 1: Try finding by phone number from shipping address
+      const phone = shippingAddress?.phone;
+      if (phone) {
+         // Normalize phone for search (basic version)
+         const numericPhone = phone.replace(/\D/g, "");
+         identifiedUser = await Customer.findOne({ 
+           $or: [
+             { phone: { $regex: numericPhone } },
+             { phone: phone }
+           ]
+         });
+         if (identifiedUser) {
+            userModel = "Customer";
+            console.log(`[ORDER INFO] User identified via PHONE fallback: ${phone} (Original ID ${placerId} not found)`);
+         }
+      }
+    }
+
+    if (!identifiedUser) {
+      // 🕵️ FALLBACK 2: Deep search in ALL collections to see where this ID actually is
       const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
-      const registeredModels = mongoose.modelNames();
       
-      // Sample a few IDs to see what we're connected to
+      // Try to find where this ID actually exists
+      let foundInCollection = null;
+      try {
+        const collections = await mongoose.connection.db.listCollections().toArray();
+        for (const coll of collections) {
+          const doc = await mongoose.connection.db.collection(coll.name).findOne({ 
+            _id: mongoose.Types.ObjectId.isValid(placerId) ? new mongoose.Types.ObjectId(placerId) : placerId 
+          });
+          if (doc) {
+            foundInCollection = coll.name;
+            break;
+          }
+        }
+      } catch (e) {
+        console.error("Global search failed:", e);
+      }
+
+      // Sample a few IDs from Customers to verify connectivity
       const sample = await Customer.find().limit(3).select('_id').lean();
       const sampleIds = sample.map(s => s._id.toString()).join(', ');
 
-      console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Samples: ${sampleIds}`);
+      console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Found in: ${foundInCollection || 'NONE'}`);
       
       return json({ 
         success: false, 
         error: "Customer/User/Supplier not found with the provided ID",
         debugId: placerId,
         debugDb: dbName,
-        debugSamples: sampleIds,
-        debugModels: registeredModels
+        debugFoundIn: foundInCollection || "NONE",
+        debugSamples: sampleIds
       }, 404);
     }
 

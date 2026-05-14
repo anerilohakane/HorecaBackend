@@ -81,7 +81,10 @@ const CustomerSchema = new mongoose.Schema(
       default: null
     }
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    collection: "customers"
+  }
 );
 
 export default mongoose.models.Customer ||
