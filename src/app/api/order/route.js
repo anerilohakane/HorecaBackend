@@ -231,11 +231,15 @@ export async function POST(request) {
     }
 
     if (!identifiedUser) {
-      console.error(`[ORDER ERROR] User not found for ID: ${placerId}`);
+      const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
+      const registeredModels = mongoose.modelNames();
+      console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Models: ${registeredModels.join(', ')}`);
+      
       return json({ 
         success: false, 
         error: "Customer/User/Supplier not found with the provided ID",
-        debugId: placerId 
+        debugId: placerId,
+        debugDb: dbName
       }, 404);
     }
 

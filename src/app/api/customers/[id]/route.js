@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
 
@@ -66,8 +67,17 @@ export async function GET(req, { params }) {
     console.log(`📦 [BACKEND] Customer found:`, customer ? "YES" : "NO");
 
     if (!customer) {
+      const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
+      const registeredModels = mongoose.modelNames();
+      console.error(`[CUSTOMER ERROR] Customer not found for ID: ${id} | DB: ${dbName} | Models: ${registeredModels.join(', ')}`);
+      
       return NextResponse.json(
-        { success: false, error: "Customer not found" },
+        { 
+          success: false, 
+          error: "Customer not found",
+          debugId: id,
+          debugDb: dbName
+        },
         { status: 404 }
       );
     }
