@@ -211,21 +211,32 @@ export async function POST(request) {
       return json({ success: false, error: "Identification (userId or supplierId) is required" }, 400);
     }
 
-    let user = await User.findById(placerId);
-    let userModel = "User";
-
-    if (!user) {
-      user = await Customer.findById(placerId);
-      userModel = "Customer";
+    // 🛑 DEBUG: Ensure it's a valid ID
+    if (!mongoose.Types.ObjectId.isValid(placerId)) {
+       return json({ success: false, error: `Invalid ID format provided: ${placerId}` }, 400);
     }
 
-    if (!user) {
-      user = await Supplier.findById(placerId);
+    let identifiedUser = null;
+    let userModel = "User";
+
+    // Try finding in all three collections
+    identifiedUser = await User.findById(placerId);
+    if (!identifiedUser) {
+      identifiedUser = await Customer.findById(placerId);
+      userModel = "Customer";
+    }
+    if (!identifiedUser) {
+      identifiedUser = await Supplier.findById(placerId);
       userModel = "Supplier";
     }
 
-    if (!user) {
-      return json({ success: false, error: "Customer/User/Supplier not found with the provided ID" }, 404);
+    if (!identifiedUser) {
+      console.error(`[ORDER ERROR] User not found for ID: ${placerId}`);
+      return json({ 
+        success: false, 
+        error: "Customer/User/Supplier not found with the provided ID",
+        debugId: placerId 
+      }, 404);
     }
 
     // 2) items array or single-item shortcut
@@ -289,8 +300,7 @@ export async function POST(request) {
         );
       }
 
-      const user = await getUserFromRequest(request);
-      const customerCategory = user?.category;
+      const customerCategory = identifiedUser?.category || "D";
       let displayPrice = product.price;
 
       if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory]) {
@@ -433,7 +443,7 @@ export async function POST(request) {
 
     // 8) Build orderDoc according to your OrderSchema
     const orderDoc = new Order({
-      user: user._id,
+      user: identifiedUser._id,
       userModel: userModel,
       supplier: supplierRef,
       items: builtItems,
@@ -618,7 +628,7 @@ export async function POST(request) {
       level: 'info',
       message: `Order created successfully: ${orderDoc._id}`,
       action: 'ORDER_CREATED',
-      userId: user._id,
+      userId: identifiedUser._id,
       metadata: {
         orderId: orderDoc._id,
         orderNumber: orderDoc.orderNumber,
