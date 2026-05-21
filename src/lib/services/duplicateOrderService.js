@@ -11,6 +11,40 @@ function normalizeString(str) {
 }
 
 /**
+ * Normalizes a phone number for comparison by removing all non-numeric characters.
+ */
+function normalizePhone(phone) {
+  if (!phone) return "";
+  return phone.toString().replace(/\D/g, "");
+}
+
+/**
+ * Checks if two orders belong to the same customer.
+ */
+function isSameCustomer(o1, o2) {
+  if (!o1 || !o2) return false;
+
+  // 1. Check polymorphic Customer ID reference
+  if (o1.userModel === "Customer" && o2.userModel === "Customer") {
+    if (o1.user && o2.user && o1.user.toString() === o2.user.toString()) {
+      return true;
+    }
+  }
+
+  // 2. Check shipping address phone number (primary match)
+  const p1 = normalizePhone(o1.shippingAddress?.phone);
+  const p2 = normalizePhone(o2.shippingAddress?.phone);
+  if (p1 && p2 && p1 === p2) return true;
+
+  // 3. Check shipping address full name (secondary match)
+  const n1 = normalizeString(o1.shippingAddress?.fullName);
+  const n2 = normalizeString(o2.shippingAddress?.fullName);
+  if (n1 && n2 && n1 === n2) return true;
+
+  return false;
+}
+
+/**
  * Compares two shipping addresses to see if they are substantially the same.
  */
 function isSameAddress(addr1, addr2) {
@@ -79,17 +113,8 @@ export async function detectAndGroupOrder(orderDocOrId) {
     const orderTime = order.placedAt || order.createdAt || new Date();
     const timeWindow = 24 * 60 * 60 * 1000; // 24 hours time window
 
-    // Find candidate duplicate orders matching user or customer phone number
-    const phoneQuery = order.shippingAddress?.phone 
-      ? { "shippingAddress.phone": order.shippingAddress.phone } 
-      : { user: order.user };
-
     const candidates = await Order.find({
       _id: { $ne: order._id },
-      $or: [
-        { user: order.user },
-        phoneQuery
-      ],
       status: { $nin: ["cancelled", "canceled"] },
       duplicateStatus: { $nin: ["ignored", "separate_valid"] },
       placedAt: {
@@ -100,6 +125,9 @@ export async function detectAndGroupOrder(orderDocOrId) {
 
     const duplicates = [];
     for (const cand of candidates) {
+      // Check customer identity (creator-independent)
+      if (!isSameCustomer(order, cand)) continue;
+
       // Check total
       if (Math.abs((cand.total || 0) - (order.total || 0)) > 0.02) continue;
 
