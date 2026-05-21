@@ -15,6 +15,21 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Missing required fields (product, price, or salesperson)" }, { status: 400 });
     }
 
+    // Check if order is duplicate and block claim if so
+    if (orderId && mongoose.Types.ObjectId.isValid(orderId)) {
+      const Order = (await import("@/lib/db/models/order")).default;
+      const order = await Order.findById(orderId);
+      if (order) {
+        const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
+        if (isDuplicateBlocked) {
+          return NextResponse.json({
+            success: false,
+            error: "Action blocked: The associated order is marked as a duplicate and is pending review or merged."
+          }, { status: 400 });
+        }
+      }
+    }
+
     // Fetch product with supplier details
     const product = await Product.findById(productId).populate("supplierId");
     if (!product) {

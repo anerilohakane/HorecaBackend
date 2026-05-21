@@ -86,6 +86,15 @@ export async function POST(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
+    // Block operations on shadow duplicate orders (pending review or merged)
+    const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
+    if (isDuplicateBlocked) {
+      return json({
+        success: false,
+        error: "Action blocked: This order is marked as a duplicate and is pending review or merged."
+      }, 400);
+    }
+
     // Prevent accidental regeneration
     if (order.invoice && !force) {
       return json(

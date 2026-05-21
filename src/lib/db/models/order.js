@@ -204,6 +204,18 @@ const OrderSchema = new Schema(
     notes: { type: String },
     cancellationReason: { type: String },
     metadata: { type: Schema.Types.Mixed },
+
+    // Duplicate Order System fields
+    isDuplicateOrder: { type: Boolean, default: false },
+    duplicateGroupId: { type: Schema.Types.ObjectId },
+    duplicateOf: { type: Schema.Types.ObjectId, ref: "Order" },
+    duplicateStatus: { 
+      type: String, 
+      enum: ["none", "pending_review", "merged", "cancelled", "ignored", "separate_valid"], 
+      default: "none"
+    },
+    masterOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT"], default: "Customer" }
   },
   {
     timestamps: true,
@@ -216,6 +228,9 @@ OrderSchema.index({ user: 1 });
 OrderSchema.index({ supplier: 1 });
 OrderSchema.index({ status: 1 });
 OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ duplicateGroupId: 1 });
+OrderSchema.index({ duplicateStatus: 1 });
+OrderSchema.index({ masterOrderId: 1 });
 
 /* ---------- Helpful pre-save hooks (optional) ---------- */
 
@@ -229,6 +244,15 @@ OrderSchema.pre("validate", function (next) {
     const short = Math.floor(1000 + Math.random() * 9000);
     this.orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${short}`;
   }
+
+  if (this.userModel === "Customer") {
+    this.orderSource = "Customer";
+  } else if (this.userModel === "Supplier") {
+    this.orderSource = "Vendor";
+  } else if (this.userModel === "User") {
+    this.orderSource = "ODT";
+  }
+
   next();
 });
 

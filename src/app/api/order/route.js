@@ -17,6 +17,7 @@ import Customer from "@/lib/db/models/customer";
 import Department from "@/lib/db/models/Department";
 import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
+import { detectAndGroupOrder } from "@/lib/services/duplicateOrderService";
 
 // (json helper assumed already in file)
 const json = (payload, status = 200) =>
@@ -660,6 +661,26 @@ export async function POST(request) {
     // 10) Save
     await orderDoc.save();
 
+    // 10.5) Trigger duplicate order detection inline
+    try {
+      console.log(`[ORDER LOG] Running duplicate detection for order ${orderDoc._id}...`);
+      const dupRes = await detectAndGroupOrder(orderDoc);
+      if (dupRes.success && dupRes.duplicateDetected) {
+        console.log(`[ORDER LOG] Duplicate detected! Group ID: ${dupRes.duplicateGroupId}, Master ID: ${dupRes.masterOrderId}`);
+        // Fetch updated order doc to reflect duplicate grouping fields in response
+        const updatedDoc = await Order.findById(orderDoc._id);
+        if (updatedDoc) {
+          orderDoc.isDuplicateOrder = updatedDoc.isDuplicateOrder;
+          orderDoc.duplicateGroupId = updatedDoc.duplicateGroupId;
+          orderDoc.duplicateStatus = updatedDoc.duplicateStatus;
+          orderDoc.masterOrderId = updatedDoc.masterOrderId;
+          orderDoc.duplicateOf = updatedDoc.duplicateOf;
+        }
+      }
+    } catch (dupErr) {
+      console.error("[ORDER LOG] Error during duplicate order detection:", dupErr);
+    }
+
     // 11) Optional stock decrement (Default to TRUE unless explicitly false)
     if (body.decrementStock !== false) {
       console.log("Starting stock decrement for order:", orderDoc._id);
@@ -940,6 +961,27 @@ export async function PATCH(request) {
     // fetch current order
     const order = await Order.findById(idParam);
     if (!order) return json({ success: false, error: "Order not found" }, 404);
+
+    // Block operations on shadow duplicate orders (pending review or merged)
+    const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
+    if (isDuplicateBlocked) {
+      // Allow cancellation or updating duplicate properties
+      const allowedKeys = ["duplicateStatus", "duplicateGroupId", "masterOrderId", "duplicateOf", "cancellationReason"];
+      const requestedKeys = Object.keys(body);
+      const tryingToCancel = body.status === "cancelled" || body.status === "canceled";
+      
+      const hasRestrictedUpdates = requestedKeys.some(key => {
+        if (key === "status" && tryingToCancel) return false;
+        return !allowedKeys.includes(key);
+      });
+
+      if (hasRestrictedUpdates) {
+        return json({
+          success: false,
+          error: "Action blocked: This order is marked as a duplicate and is pending review or merged."
+        }, 400);
+      }
+    }
 
     const curStatus = String(order.status || "").toLowerCase();
     const requestedStatus = body.status
