@@ -245,12 +245,14 @@ OrderSchema.pre("validate", function (next) {
     this.orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${short}`;
   }
 
-  if (this.userModel === "Customer") {
-    this.orderSource = "Customer";
-  } else if (this.userModel === "Supplier") {
-    this.orderSource = "Vendor";
-  } else if (this.userModel === "User") {
-    this.orderSource = "ODT";
+  if (!this.orderSource || this.orderSource === "Customer") {
+    if (this.userModel === "Customer") {
+      this.orderSource = "Customer";
+    } else if (this.userModel === "Supplier") {
+      this.orderSource = "Vendor";
+    } else if (this.userModel === "User") {
+      this.orderSource = "ODT";
+    }
   }
 
   next();

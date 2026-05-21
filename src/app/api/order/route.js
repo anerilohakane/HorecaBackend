@@ -501,6 +501,7 @@ export async function POST(request) {
       user: identifiedUser._id,
       userModel: userModel,
       supplier: supplierRef,
+      orderSource: body.orderSource || (body.supplierId ? "Vendor" : "Customer"),
       items: builtItems,
 
       shippingAddress: shippingAddress,
