@@ -134,9 +134,6 @@ export async function detectAndGroupOrder(orderDocOrId) {
       // Check items
       if (!isSameItems(order.items, cand.items)) continue;
 
-      // Check address
-      if (!isSameAddress(order.shippingAddress, cand.shippingAddress)) continue;
-
       duplicates.push(cand);
     }
 
