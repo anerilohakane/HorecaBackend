@@ -400,12 +400,13 @@ export async function POST(request) {
       );
     }
 
-    // 4) Totals mapped to your schema
-    const gstAmount = Number(body.gstAmount ?? body.taxAmount ?? body.tax ?? 0);
-    const shippingCharges = Number(body.shippingCharges ?? 0);
-    const platformFee = Number(body.platformFee ?? 0);
+    // 4) Totals mapped to your schema - Recalculate GST dynamically on backend
+    const calculatedGst = builtItems.reduce((sum, item) => sum + (item.totalPrice * ((item.gst || 0) / 100)), 0);
+    const gstAmount = Number(calculatedGst.toFixed(2));
+    const shippingCharges = 0; // Removed - no shipping charges
+    const platformFee = 0;    // Removed - no platform fee
     const discounts = Number(body.discounts ?? 0);
-    const total = subtotal + gstAmount + shippingCharges + platformFee - discounts;
+    const total = Number((subtotal + gstAmount - discounts).toFixed(2));
 
     // Calculate aggregated GST percentage
     const orderGst = subtotal > 0 ? (gstAmount / subtotal) * 100 : 0;
