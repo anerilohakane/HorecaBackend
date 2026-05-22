@@ -173,6 +173,10 @@ const OrderSchema = new Schema(
     discounts: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
+    // MOV (Minimum Order Value) fields — for audit/tracking
+    movApplied: { type: Boolean, default: false },         // true if order was placed below MOV with delivery charge consent
+    movDeliveryCharge: { type: Number, default: 0 },       // ₹250 delivery charge for below-MOV orders (0 if MOV met)
+
     currency: { type: String, default: "INR" },
 
     // lifecycle

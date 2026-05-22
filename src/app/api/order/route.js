@@ -18,6 +18,7 @@ import Department from "@/lib/db/models/Department";
 import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
 import { detectAndGroupOrder } from "@/lib/services/duplicateOrderService";
+import { MOV_AMOUNT, MOV_DELIVERY_CHARGE } from "@/lib/utils/mov";
 
 // (json helper assumed already in file)
 const json = (payload, status = 200) =>
@@ -403,10 +404,34 @@ export async function POST(request) {
     // 4) Totals mapped to your schema - Recalculate GST dynamically on backend
     const calculatedGst = builtItems.reduce((sum, item) => sum + (item.totalPrice * ((item.gst || 0) / 100)), 0);
     const gstAmount = Number(calculatedGst.toFixed(2));
-    const shippingCharges = 0; // Removed - no shipping charges
     const platformFee = 0;    // Removed - no platform fee
     const discounts = Number(body.discounts ?? 0);
-    const total = Number((subtotal + gstAmount - discounts).toFixed(2));
+
+    // --- 🛍️ MOV (Minimum Order Value) VALIDATION ---
+    // MOV is checked against Grand Total = subtotal + GST (before any delivery charge)
+    const grandTotalBeforeMOV = subtotal + gstAmount - discounts;
+    const movApplied = body.movApplied === true;
+    let movDeliveryCharge = 0;
+    let shippingCharges = 0;
+
+    if (grandTotalBeforeMOV < MOV_AMOUNT) {
+      if (!movApplied) {
+        // Client did NOT acknowledge delivery charge — block order creation
+        return json({
+          success: false,
+          error: "MOV_NOT_MET",
+          message: `Minimum Order Value (MOV) is ₹${MOV_AMOUNT}. Orders below MOV require an additional ₹${MOV_DELIVERY_CHARGE} delivery charge.`,
+          movAmount: MOV_AMOUNT,
+          movDeliveryCharge: MOV_DELIVERY_CHARGE,
+          currentTotal: grandTotalBeforeMOV,
+        }, 422);
+      }
+      // Client agreed to pay delivery charge
+      movDeliveryCharge = MOV_DELIVERY_CHARGE;
+      shippingCharges = MOV_DELIVERY_CHARGE;
+    }
+
+    const total = Number((grandTotalBeforeMOV + movDeliveryCharge).toFixed(2));
 
     // Calculate aggregated GST percentage
     const orderGst = subtotal > 0 ? (gstAmount / subtotal) * 100 : 0;
@@ -515,6 +540,10 @@ export async function POST(request) {
       total,
       currency: body.currency || "INR",
 
+      // MOV tracking fields
+      movApplied,
+      movDeliveryCharge,
+
       status: body.status || "pending",
       placedAt: new Date(),
 
@@ -568,6 +597,9 @@ export async function POST(request) {
         paymentMethod,
         paymentStatus: orderDoc.payment.status, // Use live status
         paidAt: orderDoc.payment.paidAt || null,
+        // MOV audit fields
+        movApplied,
+        movDeliveryCharge,
       },
     };
 
