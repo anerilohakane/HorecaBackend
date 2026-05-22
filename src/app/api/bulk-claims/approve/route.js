@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
+import { notifyODTTeam } from "@/lib/utils/odtNotifications";
 
 export async function POST(req) {
   try {
@@ -15,10 +16,32 @@ export async function POST(req) {
       return NextResponse.json({ success: true, message: "No claims to approve" });
     }
 
+    // Find a claim to get orderId before updating
+    const firstClaim = await Claim.findOne({ approvalToken: token, claimId: { $in: claimIds } });
+    const orderId = firstClaim ? firstClaim.orderId : null;
+
     const result = await Claim.updateMany(
       { approvalToken: token, claimId: { $in: claimIds }, status: "REQUESTED" },
-      { $set: { status: "APPROVED", approvalDate: new Date() } }
+      { 
+        $set: { 
+          status: "APPROVED", 
+          vendorResponseStatus: "APPROVED",
+          approvalDate: new Date() 
+        },
+        $push: {
+          actionLog: {
+            action: "VENDOR_APPROVED",
+            note: "Approved by vendor via bulk approval portal",
+            performedBy: "Vendor",
+            timestamp: new Date()
+          }
+        }
+      }
     );
+
+    if (orderId) {
+      await notifyODTTeam(orderId);
+    }
 
     return NextResponse.json({ 
       success: true, 

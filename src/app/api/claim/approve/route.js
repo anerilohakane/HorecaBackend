@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
+import { notifyODTTeam } from "@/lib/utils/odtNotifications";
 
 export async function GET(req) {
   try {
@@ -22,9 +23,23 @@ export async function GET(req) {
     }
 
     claim.status = "APPROVED";
+    claim.vendorResponseStatus = "APPROVED";
     claim.approvalDate = new Date();
     claim.approvedBy = "Sales Representative"; 
+    
+    if (!claim.actionLog) claim.actionLog = [];
+    claim.actionLog.push({
+      action: "VENDOR_APPROVED",
+      note: "Approved by vendor sales representative via email direct link",
+      performedBy: "Vendor Representative",
+      timestamp: new Date()
+    });
+
     await claim.save();
+
+    if (claim.orderId) {
+      await notifyODTTeam(claim.orderId);
+    }
     
     return new Response(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px;">
@@ -42,7 +57,7 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     await connectDB();
-    const { claimId, proofUrl } = await req.json();
+    const { claimId, proofUrl, performedBy } = await req.json();
 
     if (!claimId) {
       return NextResponse.json({ success: false, error: "Claim ID is required" }, { status: 400 });
@@ -57,11 +72,27 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: `Claim cannot be approved in its current status: ${claim.status}` }, { status: 400 });
     }
 
+    const actor = performedBy || "Admin Dashboard";
+
     claim.status = "APPROVED";
+    claim.vendorResponseStatus = "APPROVED";
     claim.approvalDate = new Date();
-    claim.approvedBy = "Admin Dashboard";
+    claim.approvedBy = actor;
     if (proofUrl) claim.proofUrl = proofUrl;
+
+    if (!claim.actionLog) claim.actionLog = [];
+    claim.actionLog.push({
+      action: "ODT_APPROVED",
+      note: `Approved by SCM/ODT team. Proof uploaded: ${proofUrl ? "Yes" : "No"}`,
+      performedBy: actor,
+      timestamp: new Date()
+    });
+
     await claim.save();
+
+    if (claim.orderId) {
+      await notifyODTTeam(claim.orderId);
+    }
 
     return NextResponse.json({ success: true, message: "Claim approved successfully", data: claim });
   } catch (error) {

@@ -15,10 +15,10 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Missing required fields (orderId, claims)" }, { status: 400 });
     }
 
-    // Check if order is duplicate and block claim if so
+    let order = null;
     if (orderId) {
       const Order = (await import("@/lib/db/models/order")).default;
-      const order = await Order.findById(orderId);
+      order = await Order.findById(orderId);
       if (order) {
         const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
         if (isDuplicateBlocked) {
@@ -91,7 +91,12 @@ export async function POST(req) {
         const expectedSellingPrice = basePrice + (basePrice * margin / 100);
         const lossAmount = expectedSellingPrice - request.requestedPrice;
 
-        totalLossAmount += lossAmount;
+        // Find quantity from the order items
+        const orderItem = order ? order.items.find(item => item.product.toString() === product._id.toString()) : null;
+        const quantity = orderItem ? orderItem.quantity : 1;
+        const claimAmount = lossAmount * quantity;
+
+        totalLossAmount += claimAmount;
 
         const claimId = `CLM-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
@@ -106,6 +111,17 @@ export async function POST(req) {
           actualSellingPrice: request.requestedPrice,
           expectedSellingPrice,
           lossAmount,
+          quantity,
+          claimAmount,
+          vendorResponseStatus: "PENDING",
+          actionLog: [
+            {
+              action: "REQUEST_CREATED",
+              note: `Bulk claim request created for ${quantity} unit(s)`,
+              performedBy: "SCM System",
+              timestamp: new Date()
+            }
+          ],
           status: "REQUESTED",
           approvalToken, // Shared token for this vendor's bulk
           orderId,
@@ -126,13 +142,19 @@ export async function POST(req) {
         const expected = basePrice + (basePrice * margin / 100);
         const loss = expected - reqPrice;
 
+        const orderItem = order ? order.items.find(item => item.product.toString() === product._id.toString()) : null;
+        const quantity = orderItem ? orderItem.quantity : 1;
+        const claimAmount = loss * quantity;
+
         productRowsHtml += `
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #eee;">${product.name}</td>
             <td style="padding: 10px; border-bottom: 1px solid #eee;">${product.sku || 'N/A'}</td>
             <td style="padding: 10px; border-bottom: 1px solid #eee;">₹${expected.toFixed(2)}</td>
             <td style="padding: 10px; border-bottom: 1px solid #eee; color: #e11d48; font-weight: bold;">₹${reqPrice}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">${quantity}</td>
             <td style="padding: 10px; border-bottom: 1px solid #eee; color: #e11d48;">₹${loss.toFixed(2)}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; color: #e11d48; font-weight: bold;">₹${claimAmount.toFixed(2)}</td>
           </tr>
         `;
       }
@@ -176,7 +198,9 @@ export async function POST(req) {
                       <th>SKU</th>
                       <th>Expected Price</th>
                       <th>Requested Price</th>
-                      <th>Loss Amount</th>
+                      <th>Qty</th>
+                      <th>Loss (Unit)</th>
+                      <th>Total Claim</th>
                     </tr>
                   </thead>
                   <tbody>

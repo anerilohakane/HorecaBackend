@@ -53,9 +53,39 @@ const claimSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["REQUESTED", "APPROVED", "REJECTED", "PENDING", "RAISED", "SETTLED"], // Keeping old ones for compatibility
+      enum: ["REQUESTED", "APPROVED", "REJECTED", "PENDING", "RAISED", "SETTLED", "PARTIALLY_APPROVED"], // Keeping old ones for compatibility
       default: "REQUESTED"
     },
+    quantity: {
+      type: Number,
+      default: 1
+    },
+    claimAmount: {
+      type: Number,
+      default: 0
+    },
+    vendorResponseStatus: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING"
+    },
+    rejectionReason: {
+      type: String
+    },
+    actionLog: [
+      {
+        action: {
+          type: String,
+          required: true
+        },
+        note: String,
+        performedBy: String,
+        timestamp: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
     fileUrl: {
       type: String
     },

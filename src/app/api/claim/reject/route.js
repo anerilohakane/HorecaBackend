@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
+import { notifyODTTeam } from "@/lib/utils/odtNotifications";
 
 export async function GET(req) {
   try {
@@ -22,7 +23,21 @@ export async function GET(req) {
     }
 
     claim.status = "REJECTED";
+    claim.vendorResponseStatus = "REJECTED";
+    
+    if (!claim.actionLog) claim.actionLog = [];
+    claim.actionLog.push({
+      action: "VENDOR_REJECTED",
+      note: "Rejected by vendor sales representative via email direct link",
+      performedBy: "Vendor Representative",
+      timestamp: new Date()
+    });
+
     await claim.save();
+
+    if (claim.orderId) {
+      await notifyODTTeam(claim.orderId);
+    }
 
     return new Response(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px;">
@@ -40,7 +55,7 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     await connectDB();
-    const { claimId, proofUrl } = await req.json();
+    const { claimId, proofUrl, rejectionReason, performedBy } = await req.json();
 
     if (!claimId) {
       return NextResponse.json({ success: false, error: "Claim ID is required" }, { status: 400 });
@@ -55,9 +70,26 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: `Claim cannot be rejected in its current status: ${claim.status}` }, { status: 400 });
     }
 
+    const actor = performedBy || "Admin Dashboard";
+
     claim.status = "REJECTED";
+    claim.vendorResponseStatus = "REJECTED";
+    if (rejectionReason) claim.rejectionReason = rejectionReason;
     if (proofUrl) claim.proofUrl = proofUrl;
+
+    if (!claim.actionLog) claim.actionLog = [];
+    claim.actionLog.push({
+      action: "ODT_REJECTED",
+      note: `Rejected by SCM/ODT team. Reason: ${rejectionReason || "No reason specified"}. Proof uploaded: ${proofUrl ? "Yes" : "No"}`,
+      performedBy: actor,
+      timestamp: new Date()
+    });
+
     await claim.save();
+
+    if (claim.orderId) {
+      await notifyODTTeam(claim.orderId);
+    }
 
     return NextResponse.json({ success: true, message: "Claim rejected successfully", data: claim });
   } catch (error) {
