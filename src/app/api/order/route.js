@@ -362,7 +362,13 @@ export async function POST(request) {
         displayPrice = product.categoryPrices[customerCategory];
       }
 
-      const unitPrice = displayPrice;
+      // Use the unitPrice sent by the client (what the customer saw in cart/checkout).
+      // If the client price is LOWER than the resolved DB price (possible price manipulation),
+      // enforce the DB price. This ensures the invoice always matches the checkout display.
+      const clientUnitPrice = Number(it.unitPrice ?? it.price ?? 0);
+      const unitPrice = (clientUnitPrice > 0 && clientUnitPrice <= displayPrice)
+        ? clientUnitPrice  // honour what the customer was shown
+        : displayPrice;   // fallback to DB-resolved price (and protects against inflation)
 
       const totalPrice = unitPrice * qty;
       subtotal += totalPrice;

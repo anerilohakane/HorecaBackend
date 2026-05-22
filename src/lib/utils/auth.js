@@ -41,7 +41,8 @@ export function getTokenFromReq(request) {
 export function verifyToken(token) {
   if (!token) return null;
   try {
-    return jwt.verify(token, ACCESS_SECRET);
+    const secret = process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "fallback_access_token_secret";
+    return jwt.verify(token, secret);
   } catch (err) {
     // invalid or expired
     // console.debug("[verifyToken] error", err.message);

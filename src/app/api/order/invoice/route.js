@@ -138,9 +138,14 @@ export async function POST(request) {
         gst: order.gst,
         gstAmount: order.gstAmount,
         shippingCharges: order.shippingCharges,
+        platformFee: order.platformFee || 0,
         discounts: order.discounts,
         total: order.total,
         currency: order.currency || "INR",
+
+        // MOV audit fields
+        movApplied: order.movApplied || false,
+        movDeliveryCharge: order.movDeliveryCharge || 0,
 
         paymentMethod: order.payment?.method || null,
         paymentStatus: order.payment?.status || null,
