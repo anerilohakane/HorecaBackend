@@ -118,7 +118,7 @@ export async function POST(request) {
       invoiceNumber,
       generatedAt: now,
       url: "", // PDF URL will go here later
-
+      status: "optional",
       meta: {
         orderId: order._id,
 

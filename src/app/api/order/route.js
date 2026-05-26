@@ -588,6 +588,7 @@ export async function POST(request) {
       invoiceNumber,
       generatedAt: now,
       url: body.invoiceUrl || "",
+      status: "optional",
       meta: {
         user: orderDoc.user,
         supplier: orderDoc.supplier,
@@ -909,23 +910,35 @@ export async function GET(request) {
     if (supplierId) rawQ.supplier = new mongoose.Types.ObjectId(supplierId);
 
     if (department) {
-      const oid = new mongoose.Types.ObjectId(department);
-      rawQ.$or = [
-        { department: department },
-        { department: oid },
-        { "department.$oid": department }
-      ];
+      const resolvedDept = await normalizeDept(department);
+      if (mongoose.Types.ObjectId.isValid(resolvedDept)) {
+        const oid = new mongoose.Types.ObjectId(resolvedDept);
+        rawQ.$or = [
+          { department: resolvedDept },
+          { department: oid },
+          { "department.$oid": resolvedDept.toString() }
+        ];
+      } else {
+        rawQ.department = resolvedDept;
+      }
     }
 
     if (fromDepartment) {
-      const fromOid = new mongoose.Types.ObjectId(fromDepartment);
+      const resolvedFromDept = await normalizeDept(fromDepartment);
+      const isOid = mongoose.Types.ObjectId.isValid(resolvedFromDept);
+      const fromOid = isOid ? new mongoose.Types.ObjectId(resolvedFromDept) : null;
+
+      const historyMatchOr = [
+        { from: resolvedFromDept }
+      ];
+      if (isOid) {
+        historyMatchOr.push({ from: fromOid });
+        historyMatchOr.push({ "from.$oid": resolvedFromDept.toString() });
+      }
+
       const historyMatch = {
         $elemMatch: {
-          $or: [
-            { from: fromDepartment },
-            { from: fromOid },
-            { "from.$oid": fromDepartment }
-          ]
+          $or: historyMatchOr
         }
       };
 
@@ -1508,8 +1521,37 @@ export async function PATCH(request) {
       setData["invoice.meta.orderStatus"] = body.status;
     }
 
+    // --- INVOICE VERIFICATION & WORKFLOW TRANSITION ---
+    const isVerifyingInvoice = body.action === "verify_invoice" || 
+                              body.invoiceStatus === "verified" || 
+                              (body.invoice && body.invoice.status === "verified") ||
+                              body["invoice.status"] === "verified";
+
+    if (isVerifyingInvoice) {
+      setData["invoice.status"] = "verified";
+      
+      // Auto-transition to ART department
+      const artDept = await normalizeDept("art");
+      const oldDept = await normalizeDept(order.department);
+
+      if (artDept && String(artDept) !== String(oldDept)) {
+        setData.department = artDept;
+
+        const historyEntry = {
+          from: oldDept,
+          to: artDept,
+          updatedBy: (body.changedBy || body.userId) ? new mongoose.Types.ObjectId(body.changedBy || body.userId) : null,
+          updatedAt: new Date(),
+          notes: body.notes || body.departmentNotes || "Invoice verified by ODT - Automatically transitioned to ART"
+        };
+
+        if (!update.$push) update.$push = {};
+        update.$push.departmentHistory = historyEntry;
+      }
+    }
+
     // --- DEPARTMENT UPDATES ---
-    if ("department" in body) {
+    if ("department" in body && !isVerifyingInvoice) {
       const newDept = await normalizeDept(body.department);
       const oldDept = await normalizeDept(order.department);
 

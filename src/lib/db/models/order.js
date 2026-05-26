@@ -66,6 +66,7 @@ const InvoiceSchema = new Schema(
     invoiceNumber: { type: String },
     generatedAt: { type: Date },
     url: { type: String }, // if you upload invoice PDF and store link
+    status: { type: String, enum: ["optional", "verified"], default: "optional" },
     meta: { type: Schema.Types.Mixed },
   },
   { _id: false }
