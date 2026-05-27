@@ -658,6 +658,29 @@ export async function PATCH(request) {
       setData["invoice.meta.cancellationReason"] = cancellationReason;
       setData["invoice.meta.cancellationAt"] = new Date();
 
+      // Persist notes, department, and departmentNotes if present
+      if ("department" in body) {
+        setData.department = body.department;
+      }
+      if ("notes" in body && typeof body.notes === "string") {
+        setData.notes = body.notes.trim();
+        setData["invoice.meta.notes"] = body.notes.trim();
+      }
+      if ("departmentNotes" in body && typeof body.departmentNotes === "string") {
+        setData.departmentNotes = body.departmentNotes.trim();
+      }
+      if ("departmentHistory" in body && Array.isArray(body.departmentHistory)) {
+        setData.departmentHistory = body.departmentHistory;
+      } else {
+        const historyEntry = {
+          updatedAt: new Date(),
+          notes: body.departmentNotes || body.notes || cancellationReason,
+          updatedBy: body.changedBy || "System"
+        };
+        update.$push = update.$push || {};
+        update.$push.departmentHistory = historyEntry;
+      }
+
       // --- REFUND AMOUNT LOGIC ---
       const cancellationFee = Number(body.cancellationFee ?? 0);
       const cancellationFeePercent = Number(body.cancellationFeePercent ?? 0);
@@ -1115,6 +1138,37 @@ export async function PATCH(request) {
       setData["invoice.meta.notes"] = body.notes.trim();
     }
 
+    // Support saving items, subtotal, tax, total, department, departmentNotes, and departmentHistory in fallback path
+    if ("items" in body && Array.isArray(body.items)) {
+      setData.items = body.items;
+    }
+    if ("subtotal" in body) {
+      setData.subtotal = Number(body.subtotal);
+    }
+    if ("tax" in body) {
+      setData.tax = Number(body.tax);
+    }
+    if ("total" in body) {
+      setData.total = Number(body.total);
+    }
+    if ("department" in body) {
+      setData.department = body.department;
+    }
+    if ("departmentNotes" in body && typeof body.departmentNotes === "string") {
+      setData.departmentNotes = body.departmentNotes.trim();
+    }
+    if ("departmentHistory" in body && Array.isArray(body.departmentHistory)) {
+      setData.departmentHistory = body.departmentHistory;
+    } else if (body.departmentNotes || body.notes || body.cancellationReason || body.status || "department" in body) {
+      const historyEntry = {
+        updatedAt: new Date(),
+        notes: body.departmentNotes || body.notes || body.cancellationReason || `Status updated to ${body.status || order.status}`,
+        updatedBy: body.changedBy || "System"
+      };
+      update.$push = update.$push || {};
+      update.$push.departmentHistory = historyEntry;
+    }
+
     if (Object.keys(setData).length > 0) update.$set = setData;
     if (!update.$set) {
       return json(
@@ -1158,6 +1212,23 @@ export async function PATCH(request) {
       req: request
     });
 
+    return json({ success: false, error: err.message || "Server error" }, 500);
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    await dbConnect();
+    const url = new URL(request.url);
+    const idParam = url.searchParams.get("id") || url.searchParams.get("orderId");
+    if (!idParam || !mongoose.Types.ObjectId.isValid(idParam)) {
+      return json({ success: false, error: "Invalid orderId" }, 400);
+    }
+    const order = await Order.findByIdAndDelete(idParam);
+    if (!order) return json({ success: false, error: "Order not found" }, 404);
+    return json({ success: true, message: "Order deleted successfully" }, 200);
+  } catch (err) {
+    console.error("DELETE /api/order error:", err);
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }
