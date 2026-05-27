@@ -8,10 +8,11 @@ import Log from './db/models/Log';
  * @param {string} options.message
  * @param {string} options.action
  * @param {string|mongoose.Types.ObjectId} [options.userId]
+ * @param {'User'|'Customer'|'Employee'} [options.userModel]
  * @param {Object} [options.metadata]
  * @param {Request} [options.req] - Next.js Request object to extract IP and user-agent
  */
-export async function logger({ level = 'info', message, action, userId = null, metadata = {}, req }) {
+export async function logger({ level = 'info', message, action, userId = null, userModel = 'User', metadata = {}, req }) {
   try {
     // Attempt to connect to DB if not connected
     await dbConnect();
@@ -50,6 +51,7 @@ export async function logger({ level = 'info', message, action, userId = null, m
       message,
       action,
       userId,
+      userModel,
       metadata: safeMetadata,
       ipAddress,
       userAgent,

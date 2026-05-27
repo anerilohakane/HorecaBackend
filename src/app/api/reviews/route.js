@@ -6,6 +6,7 @@ import Order from "@/lib/db/models/order";
 // import Product from "@/lib/db/models/product"; // If needed to update avg rating
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
+import { logger } from "@/lib/logger";
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -54,13 +55,13 @@ export async function POST(request) {
       );
     }
     
-    // Check if order is delivered (Optional policy: can only review delivered items)
-    if (order.status !== 'delivered' && order.status !== 'completed') {
-        // You might want to allow it, but typically only delivered items are reviewed. 
-        // For now, I'll allow it but warn or strict it if requested. 
-        // Let's strict it to 'delivered' to be safe, or at least 'shipped'.
-        // Assuming 'delivered' is the standard for reviews.
-        // if (order.status !== 'delivered') return json({ success: false, error: "Order must be delivered to leave a review"}, 400);
+    // 2.5 Strict Policy: Only allow reviews for delivered/completed orders
+    const validStatuses = ['delivered', 'completed', 'return_requested'];
+    if (!validStatuses.includes(order.status?.toLowerCase())) {
+        return json({ 
+            success: false, 
+            error: `Order must be delivered before you can leave a review. Current status: ${order.status}` 
+        }, 400);
     }
 
     // Normalize images (handle array of strings or array of objects with url property)
@@ -108,6 +109,22 @@ export async function POST(request) {
       console.error("Error updating product rating stats:", updateError);
       // We don't fail the review creation if this fails, but it's important to log.
     }
+
+    await logger({
+      level: 'info',
+      message: `Product review created for: ${productId}`,
+      action: 'PRODUCT_REVIEW_CREATED',
+      userId: userId,
+      userModel: 'Customer',
+      metadata: {
+        reviewId: review._id,
+        productId: productId,
+        orderId: orderId,
+        rating,
+        commentHead: comment.substring(0, 50)
+      },
+      req: request
+    });
 
     return json({ success: true, review }, 201);
   } catch (error) {
@@ -177,8 +194,20 @@ export async function GET(request) {
 
     const query = {};
 
-    if (productId) query.product = productId;
-    if (userId) query.user = userId;
+    if (productId) {
+      if (mongoose.Types.ObjectId.isValid(productId)) {
+        query.product = productId;
+      } else {
+        return json({ success: true, total: 0, page, limit, reviews: [] });
+      }
+    }
+    if (userId) {
+      if (mongoose.Types.ObjectId.isValid(userId)) {
+        query.user = userId;
+      } else {
+        return json({ success: true, total: 0, page, limit, reviews: [] });
+      }
+    }
 
 
     const reviews = await Review.find(query)

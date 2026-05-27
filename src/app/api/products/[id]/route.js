@@ -7,6 +7,7 @@ import Category from "@/lib/db/models/category";
 import Subscription from "@/lib/db/models/subscription";
 import RestockRequest from "@/lib/db/models/RestockRequest";
 import Notification from "@/lib/db/models/notification";
+import { logger } from "@/lib/logger";
 
 /** Validate ObjectId */
 function isValidObjectIdString(id) {
@@ -144,6 +145,14 @@ export async function PUT(request, { params }) {
     // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
     await processRestockNotifications(updated);
 
+    await logger({
+      level: 'info',
+      message: `Product updated (PUT): ${updated.name}`,
+      action: 'PRODUCT_UPDATED',
+      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null, locationName: updated.locationName || null, locationPath: updated.locationPath || null },
+      req: request
+    });
+
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     console.error("PUT /api/products/[id] error:", err);
@@ -174,11 +183,29 @@ export async function PATCH(request, { params }) {
     }
 
     const body = await request.json();
+    console.log(`[PATCH PRODUCT ${id}] Incoming Body:`, JSON.stringify(body, null, 2));
 
-    const updated = await Product.findByIdAndUpdate(id, { $set: body }, {
-      new: true,
-      runValidators: true,
-    });
+    const product = await Product.findById(id);
+    if (!product) {
+      return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
+    }
+
+    // Explicitly update categoryPrices if provided to ensure nested object merging/replacement
+    if (body.categoryPrices) {
+      product.categoryPrices = {
+        ...product.categoryPrices,
+        ...body.categoryPrices
+      };
+      // Mark as modified to ensure Mongoose saves the nested object
+      product.markModified('categoryPrices');
+      delete body.categoryPrices; // Remove from body to avoid double-processing via Object.assign
+    }
+
+    // Apply remaining updates
+    Object.assign(product, body);
+
+    const updated = await product.save();
+    console.log(`[PATCH PRODUCT ${id}] Saved State Category Prices:`, updated.categoryPrices);
 
     if (!updated) {
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
@@ -212,6 +239,14 @@ export async function PATCH(request, { params }) {
 
     // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
     await processRestockNotifications(updated);
+
+    await logger({
+      level: 'info',
+      message: `Product updated (PATCH): ${updated.name}`,
+      action: 'PRODUCT_UPDATED',
+      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null, locationName: updated.locationName || null, locationPath: updated.locationPath || null },
+      req: request
+    });
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {

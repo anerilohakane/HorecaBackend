@@ -1,0 +1,6 @@
+{
+  "status": "delivered",
+  "payment": {
+    "status": "paid"
+  }
+}

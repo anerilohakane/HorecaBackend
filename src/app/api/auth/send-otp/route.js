@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 export async function POST(req) {
   try {
@@ -7,6 +8,8 @@ export async function POST(req) {
 
     // For development – static OTP
     const otp = "123456";
+
+    await logger({ level: 'info', message: `OTP sent to: ${phone}`, action: 'OTP_SENT', metadata: { phone }, req });
 
     return NextResponse.json({ success: true, otp }); // Do not send OTP in production.
   } catch (err) {

@@ -86,6 +86,15 @@ export async function POST(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
+    // Block operations on shadow duplicate orders (pending review or merged)
+    const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
+    if (isDuplicateBlocked) {
+      return json({
+        success: false,
+        error: "Action blocked: This order is marked as a duplicate and is pending review or merged."
+      }, 400);
+    }
+
     // Prevent accidental regeneration
     if (order.invoice && !force) {
       return json(
@@ -109,7 +118,7 @@ export async function POST(request) {
       invoiceNumber,
       generatedAt: now,
       url: "", // PDF URL will go here later
-
+      status: "optional",
       meta: {
         orderId: order._id,
 
@@ -126,11 +135,17 @@ export async function POST(request) {
         })),
 
         subtotal: order.subtotal,
-        tax: order.tax,
+        gst: order.gst,
+        gstAmount: order.gstAmount,
         shippingCharges: order.shippingCharges,
+        platformFee: order.platformFee || 0,
         discounts: order.discounts,
         total: order.total,
         currency: order.currency || "INR",
+
+        // MOV audit fields
+        movApplied: order.movApplied || false,
+        movDeliveryCharge: order.movDeliveryCharge || 0,
 
         paymentMethod: order.payment?.method || null,
         paymentStatus: order.payment?.status || null,

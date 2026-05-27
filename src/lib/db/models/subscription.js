@@ -54,6 +54,7 @@ const SubscriptionSchema = new Schema(
     productImage: { type: String },
     deviceToken: { type: String }, // For push notifications
     lockedPrice: { type: Number }, // Price when subscription started
+    metadata: { type: Schema.Types.Mixed }, // Additional order context (fees, original order ID, etc.)
   },
   {
     timestamps: true,

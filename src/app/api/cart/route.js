@@ -2,6 +2,49 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Cart from "@/lib/db/models/cart";
 import Product from "@/lib/db/models/product";
+import Customer from "@/lib/db/models/customer";
+import { logger } from "@/lib/logger";
+import { getUserFromRequest } from "@/lib/serverAuth";
+
+async function recalculateCart(cart, userId) {
+  const customer = await Customer.findById(userId).lean();
+  const customerCategory = customer?.category || "D";
+
+  let total = 0;
+  for (const item of cart.items) {
+    const p = item.productId;
+    if (p && typeof p === "object" && p.price !== undefined) {
+      let displayPrice = p.price;
+      if (customerCategory && p.categoryPrices && p.categoryPrices[customerCategory] > 0) {
+        displayPrice = p.categoryPrices[customerCategory];
+      }
+      item.price = displayPrice;
+      item.gst = p.gst || 0;
+      item.name = p.name;
+      item.unit = p.unit;
+      total += displayPrice * item.quantity;
+    } else {
+      const product = await Product.findById(item.productId).lean();
+      if (product) {
+        let displayPrice = product.price;
+        if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory] > 0) {
+          displayPrice = product.categoryPrices[customerCategory];
+        }
+        item.price = displayPrice;
+        item.gst = product.gst || 0;
+        item.name = product.name;
+        item.unit = product.unit;
+        total += displayPrice * item.quantity;
+      } else {
+        total += (item.price || 0) * item.quantity;
+      }
+    }
+  }
+  cart.subtotal = total;
+  cart.updatedAt = new Date();
+  cart.markModified('items');
+  await cart.save();
+}
 
 export async function GET(req) {
   try {
@@ -17,13 +60,7 @@ export async function GET(req) {
       );
     }
 
-    // 🔥 Ensure populate works
-    const cart = await Cart.findOne({ userId })
-      .populate({
-        path: "items.productId",
-        model: Product,
-      })
-      .exec();
+    let cart = await Cart.findOne({ userId });
 
     if (!cart) {
       return NextResponse.json({
@@ -32,23 +69,40 @@ export async function GET(req) {
       });
     }
 
+    // Dynamic Recalculation
+    await recalculateCart(cart, userId);
+
+    // Re-fetch populated cart
+    const populatedCart = await Cart.findOne({ userId })
+      .populate({
+        path: "items.productId",
+        model: Product,
+      })
+      .exec();
+
     // 🔥 Format items cleanly for frontend
-    const formattedItems = cart.items.map((item) => {
+    const formattedItems = populatedCart.items.map((item) => {
       const p = item.productId; // populated product
 
       return {
         productId: p?._id?.toString(),
         quantity: item.quantity,
+        name: item.name,
+        price: item.price,
+        unit: item.unit,
+        gst: item.gst || 0,
         product: {
           id: p?._id?.toString(),
           name: p?.name,
           price: p?.price,
           unit: p?.unit,
+          gst: p?.gst || 0,
           image:
             p?.images?.[0]?.url ||
             p?.image ||
             "/images/placeholder-product.png",
           stockQuantity: p?.stockQuantity,
+          categoryPrices: p?.categoryPrices,
         },
       };
     });
@@ -58,7 +112,7 @@ export async function GET(req) {
       data: {
         userId,
         items: formattedItems,
-        subtotal: cart.subtotal,
+        subtotal: populatedCart.subtotal,
       },
     });
   } catch (err) {
@@ -96,19 +150,29 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Requested quantity exceeds available stock" }, { status: 400 });
     }
 
+    const customer = await Customer.findById(userId).lean();
+    const customerCategory = customer?.category || "D";
+    let displayPrice = product.price;
+
+    if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory]) {
+      displayPrice = product.categoryPrices[customerCategory];
+    }
+
     // Upsert cart
-    const cart = await Cart.findOne({ userId });
+    let cart = await Cart.findOne({ userId });
     if (!cart) {
       const item = {
         productId,
         quantity,
         name: product.name,
-        price: product.price,
+        price: displayPrice,
         thumbnail: product.images?.[0]?.url || "",
-        unit: product.unit
+        unit: product.unit,
+        gst: product.gst || 0
       };
-      const newCart = new Cart({ userId, items: [item], subtotal: product.price * quantity, updatedAt: new Date() });
+      const newCart = new Cart({ userId, items: [item], subtotal: displayPrice * quantity, updatedAt: new Date() });
       await newCart.save();
+      await recalculateCart(newCart, userId);
       return NextResponse.json({ success: true, data: newCart }, { status: 201 });
     }
 
@@ -116,6 +180,9 @@ export async function POST(request) {
     const existingIndex = cart.items.findIndex(i => String(i.productId) === String(productId));
     if (existingIndex > -1) {
       cart.items[existingIndex].quantity += quantity;
+      // update price/gst snapshots just in case
+      cart.items[existingIndex].price = displayPrice;
+      cart.items[existingIndex].gst = product.gst || 0;
       // clamp to stock if needed
       if (product.stockQuantity != null && cart.items[existingIndex].quantity > product.stockQuantity) {
         cart.items[existingIndex].quantity = product.stockQuantity;
@@ -125,16 +192,16 @@ export async function POST(request) {
         productId,
         quantity,
         name: product.name,
-        price: product.price,
+        price: displayPrice,
         thumbnail: product.images?.[0]?.url || "",
-        unit: product.unit
+        unit: product.unit,
+        gst: product.gst || 0
       });
     }
 
-    // recalc subtotal
-    cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
-    cart.updatedAt = new Date();
-    await cart.save();
+    await recalculateCart(cart, userId);
+
+    await logger({ level: 'info', message: `Added to cart: ${productId} (qty: ${quantity})`, action: 'CART_ADD', userId, metadata: { productId, quantity, totalItems: cart.items.length }, req: request });
 
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
@@ -161,7 +228,7 @@ export async function PATCH(request) {
     const qty = typeof body.quantity !== "undefined" ? parseInt(body.quantity, 10) : null;
     if (qty != null && qty < 0) return NextResponse.json({ success: false, error: "Invalid quantity" }, { status: 400 });
 
-    const cart = await Cart.findOne({ userId });
+    let cart = await Cart.findOne({ userId });
     if (!cart) return NextResponse.json({ success: false, error: "Cart not found" }, { status: 404 });
 
     const idx = cart.items.findIndex(i => String(i.productId) === String(productId));
@@ -184,9 +251,10 @@ export async function PATCH(request) {
       return NextResponse.json({ success: false, error: "No update action specified" }, { status: 400 });
     }
 
-    cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
-    cart.updatedAt = new Date();
-    await cart.save();
+    await recalculateCart(cart, userId);
+    
+    await logger({ level: 'info', message: `Updated cart item: ${productId}`, action: 'CART_UPDATE', userId, metadata: { productId, body }, req: request });
+
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
     console.error("PATCH /api/cart error", err);
@@ -213,20 +281,29 @@ export async function DELETE(request) {
 
     if (!userId) return NextResponse.json({ success: false, error: "userId required" }, { status: 400 });
 
-    const cart = await Cart.findOne({ userId });
+    let cart = await Cart.findOne({ userId });
     if (!cart) return NextResponse.json({ success: true, data: { userId, items: [] } });
 
     if (!productId) {
       // clear cart
       cart.items = [];
       cart.subtotal = 0;
+      cart.updatedAt = new Date();
+      await cart.save();
     } else {
       cart.items = cart.items.filter(i => String(i.productId) !== String(productId));
-      cart.subtotal = cart.items.reduce((sum, it) => sum + (it.price || 0) * (it.quantity || 0), 0);
+      await recalculateCart(cart, userId);
     }
 
-    cart.updatedAt = new Date();
-    await cart.save();
+    await logger({ 
+      level: 'info', 
+      message: productId ? `Removed from cart: ${productId}` : `Cleared cart`, 
+      action: productId ? 'CART_REMOVE' : 'CART_CLEAR', 
+      userId, 
+      metadata: { productId }, 
+      req: request 
+    });
+
     return NextResponse.json({ success: true, data: cart });
   } catch (err) {
     console.error("DELETE /api/cart error", err);

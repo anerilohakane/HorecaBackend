@@ -1,0 +1,20 @@
+{
+  "userId": "692fd870378ae4b3c183adb7",
+  "supplierId": "692fd870378ae4b3c183adb7",
+  "items": [
+    {
+      "product": "69ca4e97c766e43763670f1b",
+      "quantity": 1,
+      "unitPrice": 100,
+      "name": "TEST SETTLEMENT UNIT"
+    }
+  ],
+  "paymentMethod": "cod",
+  "delivery": { "status": "pending" },
+  "shippingAddress": {
+    "fullName": "TESTER",
+    "addressLine1": "STREET 1",
+    "city": "TESTVILLE",
+    "pincode": "110001"
+  }
+}

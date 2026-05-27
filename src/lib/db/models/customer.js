@@ -15,9 +15,40 @@ const CustomerSchema = new mongoose.Schema(
       trim: true
     },
 
+    username: {
+      type: String,
+      sparse: true,
+      unique: true,
+      trim: true
+    },
+
+    password: {
+      type: String,
+      trim: true
+    },
+
+    businessName: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
+    gstNumber: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
+    licenseImage: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
     email: {
       type: String,
-      default: null,
+      sparse: true,
+      unique: true,
       trim: true,
       lowercase: true
     },
@@ -34,12 +65,26 @@ const CustomerSchema = new mongoose.Schema(
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+
+    category: {
+      type: String,
+      enum: ["A", "B", "C", "D", "E"],
+      default: "D"
+    },
+
     lastLoginAt: {
       type: Date,
       default: null
     }
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    collection: "customers"
+  }
 );
 
 export default mongoose.models.Customer ||

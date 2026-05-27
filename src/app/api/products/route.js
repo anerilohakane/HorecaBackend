@@ -132,6 +132,8 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Category from "@/lib/db/models/category";
+import { logger } from "@/lib/logger";
+import { getUserFromRequest } from "@/lib/serverAuth";
 
 /**
  * Helper: basic ObjectId shape check to avoid Mongoose cast errors early
@@ -155,10 +157,15 @@ export async function GET(request) {
     const isActive = url.searchParams.get("isActive");
     const sort = url.searchParams.get("sort") || "-createdAt";
     const sku = url.searchParams.get("sku");
+    const locationId = url.searchParams.get("locationId");
+    const openStorage = url.searchParams.get("openStorage");
 
     const filter = {};
 
     if (q) {
+      // Log search activity
+      await logger({ level: 'info', message: `User searched for: ${q}`, action: 'PRODUCT_SEARCH', metadata: { query: q }, req: request });
+
       // Search in name OR description OR SKU (case-insensitive)
       filter.$or = [
         { name: { $regex: q, $options: "i" } },
@@ -200,6 +207,8 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
+    if (locationId) filter.locationId = locationId;
+    if (openStorage === "true") filter.locationId = null;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
@@ -217,14 +226,28 @@ export async function GET(request) {
     ]);
 
     // populate category info client-side friendly (map)
-    const categoryIds = Array.from(new Set(items.map(i => String(i.categoryId)).filter(Boolean)));
+    const categoryIds = Array.from(new Set(items.map(i => i.categoryId).filter(id => id && isValidObjectIdString(String(id)))));
     const categories = categoryIds.length ? await Category.find({ _id: { $in: categoryIds } }).select('_id name image slug').lean() : [];
     const categoryMap = new Map(categories.map(c => [String(c._id), c]));
 
+    const user = await getUserFromRequest(request);
+    const customerCategory = user?.category;
+
     const itemsWithCategory = items.map(item => {
-      const cat = categoryMap.get(String(item.categoryId)) || null;
+      const catId = item.categoryId ? String(item.categoryId) : null;
+      const cat = catId ? categoryMap.get(catId) : null;
+      
+      // Determine price based on customer category
+      let displayPrice = item.price;
+      
+      if (customerCategory && item.categoryPrices && item.categoryPrices[customerCategory]) {
+        displayPrice = item.categoryPrices[customerCategory];
+      }
+
       return {
         ...item,
+        price: displayPrice,
+        originalPrice: item.price,
         category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
       };
     });
@@ -239,7 +262,7 @@ export async function GET(request) {
           limit,
           pages: Math.ceil(total / limit)
         }
-      }
+      } 
     });
   } catch (err) {
     console.error("GET /api/products error:", err);
@@ -253,6 +276,7 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
+    console.log(`[POST PRODUCT] Incoming Category Prices:`, body.categoryPrices);
 
     // Basic server-side validation
     if (!body.name || body.price == null || body.stockQuantity == null || !body.images || !Array.isArray(body.images) || body.images.length === 0) {
@@ -315,6 +339,7 @@ export async function POST(request) {
     // Create product; Product model's pre-save hook will auto-generate SKUs if missing
     const product = new Product(payload);
     await product.save();
+    console.log(`[POST PRODUCT] Saved State Category Prices:`, product.categoryPrices);
 
     // populate category basic info for response
     const cat = await Category.findById(resolvedCategoryId).select('_id name image slug').lean();
@@ -323,6 +348,23 @@ export async function POST(request) {
       ...product.toObject(),
       category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
     };
+
+    await logger({
+      level: 'info',
+      message: `Product created: ${product.name}`,
+      action: 'PRODUCT_CREATED',
+      userId: body.userId || null,
+      metadata: {
+        productId: product._id,
+        sku: product.sku,
+        name: product.name,
+        categoryId: resolvedCategoryId,
+        locationId: product.locationId || null,
+        locationName: product.locationName || null,
+        locationPath: product.locationPath || null
+      },
+      req: request
+    });
 
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (err) {

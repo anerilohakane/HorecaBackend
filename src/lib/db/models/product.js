@@ -136,20 +136,19 @@ const variationSubSchema = new Schema({
 
 const productSchema = new Schema({
   supplierId: { type: Schema.Types.ObjectId, required: [true, "Supplier ID is required"], ref: "Supplier" },
-  categoryId: { type: Schema.Types.ObjectId, required: [true, "Category ID is required"], ref: "Category" },
+  categoryId: { type: Schema.Types.ObjectId, ref: "Category" },
+  subcategoryId: { type: Schema.Types.ObjectId, ref: "Category" },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
-  price: { type: Number, required: [true, "Price is required"], min: [0, "Price cannot be negative"] },
+  basePrice: { type: Number, default: 0, min: [0, "Base price cannot be negative"] },
+  assuredMargin: { type: Number, default: 0, min: [0, "Assured margin cannot be negative"] },
+  price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
-  stockQuantity: { type: Number, required: [true, "Stock quantity is required"], min: [0, "Stock quantity cannot be negative"] },
-  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen"], default: "kg" },
+  stockQuantity: { type: Number, default: 0, min: [0, "Stock quantity cannot be negative"] },
+  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "Kg", "Gram", "Liter", "Ml", "Piece", "Box", "Dozen", "Pack", "Ton"], default: "Kg" },
   images: {
     type: [imageSubSchema],
-    validate: {
-      validator: function(value) { return Array.isArray(value) && value.length > 0; },
-      message: 'At least one product image is required'
-    },
-    required: [true, 'Product images are required']
+    default: []
   },
   isActive: { type: Boolean, default: true },
   discountedPrice: {
@@ -177,7 +176,25 @@ const productSchema = new Schema({
   isFeatured: { type: Boolean, default: false },
   isTrending: { type: Boolean, default: false },
   discountStartDate: { type: Date },
-  discountEndDate: { type: Date }
+  discountEndDate: { type: Date },
+  locationId: { type: String, default: null },
+  locationName: { type: String, default: null },
+  locationPath: { type: String, default: null },
+  categoryPrices: {
+    A: { type: Number, default: 0 },
+    B: { type: Number, default: 0 },
+    C: { type: Number, default: 0 },
+    D: { type: Number, default: 0 },
+    E: { type: Number, default: 0 }
+  },
+  poTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: "POTemplate"
+  },
+  claimTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: "ClaimTemplate"
+  }
 }, { timestamps: true });
 
 // Robust pre-save
@@ -240,7 +257,7 @@ productSchema.methods.isDiscountActive = function() {
   }
   return now >= this.discountStartDate && now <= this.discountEndDate;
 };
-
+delete mongoose.models.Product;
 const Product = mongoose.models.Product || mongoose.model("Product", productSchema);
 
 export default Product;

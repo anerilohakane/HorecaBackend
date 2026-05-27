@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import ReturnRequest from "@/lib/db/models/returnRequest";
 import Order from "@/lib/db/models/order";
+import { logger } from "@/lib/logger";
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -55,6 +56,21 @@ export async function POST(request) {
     await Order.findByIdAndUpdate(orderId, { 
         status: "return_requested",
         "invoice.meta.returnRequestedAt": new Date() 
+    });
+
+    await logger({
+      level: 'info',
+      message: `Return request created for Order: ${orderId}`,
+      action: 'RETURN_REQUEST_CREATED',
+      userId: requesterId,
+      userModel: 'Customer',
+      metadata: {
+        returnRequestId: returnRequest._id,
+        orderId,
+        type,
+        itemCount: items.length
+      },
+      req: request
     });
 
     return json({ success: true, returnRequest }, 201);
@@ -129,6 +145,20 @@ export async function PATCH(request) {
              // const orderStatus = updatedRequest.type === 'refund' ? 'refunded' : 'returned';
              // await Order.findByIdAndUpdate(updatedRequest.order, { status: orderStatus });
         }
+
+        await logger({
+            level: 'info',
+            message: `Return request updated to: ${status}`,
+            action: 'RETURN_REQUEST_UPDATED',
+            userId: updatedRequest.requester,
+            userModel: 'Customer',
+            metadata: {
+                returnRequestId: updatedRequest._id,
+                newStatus: status,
+                orderId: updatedRequest.order
+            },
+            req: request
+        });
 
         return json({ success: true, returnRequest: updatedRequest });
 

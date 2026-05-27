@@ -59,7 +59,7 @@ import mongoose from "mongoose";
 export async function GET(request, { params }) {
   await dbConnect();
   try {
-    const { id } = params;
+    const { id } = await params;
     const url = new URL(request.url);
     const include = (url.searchParams.get("include") || "").toLowerCase(); // children | products | descendants | all
     const productsLimit = Math.min(100, parseInt(url.searchParams.get("productsLimit") || "20", 10));
@@ -183,7 +183,7 @@ export async function GET(request, { params }) {
 export async function PATCH(request, { params }) {
   await dbConnect();
   try {
-    const { id } = params;
+    const { id } = await params;
     const body = await request.json();
     const updated = await Category.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true });
     if (!updated) return NextResponse.json({ success: false, error: "Category not found" }, { status: 404 });
@@ -201,7 +201,7 @@ export async function PATCH(request, { params }) {
 export async function DELETE(request, { params }) {
   await dbConnect();
   try {
-    const { id } = params;
+    const { id } = await params;
     const deleted = await Category.findByIdAndDelete(id);
     if (!deleted) return NextResponse.json({ success: false, error: "Category not found" }, { status: 404 });
     return NextResponse.json({ success: true, data: deleted });

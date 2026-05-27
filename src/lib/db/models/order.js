@@ -28,7 +28,7 @@ const ORDER_STATUSES = [
   "replacement_sent",
 ];
 
-const PAYMENT_STATUSES = ["pending", "paid", "failed", "refunded"];
+const PAYMENT_STATUSES = ["pending", "paid", "partially_paid", "failed", "refunded"];
 const DELIVERY_STATUSES = [
   "pending",
   "out_for_delivery",
@@ -36,6 +36,10 @@ const DELIVERY_STATUSES = [
   "failed",
   "cancelled",
 ];
+
+
+
+
 
 /* ---------- Sub-schemas ---------- */
 
@@ -50,6 +54,7 @@ const OrderItemSchema = new Schema(
     totalPrice: { type: Number, required: true },
     supplier: { type: Schema.Types.ObjectId, ref: "Supplier" }, // helpful for multi-supplier scenarios
     image: { type: String }, // Store product image URL (http or relative)
+    gst: { type: Number, default: 0 }, // Store the GST percentage applied at time of order
     attributes: { type: Schema.Types.Mixed }, // e.g., color/size selected
   },
   { _id: false }
@@ -61,6 +66,7 @@ const InvoiceSchema = new Schema(
     invoiceNumber: { type: String },
     generatedAt: { type: Date },
     url: { type: String }, // if you upload invoice PDF and store link
+    status: { type: String, enum: ["optional", "verified"], default: "optional" },
     meta: { type: Schema.Types.Mixed },
   },
   { _id: false }
@@ -73,6 +79,8 @@ const PaymentSchema = new Schema(
     status: { type: String, enum: PAYMENT_STATUSES, default: "pending" },
     transactionId: { type: String },
     paidAt: { type: Date },
+    paidAmount: { type: Number, default: 0 },
+    balanceAmount: { type: Number, default: 0 },
     meta: { type: Schema.Types.Mixed },
   },
   { _id: false }
@@ -108,11 +116,28 @@ const B2BSchema = new Schema(
   { _id: false }
 );
 
+/* Department transition history */
+const DepartmentHistorySchema = new Schema(
+  {
+    from: { type: Schema.Types.ObjectId, ref: "Department" },
+    to: { type: Schema.Types.ObjectId, ref: "Department" },
+
+
+
+    updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    updatedAt: { type: Date, default: Date.now },
+    notes: { type: String },
+  },
+  { _id: false }
+);
+
+
 /* ---------- Main Order schema ---------- */
 const OrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true }, // generate before saving
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true }, // who placed order
+    user: { type: Schema.Types.ObjectId, refPath: "userModel", required: true }, // who placed order
+    userModel: { type: String, required: true, enum: ["User", "Supplier", "Customer"], default: "User" },
     supplier: { type: Schema.Types.ObjectId, ref: "Supplier" }, // primary supplier (optional)
     items: { type: [OrderItemSchema], required: true },
 
@@ -142,17 +167,29 @@ const OrderSchema = new Schema(
 
     // amounts
     subtotal: { type: Number, required: true, default: 0 },
-    tax: { type: Number, default: 0 },
+    gst: { type: Number, default: 0 }, // Stores GST percentage (e.g., 18)
+    gstAmount: { type: Number, default: 0 }, // Stores calculated GST amount (e.g., 40.00)
     shippingCharges: { type: Number, default: 0 },
     platformFee: { type: Number, default: 0 },
     discounts: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
+    // MOV (Minimum Order Value) fields — for audit/tracking
+    movApplied: { type: Boolean, default: false },         // true if order was placed below MOV with delivery charge consent
+    movDeliveryCharge: { type: Number, default: 0 },       // ₹250 delivery charge for below-MOV orders (0 if MOV met)
+
     currency: { type: String, default: "INR" },
 
     // lifecycle
     status: { type: String, enum: ORDER_STATUSES, default: "pending" },
+    department: { type: Schema.Types.ObjectId, ref: "Department" },
+
+
+
+
+    departmentHistory: [DepartmentHistorySchema],
     placedAt: { type: Date, default: Date.now },
+
 
     // embedded sub-docs
     invoice: { type: InvoiceSchema },
@@ -172,6 +209,18 @@ const OrderSchema = new Schema(
     notes: { type: String },
     cancellationReason: { type: String },
     metadata: { type: Schema.Types.Mixed },
+
+    // Duplicate Order System fields
+    isDuplicateOrder: { type: Boolean, default: false },
+    duplicateGroupId: { type: Schema.Types.ObjectId },
+    duplicateOf: { type: Schema.Types.ObjectId, ref: "Order" },
+    duplicateStatus: { 
+      type: String, 
+      enum: ["none", "pending_review", "merged", "cancelled", "ignored", "separate_valid"], 
+      default: "none"
+    },
+    masterOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT"], default: "Customer" }
   },
   {
     timestamps: true,
@@ -184,6 +233,9 @@ OrderSchema.index({ user: 1 });
 OrderSchema.index({ supplier: 1 });
 OrderSchema.index({ status: 1 });
 OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ duplicateGroupId: 1 });
+OrderSchema.index({ duplicateStatus: 1 });
+OrderSchema.index({ masterOrderId: 1 });
 
 /* ---------- Helpful pre-save hooks (optional) ---------- */
 
@@ -197,11 +249,66 @@ OrderSchema.pre("validate", function (next) {
     const short = Math.floor(1000 + Math.random() * 9000);
     this.orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${short}`;
   }
+
+  if (!this.orderSource || this.orderSource === "Customer") {
+    if (this.userModel === "Customer") {
+      this.orderSource = "Customer";
+    } else if (this.userModel === "Supplier") {
+      this.orderSource = "Vendor";
+    } else if (this.userModel === "User") {
+      this.orderSource = "ODT";
+    }
+  }
+
   next();
 });
 
 /* ---------- Exports ---------- */
 const Order = mongoose.models.Order || mongoose.model("Order", OrderSchema);
+
+// --- 🔔 AUTOMATIC NOTIFICATIONS HOOK ---
+// This hook ensures that every order status change triggers a notification to the user.
+OrderSchema.post("save", async function (doc) {
+  try {
+    const Notification = mongoose.models.Notification || (await import("./notification")).default;
+    
+    // Determine if we should notify
+    // Note: We use metadata or a custom flag if possible, but status change is reliable
+    const statusMap = {
+      pending: { title: "Order Placed", message: `Your order ${doc.orderNumber} has been placed successfully.` },
+      confirmed: { title: "Order Confirmed", message: `Great news! Your order ${doc.orderNumber} has been confirmed.` },
+      packed: { title: "Order Packed", message: `Your order ${doc.orderNumber} is packed and ready for dispatch.` },
+      shipped: { title: "Order Shipped", message: `Your order ${doc.orderNumber} is on its way!` },
+      out_for_delivery: { title: "Out for Delivery", message: `Your order ${doc.orderNumber} is out for delivery with our partner.` },
+      delivered: { title: "Order Delivered", message: `Your order ${doc.orderNumber} has been delivered. Enjoy!` },
+      cancelled: { title: "Order Cancelled", message: `Your order ${doc.orderNumber} has been cancelled.` },
+      returned: { title: "Return Received", message: `We have received your return for order ${doc.orderNumber}.` },
+    };
+
+    const alert = statusMap[doc.status];
+    if (alert) {
+      // Robust check for existing notification using dot-notation
+      const existing = await Notification.findOne({ 
+        user: doc.user, 
+        "metadata.orderId": doc._id, 
+        "metadata.status": doc.status 
+      });
+
+      if (!existing) {
+        await Notification.create({
+          user: doc.user,
+          title: alert.title,
+          message: alert.message,
+          type: doc.status === "cancelled" || doc.status === "failed" ? "error" : "success",
+          metadata: { orderId: doc._id, orderNumber: doc.orderNumber, status: doc.status }
+        });
+        console.log(`[NOTIFY] Status alert sent to User ${doc.user} for order ${doc.orderNumber}`);
+      }
+    }
+  } catch (err) {
+    console.error("[NOTIFY ERROR] Failed to send order notification:", err);
+  }
+});
 
 // Re-export ReturnRequest from its own file for backward compatibility
 import ReturnRequest from "./returnRequest";
