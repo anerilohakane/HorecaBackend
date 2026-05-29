@@ -10,9 +10,9 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { 
-      username, password, email, phone, businessName, gstNumber, 
-      licenseImage, name, address, city, state, pincode 
+    const {
+      username, password, email, phone, businessName, gstNumber,
+      licenseImage, name, address, city, state, pincode, supplierId
     } = body;
 
     if (!username || username.length < 3) {
@@ -78,7 +78,7 @@ export async function POST(req) {
       if (existingUser.username === username) conflictField = "Username";
       else if (existingUser.email === email) conflictField = "Email";
       else if (existingUser.phone === phone) conflictField = "Phone number";
-      
+
       return NextResponse.json({ success: false, error: `${conflictField} already exists` }, { status: 409 });
     }
 
@@ -88,9 +88,9 @@ export async function POST(req) {
 
     // Normalize Phone
     const numericPhone = phone.replace(/\D/g, "");
-    const standardizedPhone = (numericPhone.length === 10) ? `+91${numericPhone}` : 
-                              (numericPhone.length === 12 && numericPhone.startsWith("91")) ? `+${numericPhone}` :
-                              phone.trim();
+    const standardizedPhone = (numericPhone.length === 10) ? `+91${numericPhone}` :
+      (numericPhone.length === 12 && numericPhone.startsWith("91")) ? `+${numericPhone}` :
+        phone.trim();
 
     // Create user
     const newUser = await Customer.create({
@@ -106,17 +106,18 @@ export async function POST(req) {
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       licenseImage,
+      supplierId: supplierId || null,
       lastLoginAt: new Date()
     });
 
-    await logger({ 
-      level: 'info', 
-      message: `New customer registered: ${newUser.username}`, 
-      action: 'CUSTOMER_REGISTERED', 
-      userId: newUser._id, 
-      userModel: 'Customer', 
-      metadata: { username, email }, 
-      req 
+    await logger({
+      level: 'info',
+      message: `New customer registered: ${newUser.username}`,
+      action: 'CUSTOMER_REGISTERED',
+      userId: newUser._id,
+      userModel: 'Customer',
+      metadata: { username, email },
+      req
     });
 
     // Create JWT

@@ -62,6 +62,11 @@ const CustomerSchema = new mongoose.Schema(
     city: { type: String, default: null },
     state: { type: String, default: null },
     pincode: { type: String, default: null },
+    supplierId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Supplier",
+      default: null
+    },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 
@@ -81,7 +86,7 @@ const CustomerSchema = new mongoose.Schema(
       default: null
     }
   },
-  { 
+  {
     timestamps: true,
     collection: "customers"
   }
