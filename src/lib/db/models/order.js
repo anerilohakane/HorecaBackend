@@ -17,6 +17,7 @@ const { Schema } = mongoose;
 /* ---------- Enums / constants ---------- */
 const ORDER_STATUSES = [
   "pending",
+  "processing",
   "confirmed",
   "packed",
   "shipped",
@@ -264,6 +265,9 @@ OrderSchema.pre("validate", function (next) {
 });
 
 /* ---------- Exports ---------- */
+if (mongoose.models.Order) {
+  delete mongoose.models.Order;
+}
 const Order = mongoose.models.Order || mongoose.model("Order", OrderSchema);
 
 // --- 🔔 AUTOMATIC NOTIFICATIONS HOOK ---

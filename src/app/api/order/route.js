@@ -859,6 +859,19 @@ export async function GET(request) {
     const idParam =
       url.searchParams.get("id") || url.searchParams.get("orderId");
 
+    const orderNumberParam = url.searchParams.get("orderNumber");
+    if (orderNumberParam) {
+      const order = await Order.findOne({ orderNumber: orderNumberParam })
+        .populate("user", "name email phone")
+        .populate("supplier", "name")
+        .populate("items.product", "name price sku")
+        .lean();
+      if (!order) {
+        return json({ success: false, error: "Order not found" }, 404);
+      }
+      return json({ success: true, order }, 200);
+    }
+
     /* -----------------------------
        FETCH SINGLE ORDER BY ID
     ------------------------------*/

@@ -66,3 +66,41 @@ export async function GET(request, { params }) {
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }
+
+export async function PATCH(request, { params }) {
+  try {
+    await dbConnect();
+    const { id } = await params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return json({ success: false, error: "Invalid orderId" }, 400);
+    }
+
+    const body = await request.json();
+    const order = await Order.findById(id);
+    if (!order) {
+      return json({ success: false, error: "Order not found" }, 404);
+    }
+
+    // Update order status, invoice, payment, or other properties dynamically
+    if (body.status) order.status = body.status;
+    if (body.invoice) order.invoice = body.invoice;
+    if (body.payment) order.payment = body.payment;
+    
+    // We can also allow dynamic updates of arbitrary fields if sent
+    if (body.shippingAddress) order.shippingAddress = body.shippingAddress;
+    if (body.delivery) order.delivery = body.delivery;
+    if (body.notes) order.notes = body.notes;
+
+    // Use markModified if needed for mixed types
+    if (body.invoice) order.markModified("invoice");
+    if (body.payment) order.markModified("payment");
+
+    await order.save();
+
+    return json({ success: true, order }, 200);
+  } catch (err) {
+    console.error("PATCH /api/order/[id] error:", err);
+    return json({ success: false, error: err.message || "Server error" }, 500);
+  }
+}
