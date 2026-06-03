@@ -1715,6 +1715,15 @@ export async function PATCH(request) {
     if ("tax" in body) {
       setData.tax = Number(body.tax);
     }
+    if ("shippingCharges" in body) {
+      setData.shippingCharges = Number(body.shippingCharges);
+    }
+    if ("movDeliveryCharge" in body) {
+      setData.movDeliveryCharge = Number(body.movDeliveryCharge);
+    }
+    if ("movApplied" in body) {
+      setData.movApplied = Boolean(body.movApplied);
+    }
     if ("total" in body) {
       setData.total = Number(body.total);
     }
