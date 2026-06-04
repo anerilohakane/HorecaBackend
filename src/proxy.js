@@ -124,9 +124,9 @@
 //     return response;
 //   }
 
-//   // ─────────────────────────────────────────────────────────────
-//   // 4. Protected routes – check auth + role
-//   // ─────────────────────────────────────────────────────────────
+//   ─────────────────────────────────────────────────────────────
+//   4. Protected routes – check auth + role
+//   ─────────────────────────────────────────────────────────────
 //   const routeConfig = protectedRoutes.find((r) => pathname.startsWith(r.path));
 //   if (routeConfig) {
 //     const token = req.cookies.get("authToken")?.value;
@@ -264,7 +264,7 @@
 // export const config = {
 //   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 // };
-
+//};
 
 // middleware.js
 import { NextResponse } from "next/server";
