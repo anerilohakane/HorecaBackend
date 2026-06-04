@@ -236,10 +236,10 @@ export async function GET(request) {
     const itemsWithCategory = items.map(item => {
       const catId = item.categoryId ? String(item.categoryId) : null;
       const cat = catId ? categoryMap.get(catId) : null;
-      
+
       // Determine price based on customer category
       let displayPrice = item.price;
-      
+
       if (customerCategory && item.categoryPrices && item.categoryPrices[customerCategory]) {
         displayPrice = item.categoryPrices[customerCategory];
       }
@@ -262,7 +262,7 @@ export async function GET(request) {
           limit,
           pages: Math.ceil(total / limit)
         }
-      } 
+      }
     });
   } catch (err) {
     console.error("GET /api/products error:", err);
@@ -337,6 +337,7 @@ export async function POST(request) {
     };
 
     // Create product; Product model's pre-save hook will auto-generate SKUs if missing
+    console.log('Incoming POST /api/products body:', JSON.stringify(body, null, 2));
     const product = new Product(payload);
     await product.save();
     console.log(`[POST PRODUCT] Saved State Category Prices:`, product.categoryPrices);

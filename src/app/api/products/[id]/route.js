@@ -213,28 +213,28 @@ export async function PATCH(request, { params }) {
 
     // --- AUTO-RESUME PAUSED SUBSCRIPTIONS ---
     if (updated.stockQuantity > 0) {
-        try {
-            // Explicitly cast ID
-            const mongoose = require('mongoose');
-            const productIdObj = new mongoose.Types.ObjectId(id);
+      try {
+        // Explicitly cast ID
+        const mongoose = require('mongoose');
+        const productIdObj = new mongoose.Types.ObjectId(id);
 
-            const pausedSubs = await Subscription.find({
-                product: productIdObj,
-                status: 'Paused',
-                quantity: { $lte: updated.stockQuantity }
-            });
+        const pausedSubs = await Subscription.find({
+          product: productIdObj,
+          status: 'Paused',
+          quantity: { $lte: updated.stockQuantity }
+        });
 
-            if (pausedSubs.length > 0) {
-                console.log(`[PRODUCT UPDATE] Found ${pausedSubs.length} paused subscriptions for Product ${id}. Reactivating...`);
-                for (const sub of pausedSubs) {
-                    sub.status = 'Active';
-                    await sub.save();
-                    console.log(`[PRODUCT UPDATE] Reactivated Subscription ${sub._id}`);
-                }
-            }
-        } catch (subErr) {
-            console.error("Error reactivating subscriptions:", subErr);
+        if (pausedSubs.length > 0) {
+          console.log(`[PRODUCT UPDATE] Found ${pausedSubs.length} paused subscriptions for Product ${id}. Reactivating...`);
+          for (const sub of pausedSubs) {
+            sub.status = 'Active';
+            await sub.save();
+            console.log(`[PRODUCT UPDATE] Reactivated Subscription ${sub._id}`);
+          }
         }
+      } catch (subErr) {
+        console.error("Error reactivating subscriptions:", subErr);
+      }
     }
 
     // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---

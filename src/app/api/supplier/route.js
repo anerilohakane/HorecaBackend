@@ -27,7 +27,7 @@ export async function POST(request) {
     }
 
     const { email, phone, gstNumber, panNumber } = body;
-    
+
     // Improved conflict check: only search for truthy values to avoid matching empty strings
     const conflictQuery = [];
     if (email) conflictQuery.push({ email: email.toLowerCase().trim() });
@@ -44,9 +44,9 @@ export async function POST(request) {
         else if (existing.gstNumber === gstNumber) conflictField = "GST Number";
         else if (existing.panNumber === panNumber) conflictField = "PAN ID";
 
-        return NextResponse.json({ 
-          success: false, 
-          error: `${conflictField} is already registered in the central system.` 
+        return NextResponse.json({
+          success: false,
+          error: `${conflictField} is already registered in the central system.`
         }, { status: 400 });
       }
     }
@@ -56,6 +56,7 @@ export async function POST(request) {
 
     // Create products in the global Product collection
     if (body.products && Array.isArray(body.products)) {
+      console.log('Incoming supplier products:', JSON.stringify(body.products, null, 2));
       for (const p of body.products) {
         const productDoc = new Product({
           supplierId: supplier._id,
@@ -66,11 +67,16 @@ export async function POST(request) {
           unit: p.uom,
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),
+          price: Number(p.basePrice || 0) + (Number(p.basePrice || 0) * Number(p.assuredMargin || 0) / 100),
           poTemplateId: p.poTemplateId || undefined,
           claimTemplateId: p.claimTemplateId || undefined, // Added support for claim template
+          isColdStorage: p.isColdStorage === 'Yes' || p.isColdStorage === true,
+          temperature: p.temperature || null,
           images: p.image ? [{ url: p.image, publicId: `sup_${supplier._id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, isMain: true }] : []
         });
         await productDoc.save();
+        console.log("Product created successfully", productDoc);
+
       }
     }
 
@@ -92,13 +98,13 @@ export async function POST(request) {
     );
   } catch (err) {
     console.error("POST /api/suppliers error", err);
-    
+
     // Handle Duplicate Key Errors (Mongo Code 11000)
     if (err.code === 11000) {
       const field = Object.keys(err.keyPattern)[0];
-      return NextResponse.json({ 
-        success: false, 
-        error: `The ${field} you provided is already in use.` 
+      return NextResponse.json({
+        success: false,
+        error: `The ${field} you provided is already in use.`
       }, { status: 400 });
     }
 

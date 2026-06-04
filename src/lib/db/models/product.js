@@ -150,12 +150,14 @@ const productSchema = new Schema({
     type: [imageSubSchema],
     default: []
   },
+  isColdStorage: { type: Boolean, default: false },
+  temperature: { type: String, default: null },
   isActive: { type: Boolean, default: true },
   discountedPrice: {
     type: Number,
     min: [0, "Discounted price cannot be negative"],
     validate: {
-      validator: function(value) {
+      validator: function (value) {
         if (value == null) return true;
         return value <= this.price;
       },
@@ -198,7 +200,7 @@ const productSchema = new Schema({
 }, { timestamps: true });
 
 // Robust pre-save
-productSchema.pre("save", function(next) {
+productSchema.pre("save", function (next) {
   try {
     // Generate main SKU if missing
     if (!this.sku) {
@@ -246,11 +248,11 @@ productSchema.pre("save", function(next) {
   }
 });
 
-productSchema.virtual('inStock').get(function() {
+productSchema.virtual('inStock').get(function () {
   return this.stockQuantity > 0;
 });
 
-productSchema.methods.isDiscountActive = function() {
+productSchema.methods.isDiscountActive = function () {
   const now = new Date();
   if (!this.discountStartDate || !this.discountEndDate) {
     return !!this.discountedPrice;
