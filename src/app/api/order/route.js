@@ -483,6 +483,10 @@ export async function POST(request) {
       paymentMethod === "cash_on_delivery" ||
       paymentMethod === "cash";
 
+    const isCN =
+      paymentMethod === "cn" ||
+      paymentMethod === "credit_note";
+
     if (isCOD) {
       // 🔹 COD rules:
       //  - method normalized to "cod"
@@ -490,6 +494,14 @@ export async function POST(request) {
       paymentMethod = "cod";
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
+    } else if (isCN) {
+      // 🔹 CN rules:
+      //  - method normalized to "cn"
+      //  - status = "pending" at order creation
+      paymentMethod = "cn";
+      if (!paymentStatus) paymentStatus = "pending";
+      // no transactionId required, no paidAt at creation
+
     } else if (paymentMethod === "wallet") {
       // 🔹 Wallet/Points payment
       // DO NOT DEDUCT HERE. The 'Final Debit' at the end of the function handles it securely.
