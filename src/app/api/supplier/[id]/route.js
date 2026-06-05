@@ -65,7 +65,7 @@ export async function PATCH(request, { params }) {
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
     const body = await request.json();
-    
+
     // Do not update password here (pre-save hooks won't run). Use a dedicated password-change route if needed.
     if (body.password !== undefined) {
       delete body.password;
@@ -94,8 +94,11 @@ export async function PATCH(request, { params }) {
           unit: p.uom || "Kg",
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),
+          price: Number(p.basePrice || 0) + (Number(p.basePrice || 0) * Number(p.assuredMargin || 0) / 100),
           poTemplateId: p.poTemplateId || undefined,
           claimTemplateId: p.claimTemplateId || undefined,
+          isColdStorage: p.isColdStorage === 'Yes' || p.isColdStorage === true,
+          temperature: p.temperature || null,
         };
 
         if (p.image) {
@@ -109,6 +112,9 @@ export async function PATCH(request, { params }) {
         );
       }
     }
+
+    console.log("Updated supplier data:", updated);
+
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
