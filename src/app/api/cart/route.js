@@ -11,6 +11,8 @@ async function recalculateCart(cart, userId) {
   const customerCategory = customer?.category || "D";
 
   let total = 0;
+  let hasChanges = false;
+
   for (const item of cart.items) {
     const p = item.productId;
     if (p && typeof p === "object" && p.price !== undefined) {
@@ -18,10 +20,12 @@ async function recalculateCart(cart, userId) {
       if (customerCategory && p.categoryPrices && p.categoryPrices[customerCategory] > 0) {
         displayPrice = p.categoryPrices[customerCategory];
       }
-      item.price = displayPrice;
-      item.gst = p.gst || 0;
-      item.name = p.name;
-      item.unit = p.unit;
+      
+      if (item.price !== displayPrice) { item.price = displayPrice; hasChanges = true; }
+      if (item.gst !== (p.gst || 0)) { item.gst = p.gst || 0; hasChanges = true; }
+      if (item.name !== p.name) { item.name = p.name; hasChanges = true; }
+      if (item.unit !== p.unit) { item.unit = p.unit; hasChanges = true; }
+      
       total += displayPrice * item.quantity;
     } else {
       const product = await Product.findById(item.productId).lean();
@@ -30,20 +34,38 @@ async function recalculateCart(cart, userId) {
         if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory] > 0) {
           displayPrice = product.categoryPrices[customerCategory];
         }
-        item.price = displayPrice;
-        item.gst = product.gst || 0;
-        item.name = product.name;
-        item.unit = product.unit;
+        
+        if (item.price !== displayPrice) { item.price = displayPrice; hasChanges = true; }
+        if (item.gst !== (product.gst || 0)) { item.gst = product.gst || 0; hasChanges = true; }
+        if (item.name !== product.name) { item.name = product.name; hasChanges = true; }
+        if (item.unit !== product.unit) { item.unit = product.unit; hasChanges = true; }
+        
         total += displayPrice * item.quantity;
       } else {
         total += (item.price || 0) * item.quantity;
       }
     }
   }
-  cart.subtotal = total;
-  cart.updatedAt = new Date();
-  cart.markModified('items');
-  await cart.save();
+
+  if (cart.subtotal !== total) {
+    cart.subtotal = total;
+    hasChanges = true;
+  }
+
+  // Only save if we actually modified prices/names, or if the cart was modified by POST/PATCH/DELETE
+  if (hasChanges || cart.isModified('items')) {
+    cart.updatedAt = new Date();
+    cart.markModified('items');
+    try {
+      await cart.save();
+    } catch (err) {
+      if (err.name === 'VersionError') {
+        console.warn('VersionError in recalculateCart: Cart was updated concurrently. Skipping save.');
+      } else {
+        throw err;
+      }
+    }
+  }
 }
 
 export async function GET(req) {
