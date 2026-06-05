@@ -51,7 +51,11 @@ export async function POST(request) {
       }
     }
 
-    const supplier = new Supplier(body);
+    const supplierPayload = { ...body };
+    if (!supplierPayload.poTemplateId) delete supplierPayload.poTemplateId;
+    if (!supplierPayload.claimTemplateId) delete supplierPayload.claimTemplateId;
+
+    const supplier = new Supplier(supplierPayload);
     await supplier.save();
 
     // Create products in the global Product collection

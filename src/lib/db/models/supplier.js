@@ -77,6 +77,16 @@ const supplierSchema = new Schema(
     },
 
     documents: { type: Array, default: [] },
+    products: { type: Array, default: [] },
+
+    poTemplateId: {
+      type: Schema.Types.ObjectId,
+      ref: "POTemplate"
+    },
+    claimTemplateId: {
+      type: Schema.Types.ObjectId,
+      ref: "ClaimTemplate"
+    },
 
     status: {
       type: String,
@@ -144,5 +154,6 @@ supplierSchema.methods.generatePasswordResetToken = function () {
   return resetToken;
 };
 
-const Supplier = mongoose.models.Supplier || mongoose.model("Supplier", supplierSchema);
+delete mongoose.models.Supplier;
+const Supplier = mongoose.model("Supplier", supplierSchema);
 export default Supplier;
