@@ -82,6 +82,7 @@ export async function POST(request) {
           name: p.productName,
           sku: p.productCode,
           brandId: finalBrandId,
+          branchId: p.branch || p.branchId || undefined,
           unit: p.uom,
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),

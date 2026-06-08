@@ -105,6 +105,7 @@ export async function PATCH(request, { params }) {
           name: p.productName,
           sku: p.productCode,
           brandId: finalBrandId,
+          branchId: p.branch || p.branchId || undefined,
           unit: p.uom || "Kg",
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),
