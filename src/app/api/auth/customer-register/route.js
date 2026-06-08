@@ -12,7 +12,7 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, address, city, state, pincode, supplierId
+      licenseImage, name, locations, supplierId
     } = body;
 
     if (!username || username.length < 3) {
@@ -45,22 +45,36 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Valid GST number is required" }, { status: 400 });
     }
 
-    if (!address || address.trim().length < 5) {
+    if (!locations || !Array.isArray(locations) || locations.length === 0) {
+      return NextResponse.json({ success: false, error: "At least one business location is required" }, { status: 400 });
+    }
+
+    // Validate the first location at least
+    const primaryLocation = locations[0];
+    if (!primaryLocation.address || primaryLocation.address.trim().length < 5) {
       return NextResponse.json({ success: false, error: "Valid business address is required" }, { status: 400 });
     }
-
-    if (!city || city.trim().length < 2) {
+    if (!primaryLocation.city || primaryLocation.city.trim().length < 2) {
       return NextResponse.json({ success: false, error: "City is required" }, { status: 400 });
     }
-
-    if (!state || state.trim().length < 2) {
+    if (!primaryLocation.state || primaryLocation.state.trim().length < 2) {
       return NextResponse.json({ success: false, error: "State is required" }, { status: 400 });
     }
-
     const pinRegex = /^[1-9][0-9]{5}$/;
-    if (!pincode || !pinRegex.test(pincode)) {
+    if (!primaryLocation.pincode || !pinRegex.test(primaryLocation.pincode)) {
       return NextResponse.json({ success: false, error: "Valid 6-digit PIN code is required" }, { status: 400 });
     }
+
+    // Ensure all locations are valid and structured
+    const formattedLocations = locations.map((loc, index) => ({
+      address: loc.address?.trim() || "",
+      city: loc.city?.trim() || "",
+      state: loc.state?.trim() || "",
+      pincode: loc.pincode?.trim() || "",
+      lat: loc.lat || null,
+      lng: loc.lng || null,
+      isPrimary: index === 0
+    }));
 
     if (!licenseImage) {
       return NextResponse.json({ success: false, error: "Business license image is required" }, { status: 400 });
@@ -99,10 +113,11 @@ export async function POST(req) {
       email: email.toLowerCase(),
       phone: standardizedPhone,
       name: name.trim(),
-      address: address.trim(),
-      city: city || null,
-      state: state || null,
-      pincode: pincode || null,
+      address: primaryLocation.address.trim(),
+      city: primaryLocation.city || null,
+      state: primaryLocation.state || null,
+      pincode: primaryLocation.pincode || null,
+      locations: formattedLocations,
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       licenseImage,

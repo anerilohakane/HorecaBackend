@@ -62,6 +62,17 @@ const CustomerSchema = new mongoose.Schema(
     city: { type: String, default: null },
     state: { type: String, default: null },
     pincode: { type: String, default: null },
+    
+    locations: [{
+      address: { type: String, trim: true },
+      city: { type: String, trim: true },
+      state: { type: String, trim: true },
+      pincode: { type: String, trim: true },
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+      isPrimary: { type: Boolean, default: false }
+    }],
+    
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
