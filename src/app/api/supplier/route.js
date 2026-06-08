@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
+import Brand from "@/lib/db/models/brand";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 // cloudinary server-side config - available if you want to process images server-side later
 import cloudinary from "cloudinary";
@@ -62,11 +64,24 @@ export async function POST(request) {
     if (body.products && Array.isArray(body.products)) {
       console.log('Incoming supplier products:', JSON.stringify(body.products, null, 2));
       for (const p of body.products) {
+        let finalBrandId = undefined;
+        if (p.brand) {
+          if (mongoose.Types.ObjectId.isValid(p.brand)) {
+             finalBrandId = p.brand;
+          } else {
+             let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
+             if (!brnd) {
+                 brnd = await Brand.create({ name: p.brand });
+             }
+             finalBrandId = brnd._id;
+          }
+        }
+
         const productDoc = new Product({
           supplierId: supplier._id,
           name: p.productName,
           sku: p.productCode,
-          brandId: p.brand || undefined,
+          brandId: finalBrandId,
           unit: p.uom,
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),

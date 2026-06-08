@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
+import Brand from "@/lib/db/models/brand";
+import mongoose from "mongoose";
 
 // cloudinary setup (server-side)
 import cloudinary from "cloudinary";
@@ -85,11 +87,24 @@ export async function PATCH(request, { params }) {
       for (const p of body.products) {
         if (!p.productName || !p.productCode) continue;
 
+        let finalBrandId = undefined;
+        if (p.brand) {
+          if (mongoose.Types.ObjectId.isValid(p.brand)) {
+             finalBrandId = p.brand;
+          } else {
+             let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
+             if (!brnd) {
+                 brnd = await Brand.create({ name: p.brand });
+             }
+             finalBrandId = brnd._id;
+          }
+        }
+
         const productData = {
           supplierId: id,
           name: p.productName,
           sku: p.productCode,
-          brandId: p.brand || undefined,
+          brandId: finalBrandId,
           unit: p.uom || "Kg",
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),
