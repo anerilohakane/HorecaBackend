@@ -80,16 +80,29 @@ export async function POST(request) {
     if (body.products && Array.isArray(body.products)) {
       console.log('Incoming supplier products:', JSON.stringify(body.products, null, 2));
       for (const p of body.products) {
-        let finalBrandId = undefined;
-        if (p.brand) {
-          if (mongoose.Types.ObjectId.isValid(p.brand)) {
-             finalBrandId = p.brand;
+        let finalCategoryId = undefined;
+        if (p.category) {
+          if (mongoose.Types.ObjectId.isValid(p.category)) {
+             finalCategoryId = p.category;
           } else {
-             let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
-             if (!brnd) {
-                 brnd = await Brand.create({ name: p.brand });
+             let cat = await Brand.findOne({ name: new RegExp(`^${p.category}$`, "i"), parent: { $exists: false } });
+             if (!cat) {
+                 cat = await Brand.create({ name: p.category });
              }
-             finalBrandId = brnd._id;
+             finalCategoryId = cat._id;
+          }
+        }
+
+        let finalSubcategoryId = undefined;
+        if (p.subcategory && finalCategoryId) {
+          if (mongoose.Types.ObjectId.isValid(p.subcategory)) {
+             finalSubcategoryId = p.subcategory;
+          } else {
+             let subcat = await Brand.findOne({ name: new RegExp(`^${p.subcategory}$`, "i"), parent: finalCategoryId });
+             if (!subcat) {
+                 subcat = await Brand.create({ name: p.subcategory, parent: finalCategoryId });
+             }
+             finalSubcategoryId = subcat._id;
           }
         }
 
@@ -97,7 +110,8 @@ export async function POST(request) {
           supplierId: supplier._id,
           name: p.productName,
           sku: p.productCode,
-          brandId: finalBrandId,
+          categoryId: finalCategoryId,
+          subcategoryId: finalSubcategoryId,
           unit: p.uom,
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),
