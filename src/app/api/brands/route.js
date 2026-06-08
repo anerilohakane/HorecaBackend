@@ -17,13 +17,7 @@ export async function GET(request) {
     const limit = Math.min(100, parseInt(url.searchParams.get("limit") || "50", 10));
     const skip = (page - 1) * limit;
 
-    // if caller explicitly asks for all brands, return all
-    const includeAll = url.searchParams.get('all') === 'true' || url.searchParams.get('includeAll') === 'true';
-
-    // base filter: either all OR only top-level (parent === null)
-    const filter = includeAll ? {} : { parent: null };
-
-    // optional isActive filter
+    const filter = {};
     const isActive = url.searchParams.get('isActive');
     if (isActive === 'true') filter.isActive = true;
     if (isActive === 'false') filter.isActive = false;
@@ -32,7 +26,6 @@ export async function GET(request) {
       .sort("-createdAt")
       .skip(skip)
       .limit(limit)
-      .populate("subbrands") // immediate children
       .lean();
 
     const total = await Brand.countDocuments(filter);
