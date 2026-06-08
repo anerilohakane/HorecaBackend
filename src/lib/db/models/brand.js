@@ -43,5 +43,5 @@ const brandSchema = new Schema(
 );
 
 delete mongoose.models.Brand;
-const Brand = mongoose.models.Brand || mongoose.model("Brand", brandSchema);
+const Brand = mongoose.models.Brand || mongoose.model("Brand", brandSchema, "categories");
 export default Brand;
