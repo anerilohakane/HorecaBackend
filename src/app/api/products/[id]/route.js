@@ -73,7 +73,6 @@ export async function GET(request, { params }) {
       product = await Product.findOne({
         $or: [{ slug: id }, { sku: id }],
       })
-        .populate("branchId", "name code")
         .lean({ virtuals: true });
     }
 

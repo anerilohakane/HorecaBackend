@@ -216,7 +216,6 @@ export async function GET(request) {
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .populate("branchId", "name code")
         .lean()
     ]);
 
