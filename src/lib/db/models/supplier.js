@@ -11,6 +11,7 @@ const supplierSchema = new Schema(
     businessName: { type: String, required: [true, "Business Name is required"], trim: true },
     categories: [{ type: String, trim: true }],
     subcategories: [{ type: String, trim: true }],
+    brand: { type: String, trim: true },
     ownerName: { type: String, trim: true },
     email: {
       type: String,
