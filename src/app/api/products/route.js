@@ -128,6 +128,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Brand from "@/lib/db/models/brand";
+import Supplier from "@/lib/db/models/supplier";
 import { logger } from "@/lib/logger";
 import { getUserFromRequest } from "@/lib/serverAuth";
 
@@ -151,6 +152,7 @@ export async function GET(request) {
     const brandId = url.searchParams.get("brandId");
     const branchId = url.searchParams.get("branchId");
     const supplierId = url.searchParams.get("supplierId");
+    const supplierBrand = url.searchParams.get("supplierBrand");
     const isActive = url.searchParams.get("isActive");
     const sort = url.searchParams.get("sort") || "-createdAt";
     const sku = url.searchParams.get("sku");
@@ -200,6 +202,26 @@ export async function GET(request) {
 
 
     if (supplierId) filter.supplierId = supplierId;
+
+    if (supplierBrand) {
+      const matchingSuppliers = await Supplier.find({ brand: supplierBrand }).select('_id').lean();
+      const supIds = matchingSuppliers.map(s => String(s._id));
+      if (supIds.length > 0) {
+        if (filter.supplierId) {
+          // Intersection if supplierId is also provided
+          const currentId = String(filter.supplierId);
+          filter.supplierId = supIds.includes(currentId) ? currentId : null;
+        } else {
+          filter.supplierId = { $in: supIds };
+        }
+      } else {
+        return NextResponse.json({
+          success: true,
+          data: { items: [], pagination: { total: 0, page, limit, pages: 0 } }
+        });
+      }
+    }
+
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
     if (branchId) filter.branchId = branchId;
