@@ -9,9 +9,8 @@ const { Schema } = mongoose;
 const supplierSchema = new Schema(
   {
     businessName: { type: String, required: [true, "Business Name is required"], trim: true },
-    brandName: { type: String, trim: true },
-    brandNames: [{ type: String, trim: true }],
-    brandIds: [{ type: Schema.Types.ObjectId, ref: "Brand" }],
+    categories: [{ type: String, trim: true }],
+    subcategories: [{ type: String, trim: true }],
     ownerName: { type: String, trim: true },
     email: {
       type: String,
@@ -66,7 +65,7 @@ const supplierSchema = new Schema(
     }],
 
     termsAndConditions: [{
-      brand: { type: String, required: true },
+      category: { type: String, required: true },
       terms: { type: String, required: true }
     }],
 
