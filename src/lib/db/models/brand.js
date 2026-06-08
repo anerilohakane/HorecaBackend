@@ -25,6 +25,11 @@ const brandSchema = new Schema(
       type: Boolean,
       default: true
     },
+    parent: {
+      type: Schema.Types.ObjectId,
+      ref: "Brand",
+      default: null
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "Admin"
