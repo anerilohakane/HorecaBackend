@@ -169,7 +169,7 @@ export async function POST(request) {
 export async function GET() {
   await dbConnect();
   try {
-    const suppliers = await Supplier.find().populate("brandIds", "name slug").limit(100).lean();
+    const suppliers = await Supplier.find().limit(100).lean();
     return NextResponse.json({ success: true, data: suppliers });
   } catch (err) {
     console.error("GET /api/suppliers error", err);
