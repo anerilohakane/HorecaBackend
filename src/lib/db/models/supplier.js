@@ -9,7 +9,8 @@ const { Schema } = mongoose;
 const supplierSchema = new Schema(
   {
     businessName: { type: String, required: [true, "Business Name is required"], trim: true },
-    brandName: { type: String, required: [true, "Brand Name is required"], trim: true },
+    brandName: { type: String, trim: true },
+    brandIds: [{ type: Schema.Types.ObjectId, ref: "Brand" }],
     ownerName: { type: String, trim: true },
     email: {
       type: String,

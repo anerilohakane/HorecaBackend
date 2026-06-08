@@ -66,8 +66,7 @@ export async function POST(request) {
           supplierId: supplier._id,
           name: p.productName,
           sku: p.productCode,
-          categoryId: p.category || undefined,
-          subcategoryId: p.subcategory || undefined,
+          brandId: p.brand || undefined,
           unit: p.uom,
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),
@@ -125,7 +124,7 @@ export async function POST(request) {
 export async function GET() {
   await dbConnect();
   try {
-    const suppliers = await Supplier.find().limit(100).lean();
+    const suppliers = await Supplier.find().populate("brandIds", "name slug").limit(100).lean();
     return NextResponse.json({ success: true, data: suppliers });
   } catch (err) {
     console.error("GET /api/suppliers error", err);

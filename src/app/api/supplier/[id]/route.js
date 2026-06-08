@@ -46,7 +46,7 @@ export async function GET(request, { params }) {
 
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
-    const sup = await Supplier.findById(id).select("-password").lean();
+    const sup = await Supplier.findById(id).populate("brandIds", "name slug").select("-password").lean();
     if (!sup) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 
     return NextResponse.json({ success: true, data: sup });
@@ -89,8 +89,7 @@ export async function PATCH(request, { params }) {
           supplierId: id,
           name: p.productName,
           sku: p.productCode,
-          categoryId: p.category || undefined,
-          subcategoryId: p.subcategory || undefined,
+          brandId: p.brand || undefined,
           unit: p.uom || "Kg",
           basePrice: Number(p.basePrice || 0),
           assuredMargin: Number(p.assuredMargin || 0),

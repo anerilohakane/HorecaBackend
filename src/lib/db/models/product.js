@@ -136,8 +136,7 @@ const variationSubSchema = new Schema({
 
 const productSchema = new Schema({
   supplierId: { type: Schema.Types.ObjectId, required: [true, "Supplier ID is required"], ref: "Supplier" },
-  categoryId: { type: Schema.Types.ObjectId, ref: "Category" },
-  subcategoryId: { type: Schema.Types.ObjectId, ref: "Category" },
+  brandId: { type: Schema.Types.ObjectId, ref: "Brand", required: [true, "Brand ID is required"] },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
   basePrice: { type: Number, default: 0, min: [0, "Base price cannot be negative"] },
@@ -179,16 +178,7 @@ const productSchema = new Schema({
   isTrending: { type: Boolean, default: false },
   discountStartDate: { type: Date },
   discountEndDate: { type: Date },
-  locationId: { type: String, default: null },
-  locationName: { type: String, default: null },
-  locationPath: { type: String, default: null },
-  categoryPrices: {
-    A: { type: Number, default: 0 },
-    B: { type: Number, default: 0 },
-    C: { type: Number, default: 0 },
-    D: { type: Number, default: 0 },
-    E: { type: Number, default: 0 }
-  },
+  branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: [true, "Branch ID is required"] },
   poTemplateId: {
     type: Schema.Types.ObjectId,
     ref: "POTemplate"

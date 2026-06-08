@@ -20,7 +20,7 @@ export async function POST(req) {
       const Order = (await import("@/lib/db/models/order")).default;
       order = await Order.findById(orderId);
       if (order) {
-        const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
+        const isDuplicateBlocked = (order.isDuplicateOrder || order.duplicateOf) && !["ignored", "separate_valid"].includes(order.duplicateStatus);
         if (isDuplicateBlocked) {
           return NextResponse.json({
             success: false,
