@@ -79,6 +79,24 @@ export async function PATCH(request, { params }) {
       body.email = body.email.toLowerCase().trim();
     }
 
+    // Handle multiple brands
+    if (body.brandNames !== undefined || body.brandName !== undefined) {
+      const resolvedBrandIds = [];
+      const brandsToProcess = body.brandNames && body.brandNames.length > 0 
+        ? body.brandNames 
+        : (body.brandName ? [body.brandName] : []);
+
+      for (const bName of brandsToProcess) {
+        if (!bName) continue;
+        let brnd = await Brand.findOne({ name: new RegExp(`^${bName}$`, "i") });
+        if (!brnd) {
+          brnd = await Brand.create({ name: bName });
+        }
+        resolvedBrandIds.push(brnd._id);
+      }
+      body.brandIds = resolvedBrandIds;
+    }
+
     const updated = await Supplier.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true, context: "query" }).select("-password");
     if (!updated) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 

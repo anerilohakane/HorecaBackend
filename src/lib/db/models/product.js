@@ -185,7 +185,10 @@ const productSchema = new Schema({
   claimTemplateId: {
     type: Schema.Types.ObjectId,
     ref: "ClaimTemplate"
-  }
+  },
+  locationId: { type: Schema.Types.ObjectId, ref: "WarehouseLocation" },
+  locationName: { type: String },
+  locationPath: { type: String }
 }, { timestamps: true });
 
 // Robust pre-save

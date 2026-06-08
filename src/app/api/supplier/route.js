@@ -57,6 +57,22 @@ export async function POST(request) {
     if (!supplierPayload.poTemplateId) delete supplierPayload.poTemplateId;
     if (!supplierPayload.claimTemplateId) delete supplierPayload.claimTemplateId;
 
+    // Handle multiple brands
+    const resolvedBrandIds = [];
+    const brandsToProcess = supplierPayload.brandNames && supplierPayload.brandNames.length > 0 
+      ? supplierPayload.brandNames 
+      : (supplierPayload.brandName ? [supplierPayload.brandName] : []);
+
+    for (const bName of brandsToProcess) {
+      if (!bName) continue;
+      let brnd = await Brand.findOne({ name: new RegExp(`^${bName}$`, "i") });
+      if (!brnd) {
+        brnd = await Brand.create({ name: bName });
+      }
+      resolvedBrandIds.push(brnd._id);
+    }
+    supplierPayload.brandIds = resolvedBrandIds;
+
     const supplier = new Supplier(supplierPayload);
     await supplier.save();
 
