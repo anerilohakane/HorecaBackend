@@ -178,7 +178,6 @@ const productSchema = new Schema({
   isTrending: { type: Boolean, default: false },
   discountStartDate: { type: Date },
   discountEndDate: { type: Date },
-  branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: [true, "Branch ID is required"] },
   poTemplateId: {
     type: Schema.Types.ObjectId,
     ref: "POTemplate"
