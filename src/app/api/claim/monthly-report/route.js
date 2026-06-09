@@ -18,6 +18,10 @@ export async function GET(request) {
     if (!month || !year) {
       return NextResponse.json({ success: false, error: "Month and Year are required" }, { status: 400 });
     }
+    
+    if (!vendorId || vendorId === "ALL") {
+      return NextResponse.json({ success: false, error: "Please select a specific vendor to generate a template-driven claim report." }, { status: 400 });
+    }
 
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59, 999);
@@ -30,9 +34,7 @@ export async function GET(request) {
       ]
     };
 
-    if (vendorId && vendorId !== "ALL") {
-      query.vendorId = vendorId;
-    }
+    query.vendorId = vendorId;
 
     const claims = await Claim.find(query)
     .populate("vendorId", "businessName email phone ownerName salesPersons")
@@ -82,9 +84,9 @@ export async function GET(request) {
               : (vendor.salesPersons && vendor.salesPersons.length > 0 ? vendor.salesPersons[0].name : "N/A"))
       };
 
-      // If specific vendor selected, try to use their template
+      // Use the vendor's mapped template
       const template = claim.claimTemplateId;
-      if (vendorId && vendorId !== "ALL" && template && template.fields && template.fields.length > 0) {
+      if (template && template.fields && template.fields.length > 0) {
         const row = {};
         const normalizedMap = {};
         Object.keys(dataMap).forEach(key => normalizedMap[normalize(key)] = dataMap[key]);
@@ -97,7 +99,7 @@ export async function GET(request) {
         });
         reportData.push(row);
       } else {
-        // Use consolidated format (as in image)
+        // Fallback if the vendor has no template mapped
         reportData.push(dataMap);
       }
     });
@@ -108,24 +110,12 @@ export async function GET(request) {
 
     const worksheet = XLSX.utils.json_to_sheet(reportData);
     
-    // Auto-size columns
-    const wscols = [
-      { wch: 20 }, // Order ID
-      { wch: 25 }, // Vendor
-      { wch: 30 }, // Product
-      { wch: 15 }, // Code
-      { wch: 15 }, // SKU
-      { wch: 12 }, // Base Price
-      { wch: 15 }, // Assured Margin
-      { wch: 20 }, // Actual Selling Price
-      { wch: 20 }, // Expected
-      { wch: 20 }, // Approved
-      { wch: 15 }, // Loss
-      { wch: 15 }, // Claim Status
-      { wch: 15 },  // Date
-      { wch: 30 }  // Approved By
-    ];
-    worksheet["!cols"] = wscols;
+    // Auto-size columns dynamically based on headers
+    if (reportData.length > 0) {
+      const headers = Object.keys(reportData[0]);
+      const wscols = headers.map(header => ({ wch: Math.max(header.length + 5, 20) }));
+      worksheet["!cols"] = wscols;
+    }
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Monthly Report");
 

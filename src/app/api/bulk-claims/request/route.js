@@ -104,7 +104,7 @@ export async function POST(req) {
           claimId,
           vendorId: supplier._id,
           productId: product._id,
-          claimTemplateId: product.claimTemplateId,
+          claimTemplateId: supplier.claimTemplateId,
           claimType: "PLUS_MINUS",
           requestedPrice: request.requestedPrice,
           actualPrice: request.actualPrice || 0,
