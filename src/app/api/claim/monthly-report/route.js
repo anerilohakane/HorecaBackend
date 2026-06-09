@@ -93,8 +93,8 @@ export async function GET(request) {
         "Sales Representative": approvalPerson
       };
 
-      // Use the vendor's mapped template
-      const template = claim.claimTemplateId || vendor.claimTemplateId;
+      // Always strictly use the vendor's currently mapped template for full dynamic updates
+      const template = vendor.claimTemplateId;
       if (template && template.fields && template.fields.length > 0) {
         const row = {};
         const normalizedMap = {};
