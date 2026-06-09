@@ -75,7 +75,11 @@ export async function GET(request) {
         "Approved Date": claim.approvalDate 
           ? new Date(claim.approvalDate).toLocaleDateString() 
           : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
-        "Approved by(Sales Representative)": claim.salesRepresentativeName || claim.approvedBy || "N/A"
+        "Approved by(Sales Representative)": claim.salesRepresentativeName 
+          ? claim.salesRepresentativeName 
+          : (claim.approvedBy && claim.approvedBy !== "SCM Team" 
+              ? claim.approvedBy 
+              : (vendor.ownerName || vendor.businessName || "N/A"))
       };
 
       // If specific vendor selected, try to use their template
