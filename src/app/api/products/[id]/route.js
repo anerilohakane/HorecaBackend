@@ -14,6 +14,47 @@ function isValidObjectIdString(id) {
   return typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
 }
 
+// Helper to map SCM units to mongoose schema enums
+const mapUOM = (uom) => {
+  if (!uom) return "pcs";
+  const normalized = String(uom).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+      return "kg";
+    case "gram":
+    case "g":
+      return "g";
+    case "liter":
+    case "liters":
+    case "l":
+      return "liters";
+    case "ml":
+    case "milliliter":
+      return "ml";
+    case "piece":
+    case "pieces":
+    case "pcs":
+    case "pc":
+      return "pcs";
+    case "box":
+    case "boxes":
+      return "box";
+    case "dozen":
+      return "dozen";
+    case "pack":
+    case "packs":
+    case "pkt":
+    case "packet":
+      return "pack";
+    case "ton":
+    case "tons":
+      return "ton";
+    default:
+      return "pcs";
+  }
+};
+
 /** Helper: Process Restock Notifications */
 async function processRestockNotifications(product) {
   if (product.stockQuantity > 0 || product.inStock === true) {
@@ -131,6 +172,7 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
+    if (body.unit) body.unit = mapUOM(body.unit);
 
     const updated = await Product.findByIdAndUpdate(id, body, {
       new: true,
@@ -183,6 +225,7 @@ export async function PATCH(request, { params }) {
     }
 
     const body = await request.json();
+    if (body.unit) body.unit = mapUOM(body.unit);
     console.log(`[PATCH PRODUCT ${id}] Incoming Body:`, JSON.stringify(body, null, 2));
 
     const product = await Product.findById(id);

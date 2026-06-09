@@ -142,7 +142,7 @@ const productSchema = new Schema({
   price: { type: Number, required: [true, "Price is required"], min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
   stockQuantity: { type: Number, required: [true, "Stock quantity is required"], min: [0, "Stock quantity cannot be negative"] },
-  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen"], default: "kg" },
+  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "pack", "ton"], default: "kg" },
   images: {
     type: [imageSubSchema],
     validate: {

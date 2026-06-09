@@ -15,6 +15,18 @@ const CustomerSchema = new mongoose.Schema(
       trim: true
     },
 
+    businessName: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    shopName: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
     email: {
       type: String,
       default: null,

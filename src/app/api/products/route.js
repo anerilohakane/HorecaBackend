@@ -142,6 +142,47 @@ function isValidObjectIdString(id) {
   return typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
 }
 
+// Helper to map SCM units to mongoose schema enums
+const mapUOM = (uom) => {
+  if (!uom) return "pcs";
+  const normalized = String(uom).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+      return "kg";
+    case "gram":
+    case "g":
+      return "g";
+    case "liter":
+    case "liters":
+    case "l":
+      return "liters";
+    case "ml":
+    case "milliliter":
+      return "ml";
+    case "piece":
+    case "pieces":
+    case "pcs":
+    case "pc":
+      return "pcs";
+    case "box":
+    case "boxes":
+      return "box";
+    case "dozen":
+      return "dozen";
+    case "pack":
+    case "packs":
+    case "pkt":
+    case "packet":
+      return "pack";
+    case "ton":
+    case "tons":
+      return "ton";
+    default:
+      return "pcs";
+  }
+};
+
 const DEFAULT_LIMIT = 20;
 
 export async function GET(request) {
@@ -150,7 +191,7 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const limit = Math.min(100, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10));
+    const limit = Math.min(1000, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10));
     const q = url.searchParams.get("q");
     const categoryId = url.searchParams.get("categoryId");
     const supplierId = url.searchParams.get("supplierId");
@@ -224,7 +265,7 @@ export async function GET(request) {
     ]);
 
     // populate category info client-side friendly (map)
-    const categoryIds = Array.from(new Set(items.map(i => String(i.categoryId)).filter(Boolean)));
+    const categoryIds = Array.from(new Set(items.map(i => i.categoryId ? String(i.categoryId) : null).filter(id => id && id !== "undefined")));
     const categories = categoryIds.length ? await Category.find({ _id: { $in: categoryIds } }).select('_id name image slug').lean() : [];
     const categoryMap = new Map(categories.map(c => [String(c._id), c]));
 
@@ -232,7 +273,7 @@ export async function GET(request) {
     const customerCategory = user?.category;
 
     const itemsWithCategory = items.map(item => {
-      const cat = categoryMap.get(String(item.categoryId)) || null;
+      const cat = item.categoryId ? (categoryMap.get(String(item.categoryId)) || null) : null;
       
       // Determine price based on customer category
       let displayPrice = item.price;
@@ -327,10 +368,11 @@ export async function POST(request) {
       }
     }
 
-    // Build payload (ensure categoryId is set)
+    // Build payload (ensure categoryId is set and unit is mapped)
     const payload = {
       ...body,
       categoryId: resolvedCategoryId,
+      unit: body.unit ? mapUOM(body.unit) : undefined
     };
 
     // Create product; Product model's pre-save hook will auto-generate SKUs if missing

@@ -202,6 +202,11 @@ const OrderSchema = new Schema(
     notes: { type: String },
     cancellationReason: { type: String },
     metadata: { type: Schema.Types.Mixed },
+
+    // Tally integration fields
+    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT"], default: "Customer" },
+    tallySynced: { type: Boolean },
+    tallyError: { type: String },
   },
   {
     timestamps: true,

@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
+import Product from "@/lib/db/models/product";
+import Category from "@/lib/db/models/category";
 import jwt from "jsonwebtoken";
 
 // cloudinary server-side config - available if you want to process images server-side later
@@ -15,6 +17,220 @@ cloudinary.v2.config({
 
 const ACCESS_SECRET = process.env.ACCESS_TOKEN_SECRET || "fallback_access_token_secret";
 const TOKEN_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
+
+// Helper to escape XML entities
+const escapeXML = (str) => {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Helper to map SCM units to mongoose schema enums
+const mapUOM = (uom) => {
+  if (!uom) return "pcs";
+  const normalized = String(uom).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+      return "kg";
+    case "gram":
+    case "g":
+      return "g";
+    case "liter":
+    case "liters":
+    case "l":
+      return "liters";
+    case "ml":
+    case "milliliter":
+      return "ml";
+    case "piece":
+    case "pieces":
+    case "pcs":
+    case "pc":
+      return "pcs";
+    case "box":
+    case "boxes":
+      return "box";
+    case "dozen":
+      return "dozen";
+    case "pack":
+    case "packs":
+    case "pkt":
+    case "packet":
+      return "pack";
+    case "ton":
+    case "tons":
+      return "ton";
+    default:
+      return "pcs";
+  }
+};
+
+// Helper to map mongoose unit to Tally active unit name
+const mapMongooseUnitToTally = (mongooseUnit) => {
+  if (!mongooseUnit) return "Nos";
+  const normalized = String(mongooseUnit).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+      return "Kg";
+    case "g":
+      return "Kg";
+    case "liters":
+    case "ml":
+      return "Ltr";
+    case "pcs":
+    case "box":
+    case "dozen":
+    case "pack":
+    case "ton":
+    default:
+      return "Nos";
+  }
+};
+
+// Helper to build Supplier XML for Tally
+function buildSupplierXML(supplier) {
+  const name = escapeXML(supplier.businessName || supplier.shopName || supplier.ownerName);
+  const mongoId = escapeXML(supplier._id.toString());
+  const mailingName = escapeXML(supplier.shopName || supplier.businessName);
+  
+  const street = supplier.address?.street ? escapeXML(supplier.address.street) : "";
+  const city = supplier.address?.city ? escapeXML(supplier.address.city) : "";
+  const state = supplier.address?.state ? escapeXML(supplier.address.state) : "Maharashtra";
+  const postalCode = supplier.address?.postalCode ? escapeXML(supplier.address.postalCode) : "";
+  
+  const phone = supplier.phone ? escapeXML(supplier.phone) : "";
+  const email = supplier.email ? escapeXML(supplier.email) : "";
+  
+  const gstNumber = supplier.gstNumber ? escapeXML(supplier.gstNumber) : "";
+  const panNumber = supplier.panNumber ? escapeXML(supplier.panNumber) : "";
+  
+  const bankName = supplier.bankDetails?.bankName ? escapeXML(supplier.bankDetails.bankName) : "";
+  const accountNumber = supplier.bankDetails?.accountNumber ? escapeXML(supplier.bankDetails.accountNumber) : "";
+  const accountHolderName = supplier.bankDetails?.accountHolderName ? escapeXML(supplier.bankDetails.accountHolderName) : "";
+  const ifscCode = supplier.bankDetails?.ifscCode ? escapeXML(supplier.bankDetails.ifscCode) : "";
+
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="${name}" ACTION="Create">
+            <NAME>${name}</NAME>
+            <LANGUAGENAME.LIST>
+              <NAME.LIST TYPE="String">
+                <NAME>${name}</NAME>
+                <NAME>${mongoId}</NAME>
+              </NAME.LIST>
+            </LANGUAGENAME.LIST>
+            <PARENT>Sundry Creditors</PARENT>
+            <ISBILLWISEON>Yes</ISBILLWISEON>
+            <MAILINGNAME>${mailingName}</MAILINGNAME>
+            <ADDRESS.LIST TYPE="String">
+              <ADDRESS>${street}</ADDRESS>
+              <ADDRESS>${city}</ADDRESS>
+            </ADDRESS.LIST>
+            <STATENAME>${state}</STATENAME>
+            <COUNTRYNAME>India</COUNTRYNAME>
+            <PINCODE>${postalCode}</PINCODE>
+            <MOBILE>${phone}</MOBILE>
+            <EMAIL>${email}</EMAIL>
+            <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>
+            <PARTYGSTIN>${gstNumber}</PARTYGSTIN>
+            <INCOMETAXNUMBER>${panNumber}</INCOMETAXNUMBER>
+            <BANKDETAILS.LIST>
+              <BANKNAME>${bankName}</BANKNAME>
+              <ACCOUNTNUMBER>${accountNumber}</ACCOUNTNUMBER>
+              <ACCOUNTNAME>${accountHolderName}</ACCOUNTNAME>
+              <IFSCCODE>${ifscCode}</IFSCCODE>
+            </BANKDETAILS.LIST>
+            <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Helper to build Product XML for Tally
+function buildProductXML(product, parentCategoryName) {
+  const name = escapeXML(product.name);
+  const mongoId = escapeXML(product._id.toString());
+  const parent = escapeXML(parentCategoryName || "Primary");
+  const unit = escapeXML(mapMongooseUnitToTally(product.unit));
+
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKITEM NAME="${name}" ACTION="Create">
+            <NAME>${name}</NAME>
+            <LANGUAGENAME.LIST>
+              <NAME.LIST TYPE="String">
+                <NAME>${name}</NAME>
+                <NAME>${mongoId}</NAME>
+              </NAME.LIST>
+            </LANGUAGENAME.LIST>
+            <PARENT>${parent}</PARENT>
+            <BASEUNITS>${unit}</BASEUNITS>
+            <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
+            <GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>
+            <HSNCODE>0401</HSNCODE>
+            <OPENINGBALANCE>0 ${unit}</OPENINGBALANCE>
+            <OPENINGVALUE>0</OPENINGVALUE>
+          </STOCKITEM>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Helper to parse Tally responses
+function parseTallyResponse(xmlString) {
+  if (!xmlString) return { success: false, error: "Empty response from Tally" };
+
+  const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
+  const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+  
+  const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
+  const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+
+  if (createdCount > 0 || alteredCount > 0) {
+    return { success: true };
+  }
+
+  const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+  if (errorMatch && errorMatch[1]) {
+    return { success: false, error: errorMatch[1].trim() };
+  }
+
+  return { success: false, error: "Failed to parse Tally response", raw: xmlString };
+}
 
 export async function POST(request) {
   await dbConnect();
@@ -52,18 +268,138 @@ export async function POST(request) {
     const supplier = new Supplier(body);
     await supplier.save();
 
+    // Sync Supplier Ledger to Tally Prime 9
+    const tallyUrl = 'https://yummy-freebee-circular.ngrok-free.dev';
+    let tallySupplierSynced = false;
+    let tallySupplierError = null;
+
+    try {
+      const xmlPayload = buildSupplierXML(supplier);
+      const tallyResponse = await fetch(tallyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: xmlPayload
+      });
+
+      if (tallyResponse.ok) {
+        const responseText = await tallyResponse.text();
+        const parsed = parseTallyResponse(responseText);
+        if (parsed.success) {
+          tallySupplierSynced = true;
+        } else {
+          tallySupplierError = parsed.error;
+        }
+      } else {
+        tallySupplierError = `Tally server responded with status ${tallyResponse.status}`;
+      }
+    } catch (err) {
+      tallySupplierError = err.message || String(err);
+    }
+
+    // Process and Save Nested Products
+    const createdProducts = [];
+    const tallyProductSyncResults = [];
+
+    if (Array.isArray(body.products) && body.products.length > 0) {
+      for (const prodData of body.products) {
+        try {
+          // Find category name to pass to Tally as <PARENT>
+          let categoryName = "Primary";
+          if (prodData.category) {
+            const categoryDoc = await Category.findById(prodData.category).lean();
+            if (categoryDoc) categoryName = categoryDoc.name;
+          }
+
+          // Map and save to MongoDB
+          const productPayload = {
+            supplierId: supplier._id,
+            categoryId: prodData.category,
+            name: prodData.productName,
+            sku: prodData.productCode,
+            unit: mapUOM(prodData.uom),
+            price: Number(prodData.basePrice) || 0,
+            stockQuantity: 0,
+            images: prodData.image 
+              ? [{ url: prodData.image, publicId: `prod_${Date.now()}` }] 
+              : [{ url: "https://res.cloudinary.com/dqfum2awz/image/upload/v1717900000/placeholder.png", publicId: "placeholder" }],
+            isActive: true
+          };
+
+          const product = new Product(productPayload);
+          await product.save();
+          createdProducts.push(product);
+
+          // Sync Product Stock Item to Tally
+          let prodSynced = false;
+          let prodError = null;
+
+          try {
+            const prodXml = buildProductXML(product, categoryName);
+            const prodResponse = await fetch(tallyUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'text/xml',
+                'ngrok-skip-browser-warning': 'true'
+              },
+              body: prodXml
+            });
+
+            if (prodResponse.ok) {
+              const responseText = await prodResponse.text();
+              const parsed = parseTallyResponse(responseText);
+              if (parsed.success) {
+                prodSynced = true;
+              } else {
+                prodError = parsed.error;
+              }
+            } else {
+              prodError = `Tally server responded with status ${prodResponse.status}`;
+            }
+          } catch (err) {
+            prodError = err.message || String(err);
+          }
+
+          tallyProductSyncResults.push({
+            productId: product._id,
+            name: product.name,
+            tallySynced: prodSynced,
+            tallyError: prodError
+          });
+
+        } catch (err) {
+          console.error("Error creating/syncing product inside supplier onboard:", err);
+          tallyProductSyncResults.push({
+            name: prodData.productName,
+            tallySynced: false,
+            tallyError: `Failed to save product in DB: ${err.message}`
+          });
+        }
+      }
+    }
+
     const safeObj = supplier.toObject();
     delete safeObj.password;
 
     // Generate token and set cookie (you asked previously to print token)
     const token = jwt.sign({ id: supplier._id.toString(), role: supplier.role || "supplier" }, ACCESS_SECRET, { expiresIn: `${TOKEN_MAX_AGE}s` });
 
-    console.log("Token from register:", token);
+    console.log("Token from central register:", token);
 
     const cookie = `authToken=${token}; Path=/; HttpOnly; Max-Age=${TOKEN_MAX_AGE}; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
 
     return NextResponse.json(
-      { success: true, data: safeObj, token },
+      { 
+        success: true, 
+        data: safeObj, 
+        token,
+        tallySupplierSynced,
+        tallySupplierError,
+        createdProducts,
+        tallyProductSyncResults
+      },
       {
         status: 201,
         headers: { "Set-Cookie": cookie }

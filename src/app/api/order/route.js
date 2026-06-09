@@ -197,6 +197,266 @@ async function normalizeDept(name) {
 
 
 
+// Helper to escape XML characters
+const escapeXML = (str) => {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Helper to map units to Tally active unit name
+const mapMongooseUnitToTally = (mongooseUnit) => {
+  if (!mongooseUnit) return "Nos";
+  const normalized = String(mongooseUnit).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+    case "kilograms":
+      return "Kg";
+    case "g":
+    case "gram":
+    case "grams":
+      return "Kg";
+    case "liters":
+    case "liter":
+    case "ml":
+    case "milliliter":
+    case "ltr":
+      return "Ltr";
+    case "pcs":
+    case "piece":
+    case "pieces":
+    case "nos":
+    case "box":
+    case "dozen":
+    case "pack":
+    case "ton":
+    default:
+      return "Nos";
+  }
+};
+
+// Helper to format Date as YYYYMMDD with educational mode support
+const formatTallyDate = (dateVal) => {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  let dd = String(d.getDate()).padStart(2, '0');
+
+  // Normalization for Tally Educational Mode in Dev/Testing (e.g. ngrok or localhost URLs, or custom env flag)
+  const tallyUrl = process.env.TALLY_URL || '';
+  const isDevTally = !tallyUrl || tallyUrl.includes('ngrok') || tallyUrl.includes('localhost') || process.env.NODE_ENV !== 'production';
+  if (isDevTally && dd !== '01' && dd !== '02' && dd !== '31') {
+    dd = '01'; // Force to 1st of the month
+  }
+
+  return `${yyyy}${mm}${dd}`;
+};
+
+// Helper to parse Tally responses
+function parseTallyResponse(xmlString) {
+  if (!xmlString) return { success: false, error: "Empty response from Tally" };
+
+  const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
+  const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+  
+  const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
+  const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+
+  if (createdCount > 0 || alteredCount > 0) {
+    return { success: true };
+  }
+
+  const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+  if (errorMatch && errorMatch[1]) {
+    return { success: false, error: errorMatch[1].trim() };
+  }
+
+  return { success: false, error: "Failed to parse Tally response", raw: xmlString };
+}
+
+// Helper to fetch all Debtors from Tally
+async function fetchTallyDebtors(tallyUrl, companyName) {
+  const payload = `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>EXPORT</TALLYREQUEST>
+    <TYPE>COLLECTION</TYPE>
+    <ID>LedgerCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVCURRENTCOMPANY>${escapeXML(companyName)}</SVCURRENTCOMPANY>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="LedgerCollection">
+            <TYPE>Ledger</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+            <FILTER>DebtorsFilter</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="DebtorsFilter">
+            $Parent = "Sundry Debtors"
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+
+  try {
+    const res = await fetch(tallyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml' },
+      body: payload
+    });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const matches = [...xml.matchAll(/<LEDGER NAME="([^"]+)"[^>]*>/g)];
+    const ledgers = matches.map(m => m[1]);
+    return ledgers;
+  } catch (err) {
+    console.error("[Tally Sync] Failed to fetch debtors from Tally:", err);
+    return [];
+  }
+}
+
+// Helper to match customer info to Tally debtors
+function findMatchingTallyLedger(tallyLedgers, customerDoc, orderDoc) {
+  const searchTerms = [
+    customerDoc?.businessName,
+    customerDoc?.name,
+    customerDoc?.shopName,
+    orderDoc?.shippingAddress?.fullName
+  ].filter(Boolean).map(s => s.toLowerCase().trim());
+
+  if (searchTerms.length === 0) return "Anup and Co";
+
+  // 1. Exact match first
+  for (const term of searchTerms) {
+    const exact = tallyLedgers.find(l => l.toLowerCase().trim() === term);
+    if (exact) return exact;
+  }
+
+  // 2. Starts with / contains match
+  for (const term of searchTerms) {
+    const match = tallyLedgers.find(l => {
+      const normalizedL = l.toLowerCase().trim();
+      return normalizedL.startsWith(term) || term.startsWith(normalizedL) || normalizedL.includes(term) || term.includes(normalizedL);
+    });
+    if (match) return match;
+  }
+
+  // Default fallback
+  return customerDoc?.businessName || customerDoc?.name || orderDoc?.shippingAddress?.fullName || "Anup and Co";
+}
+
+// Function to construct the Tally Sales Voucher XML
+function buildTallySalesVoucherXML(order, productMap, companyName, userObject, partyLedgerName) {
+  const dateStr = formatTallyDate(order.placedAt || order.createdAt || new Date());
+  
+  // Resolve customer/party name
+  const rawPartyName = partyLedgerName || userObject?.businessName || userObject?.name || userObject?.shopName || order.shippingAddress?.fullName || "Anup and Co";
+  const partyName = escapeXML(rawPartyName);
+
+  const orderNumber = escapeXML(order.orderNumber);
+  const mongoId = escapeXML(order._id.toString());
+  
+  let computedTotal = 0;
+  
+  const itemsXml = order.items.map(item => {
+    const itemName = escapeXML(item.name);
+    const qty = parseFloat(item.quantity) || 0;
+    const unitPrice = parseFloat(item.unitPrice) || 0;
+    const itemTotal = qty * unitPrice;
+    computedTotal += itemTotal;
+    
+    // Resolve unit
+    const productDoc = productMap[item.product.toString()];
+    const tallyUnit = escapeXML(mapMongooseUnitToTally(productDoc?.unit || 'pcs'));
+    
+    const qtyStr = `${qty} ${tallyUnit}`;
+    const rateStr = `${unitPrice}/${tallyUnit}`;
+    const amountStr = itemTotal.toFixed(2); // Positive for Sales
+    
+    return `<ALLINVENTORYENTRIES.LIST>
+       <STOCKITEMNAME>${itemName}</STOCKITEMNAME>
+       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+       <RATE>${rateStr}</RATE>
+       <AMOUNT>${amountStr}</AMOUNT>
+       <ACTUALQTY>${qtyStr}</ACTUALQTY>
+       <BILLEDQTY>${qtyStr}</BILLEDQTY>
+
+       <BATCHALLOCATIONS.LIST>
+        <GODOWNNAME>Unifoods Warehouse</GODOWNNAME>
+        <BATCHNAME>Batch1</BATCHNAME>
+        <AMOUNT>${amountStr}</AMOUNT>
+        <ACTUALQTY>${qtyStr}</ACTUALQTY>
+        <BILLEDQTY>${qtyStr}</BILLEDQTY>
+       </BATCHALLOCATIONS.LIST>
+
+       <ACCOUNTINGALLOCATIONS.LIST>
+        <LEDGERNAME>Sales</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${amountStr}</AMOUNT>
+       </ACCOUNTINGALLOCATIONS.LIST>
+      </ALLINVENTORYENTRIES.LIST>`;
+  }).join("\n");
+  
+  const totalAmountStr = (-computedTotal).toFixed(2); // Negative for Sales
+
+  return `<ENVELOPE>
+ <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+ <BODY>
+  <IMPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>Vouchers</REPORTNAME>
+    <STATICVARIABLES>
+     <SVCURRENTCOMPANY>${escapeXML(companyName)}</SVCURRENTCOMPANY>
+    </STATICVARIABLES>
+   </REQUESTDESC>
+   <REQUESTDATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+      <DATE>${dateStr}</DATE>
+      <VCHSTATUSDATE>${dateStr}</VCHSTATUSDATE>
+      <EFFECTIVEDATE>${dateStr}</EFFECTIVEDATE>
+      <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+      <PARTYLEDGERNAME>${partyName}</PARTYLEDGERNAME>
+      <PARTYNAME>${partyName}</PARTYNAME>
+      <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+      <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
+      <DIFFACTUALQTY>Yes</DIFFACTUALQTY>
+      <ISINVOICE>Yes</ISINVOICE>
+
+      ${itemsXml}
+
+      <LEDGERENTRIES.LIST>
+       <LEDGERNAME>${partyName}</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+       <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+       <AMOUNT>${totalAmountStr}</AMOUNT>
+       <BILLALLOCATIONS.LIST>
+        <NAME>${orderNumber}</NAME>
+        <BILLTYPE>New Ref</BILLTYPE>
+        <AMOUNT>${totalAmountStr}</AMOUNT>
+       </BILLALLOCATIONS.LIST>
+      </LEDGERENTRIES.LIST>
+     </VOUCHER>
+    </TALLYMESSAGE>
+   </REQUESTDATA>
+  </IMPORTDATA>
+ </BODY>
+</ENVELOPE>`;
+}
+
 export async function POST(request) {
 
   try {
@@ -466,7 +726,7 @@ export async function POST(request) {
       cancellationReason: "",
       department: await normalizeDept(body.department || "odt"),
 
-
+      orderSource: body.orderSource || "Customer",
 
       metadata: body.metadata || null,
     });
@@ -680,6 +940,65 @@ export async function POST(request) {
         console.error("[CRITICAL FINANCE ERROR]: Order placed but debit failed:", e);
         // We throw here to fail the order if the debit cannot be secured
         throw new Error(`Payment processing failed. ${e.message}`);
+      }
+    }
+
+    // Sync to Tally Prime 9 as a Sales Voucher if created from ODT Dashboard
+    if (body.orderSource === "ODT") {
+      try {
+        const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'TechRyz Innovation';
+        
+        // Dynamic Customer matching
+        let partyLedgerName = null;
+        try {
+          const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany);
+          partyLedgerName = findMatchingTallyLedger(tallyDebtors, user, orderDoc);
+          console.log(`[Tally Sync] Resolved Customer party ledger: "${partyLedgerName}"`);
+        } catch (matchErr) {
+          console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
+        }
+
+        // Fetch product documents to resolve units
+        const productIds = orderDoc.items.map(it => it.product);
+        const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
+        const productMap = {};
+        productDocs.forEach(p => { productMap[p._id.toString()] = p; });
+
+        const xmlPayload = buildTallySalesVoucherXML(orderDoc, productMap, tallyCompany, user, partyLedgerName);
+        console.log(`[Tally Sync] Syncing Sales Voucher for Order "${orderDoc.orderNumber}" to Tally at ${tallyUrl}`);
+
+        const tallyResponse = await fetch(tallyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: xmlPayload
+        });
+
+        if (tallyResponse.ok) {
+          const responseText = await tallyResponse.text();
+          const parsed = parseTallyResponse(responseText);
+          if (parsed.success) {
+            console.log(`[Tally Sync] Sales Voucher "${orderDoc.orderNumber}" synced successfully to Tally.`);
+            await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: true, tallyError: null } });
+          } else {
+            console.error(`[Tally Sync] Tally error syncing Sales Voucher "${orderDoc.orderNumber}":`, parsed.error);
+            await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError: parsed.error } });
+          }
+        } else {
+          const tallyError = `Tally server responded with status ${tallyResponse.status}`;
+          console.error(`[Tally Sync] HTTP error syncing Sales Voucher "${orderDoc.orderNumber}":`, tallyError);
+          await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError } });
+        }
+      } catch (tallyErr) {
+        console.error(`[Tally Sync] Exception during Sales Voucher sync for Order "${orderDoc.orderNumber}":`, tallyErr.message);
+        try {
+          await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError: tallyErr.message } });
+        } catch (dbErr) {
+          console.error("[Tally Sync] Failed to update Tally error on Order document:", dbErr);
+        }
       }
     }
 

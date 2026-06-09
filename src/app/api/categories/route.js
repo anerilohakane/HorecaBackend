@@ -98,6 +98,74 @@ export async function GET(request) {
 }
 
 
+// Helper to build the Tally XML Request for Stock Group creation
+function buildTallyXML(name, parentName) {
+  const escapeXML = (str) => {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  };
+
+  const safeName = escapeXML(name);
+  const safeParent = parentName ? escapeXML(parentName) : null;
+
+  const tallyMessage = safeParent
+    ? `<STOCKGROUP NAME="${safeName}" ACTION="Create">
+        <NAME>${safeName}</NAME>
+        <PARENT>${safeParent}</PARENT>
+      </STOCKGROUP>`
+    : `<STOCKGROUP NAME="${safeName}" ACTION="Create">
+        <NAME>${safeName}</NAME>
+      </STOCKGROUP>`;
+
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          ${tallyMessage}
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Helper to parse the XML response from Tally
+function parseTallyResponse(xmlString) {
+  if (!xmlString) return { success: false, error: "Empty response from Tally" };
+
+  const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
+  const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+  
+  const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
+  const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+
+  if (createdCount > 0 || alteredCount > 0) {
+    return { success: true };
+  }
+
+  const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+  if (errorMatch && errorMatch[1]) {
+    return { success: false, error: errorMatch[1].trim() };
+  }
+
+  return { success: false, error: "Failed to parse Tally response", raw: xmlString };
+}
+
 // Single POST handler (subcategory-aware)
 export async function POST(request) {
   await dbConnect();
@@ -114,13 +182,14 @@ export async function POST(request) {
 
     // If parent provided, validate it's a valid ObjectId and exists
     let parentId = null;
+    let parentDoc = null;
     if (body.parent) {
       const maybeParent = String(body.parent).trim();
       if (!/^[0-9a-fA-F]{24}$/.test(maybeParent)) {
         return NextResponse.json({ success: false, error: "Invalid parent id" }, { status: 400 });
       }
 
-      const parentDoc = await Category.findById(maybeParent).lean();
+      parentDoc = await Category.findById(maybeParent).lean();
       if (!parentDoc) {
         return NextResponse.json({ success: false, error: "Parent category not found" }, { status: 404 });
       }
@@ -148,6 +217,43 @@ export async function POST(request) {
     const category = new Category(payload);
     await category.save();
 
+    // Sync to Tally Prime 9
+    let tallySynced = false;
+    let tallyError = null;
+
+    try {
+      const tallyUrl = 'https://yummy-freebee-circular.ngrok-free.dev';
+      const xmlPayload = buildTallyXML(name, parentDoc ? parentDoc.name : null);
+      
+      console.log(`[Tally Sync] Syncing category "${name}" to Tally at ${tallyUrl}`);
+      const tallyResponse = await fetch(tallyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: xmlPayload
+      });
+
+      if (tallyResponse.ok) {
+        const responseText = await tallyResponse.text();
+        const parsed = parseTallyResponse(responseText);
+        if (parsed.success) {
+          tallySynced = true;
+          console.log(`[Tally Sync] Category "${name}" synced successfully to Tally.`);
+        } else {
+          tallyError = parsed.error;
+          console.error(`[Tally Sync] Tally error syncing "${name}":`, tallyError);
+        }
+      } else {
+        tallyError = `Tally server responded with status ${tallyResponse.status}`;
+        console.error(`[Tally Sync] HTTP error syncing "${name}":`, tallyError);
+      }
+    } catch (err) {
+      tallyError = err.message || String(err);
+      console.error(`[Tally Sync] Exception syncing "${name}":`, err);
+    }
+
     // Optionally return parent basic info so client can update UI without another fetch
     let parentInfo = null;
     if (parentId) {
@@ -173,7 +279,12 @@ export async function POST(request) {
       updatedAt: category.updatedAt,
     };
 
-    return NextResponse.json({ success: true, data: result }, { status: 201 });
+    return NextResponse.json({ 
+      success: true, 
+      data: result,
+      tallySynced,
+      tallyError
+    }, { status: 201 });
   } catch (err) {
     console.error("POST /api/categories error", err);
     if (err && err.name === "ValidationError") {
