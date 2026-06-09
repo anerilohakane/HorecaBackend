@@ -71,10 +71,10 @@ export async function GET(request) {
         "Expected Selling Price": claim.expectedSellingPrice || 0,
         "Approved Selling Price": claim.actualSellingPrice || 0,
         "Loss Amount": claim.lossAmount || 0,
-        "Claim Status": claim.status || "APPROVED",
         "Approved Date": claim.approvalDate 
           ? new Date(claim.approvalDate).toLocaleDateString() 
-          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A")
+          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
+        "Approved by(Sales Representative)": claim.approvedBy || "N/A"
       };
 
       // If specific vendor selected, try to use their template
@@ -117,7 +117,8 @@ export async function GET(request) {
       { wch: 20 }, // Approved
       { wch: 15 }, // Loss
       { wch: 15 }, // Claim Status
-      { wch: 15 }  // Date
+      { wch: 15 },  // Date
+      { wch: 30 }  // Approved By
     ];
     worksheet["!cols"] = wscols;
 
