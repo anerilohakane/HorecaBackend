@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Brand from "@/lib/db/models/brand";
+import Branch from "@/lib/db/models/Branch";
 import Subscription from "@/lib/db/models/subscription";
 import RestockRequest from "@/lib/db/models/RestockRequest";
 import Notification from "@/lib/db/models/notification";
