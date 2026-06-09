@@ -125,7 +125,8 @@ export async function POST(req) {
           status: "REQUESTED",
           approvalToken, // Shared token for this vendor's bulk
           orderId,
-          approvedBy: salesPersonName
+          approvedBy: salesPersonName,
+          salesRepresentativeName: salesPersonName
         });
 
         await claim.save();

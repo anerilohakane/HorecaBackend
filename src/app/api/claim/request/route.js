@@ -66,7 +66,8 @@ export async function POST(req) {
       status: "REQUESTED",
       approvalToken,
       orderId,
-      approvedBy: salesPersonName // Store selected person's name as initial reference
+      approvedBy: salesPersonName, // Store selected person's name as initial reference
+      salesRepresentativeName: salesPersonName
     });
 
     await claim.save();

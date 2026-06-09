@@ -98,6 +98,9 @@ const claimSchema = new Schema(
     approvedBy: {
       type: String // Name/Email of the sales person who approved
     },
+    salesRepresentativeName: {
+      type: String // Explicitly store the selected sales representative's name
+    },
     approvalDate: {
       type: Date
     }
