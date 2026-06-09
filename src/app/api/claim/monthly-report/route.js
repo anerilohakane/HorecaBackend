@@ -64,6 +64,12 @@ export async function GET(request) {
       const product = claim.productId || {};
       const vendor = claim.vendorId || {};
 
+      const approvalPerson = claim.salesRepresentativeName 
+          ? claim.salesRepresentativeName 
+          : (claim.approvedBy && claim.approvedBy !== "SCM Team" 
+              ? claim.approvedBy 
+              : (vendor.salesPersons && vendor.salesPersons.length > 0 ? vendor.salesPersons[0].name : "N/A"));
+
       // Create data map for this specific claim
       const dataMap = {
         "Order ID": claim.orderId?.orderNumber || claim.orderId || "N/A",
@@ -80,18 +86,12 @@ export async function GET(request) {
         "Claim Status": claim.status || "APPROVED",
         "Approved Date": claim.approvalDate 
           ? new Date(claim.approvalDate).toLocaleDateString() 
-          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A")
+          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
+        "Approved by(Sales Representative)": approvalPerson,
+        "Claim Approval Person": approvalPerson,
+        "Approved By": approvalPerson,
+        "Sales Representative": approvalPerson
       };
-
-      const approvalPerson = claim.salesRepresentativeName 
-        ? claim.salesRepresentativeName 
-        : (claim.approvedBy && claim.approvedBy !== "SCM Team" 
-            ? claim.approvedBy 
-            : (vendor.salesPersons && vendor.salesPersons.length > 0 ? vendor.salesPersons[0].name : "N/A"));
-
-      dataMap["Approved by(Sales Representative)"] = approvalPerson;
-      dataMap["Claim Approval Person"] = approvalPerson;
-      dataMap["Approved By"] = approvalPerson;
 
       // Use the vendor's mapped template
       const template = claim.claimTemplateId || vendor.claimTemplateId;
