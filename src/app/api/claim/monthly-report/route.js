@@ -18,10 +18,6 @@ export async function GET(request) {
     if (!month || !year) {
       return NextResponse.json({ success: false, error: "Month and Year are required" }, { status: 400 });
     }
-    
-    if (!vendorId || vendorId === "ALL") {
-      return NextResponse.json({ success: false, error: "Please select a specific vendor to generate a template-driven claim report." }, { status: 400 });
-    }
 
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59, 999);
@@ -34,7 +30,9 @@ export async function GET(request) {
       ]
     };
 
-    query.vendorId = vendorId;
+    if (vendorId && vendorId !== "ALL") {
+      query.vendorId = vendorId;
+    }
 
     const claims = await Claim.find(query)
     .populate({
@@ -93,8 +91,9 @@ export async function GET(request) {
         "Sales Representative": approvalPerson
       };
 
-      // Always strictly use the vendor's currently mapped template for full dynamic updates
-      const template = vendor.claimTemplateId;
+      // If 'All Vendors' is selected, ignore templates to ensure a uniform table structure.
+      // Otherwise, always strictly use the vendor's currently mapped template for full dynamic updates.
+      const template = vendorId === "ALL" ? null : vendor.claimTemplateId;
       if (template && template.fields && template.fields.length > 0) {
         const row = {};
         const normalizedMap = {};
