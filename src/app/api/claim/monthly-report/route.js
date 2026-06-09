@@ -37,7 +37,11 @@ export async function GET(request) {
     query.vendorId = vendorId;
 
     const claims = await Claim.find(query)
-    .populate("vendorId", "businessName email phone ownerName salesPersons")
+    .populate({
+      path: "vendorId",
+      select: "businessName email phone ownerName salesPersons claimTemplateId",
+      populate: { path: "claimTemplateId" }
+    })
     .populate("productId", "name sku basePrice assuredMargin categoryId unit")
     .populate("claimTemplateId")
     .lean();
@@ -85,7 +89,7 @@ export async function GET(request) {
       };
 
       // Use the vendor's mapped template
-      const template = claim.claimTemplateId;
+      const template = claim.claimTemplateId || vendor.claimTemplateId;
       if (template && template.fields && template.fields.length > 0) {
         const row = {};
         const normalizedMap = {};
