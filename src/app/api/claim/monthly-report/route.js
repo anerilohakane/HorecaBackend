@@ -35,7 +35,7 @@ export async function GET(request) {
     }
 
     const claims = await Claim.find(query)
-    .populate("vendorId", "businessName email phone")
+    .populate("vendorId", "businessName email phone ownerName salesPersons")
     .populate("productId", "name sku basePrice assuredMargin categoryId unit")
     .populate("claimTemplateId")
     .lean();
@@ -79,7 +79,7 @@ export async function GET(request) {
           ? claim.salesRepresentativeName 
           : (claim.approvedBy && claim.approvedBy !== "SCM Team" 
               ? claim.approvedBy 
-              : (vendor.ownerName || vendor.businessName || "N/A"))
+              : (vendor.salesPersons && vendor.salesPersons.length > 0 ? vendor.salesPersons[0].name : "N/A"))
       };
 
       // If specific vendor selected, try to use their template
