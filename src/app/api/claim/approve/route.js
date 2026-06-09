@@ -25,7 +25,6 @@ export async function GET(req) {
     claim.status = "APPROVED";
     claim.vendorResponseStatus = "APPROVED";
     claim.approvalDate = new Date();
-    claim.approvedBy = "Sales Representative"; 
     
     if (!claim.actionLog) claim.actionLog = [];
     claim.actionLog.push({
@@ -77,7 +76,6 @@ export async function POST(req) {
     claim.status = "APPROVED";
     claim.vendorResponseStatus = "APPROVED";
     claim.approvalDate = new Date();
-    claim.approvedBy = actor;
     if (proofUrl) claim.proofUrl = proofUrl;
 
     if (!claim.actionLog) claim.actionLog = [];
