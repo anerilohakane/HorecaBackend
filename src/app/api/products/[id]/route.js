@@ -65,7 +65,6 @@ export async function GET(request, { params }) {
     // 1️⃣ Try Mongo ObjectId
     if (isValidObjectIdString(id)) {
       product = await Product.findById(id)
-        .populate("branchId", "name code")
         .lean({ virtuals: true });
     }
 
