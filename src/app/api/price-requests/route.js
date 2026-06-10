@@ -3,6 +3,7 @@ import dbConnect from "@/lib/db/connect";
 import PriceNegotiation from "@/lib/db/models/PriceNegotiation";
 import Customer from "@/lib/db/models/customer";
 import Product from "@/lib/db/models/product";
+import User from "@/lib/db/models/User";
 import Setting from "@/lib/db/models/Setting";
 
 export async function GET(request) {
@@ -19,7 +20,6 @@ export async function GET(request) {
     const requests = await PriceNegotiation.find(filter)
       .populate("customer", "name phone businessName category")
       .populate("product", "name price sku images")
-      .populate("salesRepresentative", "name email")
       .sort({ createdAt: -1 })
       .lean();
 

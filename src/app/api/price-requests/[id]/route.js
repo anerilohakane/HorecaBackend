@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import PriceNegotiation from "@/lib/db/models/PriceNegotiation";
+import User from "@/lib/db/models/User";
+import Customer from "@/lib/db/models/customer";
+import Product from "@/lib/db/models/product";
 
 export async function GET(request, { params }) {
   await dbConnect();
