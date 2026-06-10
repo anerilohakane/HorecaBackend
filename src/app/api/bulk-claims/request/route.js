@@ -126,7 +126,8 @@ export async function POST(req) {
           approvalToken, // Shared token for this vendor's bulk
           orderId,
           approvedBy: salesPersonName,
-          salesRepresentativeName: salesPersonName
+          salesRepresentativeName: salesPersonName,
+          salesRepresentativeEmail: salesPersonEmail
         });
 
         await claim.save();

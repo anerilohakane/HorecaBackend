@@ -15,6 +15,7 @@ import Supplier from "@/lib/db/models/supplier";
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
 import Department from "@/lib/db/models/Department";
+import Claim from "@/lib/db/models/Claim";
 import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
 import { detectAndGroupOrder } from "@/lib/services/duplicateOrderService";
@@ -1576,6 +1577,22 @@ export async function PATCH(request) {
                               body["invoice.status"] === "verified";
 
     if (isVerifyingInvoice) {
+      // 🚨 NEW: Block verification if there are pending claims
+      const pendingClaims = await Claim.findOne({
+        orderId: order._id,
+        status: { $in: ["REQUESTED", "PENDING"] }
+      });
+
+      if (pendingClaims) {
+        return json(
+          {
+            success: false,
+            error: "Order verification blocked: There are pending claims that require Sales approval first."
+          },
+          400
+        );
+      }
+
       setData["invoice.status"] = "verified";
       
       // Auto-transition to ART department

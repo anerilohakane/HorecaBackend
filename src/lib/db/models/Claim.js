@@ -101,6 +101,9 @@ const claimSchema = new Schema(
     salesRepresentativeName: {
       type: String // Explicitly store the selected sales representative's name
     },
+    salesRepresentativeEmail: {
+      type: String // To easily map and filter claims for the logged-in sales user
+    },
     approvalDate: {
       type: Date
     }

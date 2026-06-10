@@ -11,10 +11,12 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const vendorId = searchParams.get("vendorId");
+    const salesEmail = searchParams.get("salesRepresentativeEmail");
 
     let query = {};
     if (status && status !== "ALL") query.status = status;
     if (vendorId) query.vendorId = vendorId;
+    if (salesEmail) query.salesRepresentativeEmail = salesEmail;
 
     console.log("[GET /api/claim] Query:", query);
     const claims = await Claim.find(query)

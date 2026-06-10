@@ -63,11 +63,13 @@ export async function POST(req) {
       actualSellingPrice: requestedPrice,
       expectedSellingPrice,
       lossAmount,
+      claimAmount: lossAmount,
       status: "REQUESTED",
       approvalToken,
       orderId,
       approvedBy: salesPersonName, // Store selected person's name as initial reference
-      salesRepresentativeName: salesPersonName
+      salesRepresentativeName: salesPersonName,
+      salesRepresentativeEmail: salesPersonEmail
     });
 
     await claim.save();
