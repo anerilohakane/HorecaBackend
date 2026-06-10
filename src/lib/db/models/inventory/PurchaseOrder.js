@@ -20,9 +20,18 @@ const purchaseOrderSchema = new mongoose.Schema(
     totalAmount: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ["Draft", "Sent", "Partially Received", "Completed", "Cancelled"],
+      enum: ["Draft", "Approved", "Sent", "Partial Received", "Closed", "Completed", "Cancelled"],
       default: "Draft",
     },
+    prId: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseRequest" },
+    timeline: [
+      {
+        status: String,
+        message: String,
+        timestamp: { type: Date, default: Date.now },
+        user: String,
+      },
+    ],
     expectedDeliveryDate: { type: Date },
     createdBy: { type: String, default: "Admin" },
     notes: { type: String, default: "" },

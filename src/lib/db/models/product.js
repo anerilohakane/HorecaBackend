@@ -136,27 +136,28 @@ const variationSubSchema = new Schema({
 
 const productSchema = new Schema({
   supplierId: { type: Schema.Types.ObjectId, required: [true, "Supplier ID is required"], ref: "Supplier" },
-  categoryId: { type: Schema.Types.ObjectId, required: [true, "Category ID is required"], ref: "Category" },
+  categoryId: { type: Schema.Types.ObjectId, ref: "Brand", required: [true, "Category ID is required"] },
+  subcategoryId: { type: Schema.Types.ObjectId, ref: "Brand" },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
-  price: { type: Number, required: [true, "Price is required"], min: [0, "Price cannot be negative"] },
+  basePrice: { type: Number, default: 0, min: [0, "Base price cannot be negative"] },
+  assuredMargin: { type: Number, default: 0, min: [0, "Assured margin cannot be negative"] },
+  price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
-  stockQuantity: { type: Number, required: [true, "Stock quantity is required"], min: [0, "Stock quantity cannot be negative"] },
-  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "pack", "ton"], default: "kg" },
+  stockQuantity: { type: Number, default: 0, min: [0, "Stock quantity cannot be negative"] },
+  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "Kg", "Gram", "Liter", "Ml", "Piece", "Box", "Dozen", "Pack", "Ton"], default: "Kg" },
   images: {
     type: [imageSubSchema],
-    validate: {
-      validator: function(value) { return Array.isArray(value) && value.length > 0; },
-      message: 'At least one product image is required'
-    },
-    required: [true, 'Product images are required']
+    default: []
   },
+  isColdStorage: { type: Boolean, default: false },
+  temperature: { type: String, default: null },
   isActive: { type: Boolean, default: true },
   discountedPrice: {
     type: Number,
     min: [0, "Discounted price cannot be negative"],
     validate: {
-      validator: function(value) {
+      validator: function (value) {
         if (value == null) return true;
         return value <= this.price;
       },
@@ -178,20 +179,21 @@ const productSchema = new Schema({
   isTrending: { type: Boolean, default: false },
   discountStartDate: { type: Date },
   discountEndDate: { type: Date },
-  locationId: { type: String, default: null },
-  locationName: { type: String, default: null },
-  locationPath: { type: String, default: null },
-  categoryPrices: {
-    A: { type: Number, default: 0 },
-    B: { type: Number, default: 0 },
-    C: { type: Number, default: 0 },
-    D: { type: Number, default: 0 },
-    E: { type: Number, default: 0 }
-  }
+  poTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: "POTemplate"
+  },
+  claimTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: "ClaimTemplate"
+  },
+  locationId: { type: Schema.Types.ObjectId, ref: "WarehouseLocation" },
+  locationName: { type: String },
+  locationPath: { type: String }
 }, { timestamps: true });
 
 // Robust pre-save
-productSchema.pre("save", function(next) {
+productSchema.pre("save", function (next) {
   try {
     // Generate main SKU if missing
     if (!this.sku) {
@@ -239,11 +241,11 @@ productSchema.pre("save", function(next) {
   }
 });
 
-productSchema.virtual('inStock').get(function() {
+productSchema.virtual('inStock').get(function () {
   return this.stockQuantity > 0;
 });
 
-productSchema.methods.isDiscountActive = function() {
+productSchema.methods.isDiscountActive = function () {
   const now = new Date();
   if (!this.discountStartDate || !this.discountEndDate) {
     return !!this.discountedPrice;

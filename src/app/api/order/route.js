@@ -15,8 +15,11 @@ import Supplier from "@/lib/db/models/supplier";
 import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
 import Department from "@/lib/db/models/Department";
+import Claim from "@/lib/db/models/Claim";
 import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
+import { detectAndGroupOrder } from "@/lib/services/duplicateOrderService";
+import { MOV_AMOUNT, MOV_DELIVERY_CHARGE } from "@/lib/utils/mov";
 
 // (json helper assumed already in file)
 const json = (payload, status = 200) =>
@@ -56,9 +59,9 @@ function safePopulateQuery(query, path, select = "") {
           casterSchema.path(subPath) &&
           casterSchema.path(subPath).options
         ) {
-           const osp = casterSchema.path(subPath).options;
-           if (osp.ref) return osp.ref;
-           if (osp.refPath) return "POLYMORPHIC";
+          const osp = casterSchema.path(subPath).options;
+          if (osp.ref) return osp.ref;
+          if (osp.refPath) return "POLYMORPHIC";
         }
       }
     }
@@ -102,7 +105,7 @@ async function manualPopulateDepartments(orders) {
   if (docs.length === 0) return;
 
   const Department = (await import("@/lib/db/models/Department")).default;
-  
+
   // 1. Collect all unique valid ObjectIds
   const deptIds = new Set();
   docs.forEach(o => {
@@ -116,8 +119,8 @@ async function manualPopulateDepartments(orders) {
   if (deptIds.size === 0) return;
 
   // 2. Fetch all unique departments in one query
-  const departments = await Department.find({ 
-    _id: { $in: Array.from(deptIds).map(id => new mongoose.Types.ObjectId(id)) } 
+  const departments = await Department.find({
+    _id: { $in: Array.from(deptIds).map(id => new mongoose.Types.ObjectId(id)) }
   }).select("departmentName").lean();
 
   const deptMap = {};
@@ -158,31 +161,31 @@ async function manualPopulateDepartments(orders) {
 
 async function normalizeDept(name) {
   if (!name) return 'others';
-  
+
   try {
     const isObjectId = mongoose.Types.ObjectId.isValid(name);
     if (isObjectId) return new mongoose.Types.ObjectId(name);
 
     // Standardize search (case-insensitive for name)
     const normName = name.toString().trim().toUpperCase();
-    
+
     // Look for ODT/ART abbreviations if names are longer, or match directly
-    const dept = await Department.findOne({ 
-      departmentName: { $regex: new RegExp(`^${normName}$`, 'i') } 
+    const dept = await Department.findOne({
+      departmentName: { $regex: new RegExp(`^${normName}$`, 'i') }
     }).lean();
 
     if (dept) return new mongoose.Types.ObjectId(dept._id);
-    
+
     // Fallback logic for legacy strings if no match found
     if (['odt', 'odt management'].includes(normName.toLowerCase())) {
-        const odt = await Department.findOne({ departmentName: 'ODT' }).lean();
-        if (odt) return new mongoose.Types.ObjectId(odt._id);
+      const odt = await Department.findOne({ departmentName: 'ODT' }).lean();
+      if (odt) return new mongoose.Types.ObjectId(odt._id);
     }
     if (['art', 'art reporting'].includes(normName.toLowerCase())) {
-        const art = await Department.findOne({ departmentName: 'ART' }).lean();
-        if (art) return new mongoose.Types.ObjectId(art._id);
+      const art = await Department.findOne({ departmentName: 'ART' }).lean();
+      if (art) return new mongoose.Types.ObjectId(art._id);
     }
-    
+
     return name.toLowerCase(); // Return original lowercase as ID if no DB match
   } catch (e) {
     const isObjectId = mongoose.Types.ObjectId.isValid(name);
@@ -248,7 +251,7 @@ const formatTallyDate = (dateVal) => {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   let dd = String(d.getDate()).padStart(2, '0');
 
-  // Normalization for Tally Educational Mode in Dev/Testing (e.g. ngrok or localhost URLs, or custom env flag)
+  // Normalization for Tally Educational Mode in Dev/Testing
   const tallyUrl = process.env.TALLY_URL || '';
   const isDevTally = !tallyUrl || tallyUrl.includes('ngrok') || tallyUrl.includes('localhost') || process.env.NODE_ENV !== 'production';
   if (isDevTally && dd !== '01' && dd !== '02' && dd !== '31') {
@@ -264,7 +267,7 @@ function parseTallyResponse(xmlString) {
 
   const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
   const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
-  
+
   const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
   const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
 
@@ -354,38 +357,40 @@ function findMatchingTallyLedger(tallyLedgers, customerDoc, orderDoc) {
     if (match) return match;
   }
 
-  // Default fallback
-  return customerDoc?.businessName || customerDoc?.name || orderDoc?.shippingAddress?.fullName || "Anup and Co";
+  // Default fallback to prevent 'Ledger does not exist' error for new customers
+  return "Anup and Co";
 }
 
 // Function to construct the Tally Sales Voucher XML
 function buildTallySalesVoucherXML(order, productMap, companyName, userObject, partyLedgerName) {
   const dateStr = formatTallyDate(order.placedAt || order.createdAt || new Date());
-  
+
   // Resolve customer/party name
-  const rawPartyName = partyLedgerName || userObject?.businessName || userObject?.name || userObject?.shopName || order.shippingAddress?.fullName || "Anup and Co";
+  const rawPartyName = partyLedgerName || "Anup and Co";
   const partyName = escapeXML(rawPartyName);
 
   const orderNumber = escapeXML(order.orderNumber);
   const mongoId = escapeXML(order._id.toString());
-  
+
   let computedTotal = 0;
-  
+
   const itemsXml = order.items.map(item => {
     const itemName = escapeXML(item.name);
     const qty = parseFloat(item.quantity) || 0;
     const unitPrice = parseFloat(item.unitPrice) || 0;
     const itemTotal = qty * unitPrice;
     computedTotal += itemTotal;
-    
+
     // Resolve unit
     const productDoc = productMap[item.product.toString()];
     const tallyUnit = escapeXML(mapMongooseUnitToTally(productDoc?.unit || 'pcs'));
-    
-    const qtyStr = `${qty} ${tallyUnit}`;
-    const rateStr = `${unitPrice}/${tallyUnit}`;
+
+    // Just send the number without the unit string. Tally will automatically use the base unit configured for the item.
+    // This prevents Tally from dropping the quantity to 0 if "Nos" doesn't match the item's configured unit.
+    const qtyStr = `${qty}`;
+    const rateStr = `${unitPrice}`;
     const amountStr = itemTotal.toFixed(2); // Positive for Sales
-    
+
     return `<ALLINVENTORYENTRIES.LIST>
        <STOCKITEMNAME>${itemName}</STOCKITEMNAME>
        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -409,10 +414,10 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
        </ACCOUNTINGALLOCATIONS.LIST>
       </ALLINVENTORYENTRIES.LIST>`;
   }).join("\n");
-  
+
   const totalAmountStr = (-computedTotal).toFixed(2); // Negative for Sales
 
-  return `<ENVELOPE>
+  const xmlStr = `<ENVELOPE>
  <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
  <BODY>
   <IMPORTDATA>
@@ -455,6 +460,9 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
   </IMPORTDATA>
  </BODY>
 </ENVELOPE>`;
+
+  console.log("[Tally Sync] Generated XML Payload:\n", xmlStr);
+  return xmlStr;
 }
 
 export async function POST(request) {
@@ -471,21 +479,85 @@ export async function POST(request) {
       return json({ success: false, error: "Identification (userId or supplierId) is required" }, 400);
     }
 
-    let user = await User.findById(placerId);
-    let userModel = "User";
-
-    if (!user) {
-      user = await Customer.findById(placerId);
-      userModel = "Customer";
+    // 🛑 DEBUG: Ensure it's a valid ID
+    if (!mongoose.Types.ObjectId.isValid(placerId)) {
+      return json({ success: false, error: `Invalid ID format provided: ${placerId}` }, 400);
     }
 
-    if (!user) {
-      user = await Supplier.findById(placerId);
+    let identifiedUser = null;
+    let userModel = "User";
+
+    // Try finding in all three collections
+    identifiedUser = await User.findById(placerId);
+    if (!identifiedUser) {
+      identifiedUser = await Customer.findById(placerId);
+      userModel = "Customer";
+    }
+    if (!identifiedUser) {
+      identifiedUser = await Supplier.findById(placerId);
       userModel = "Supplier";
     }
 
-    if (!user) {
-      return json({ success: false, error: "Customer/User/Supplier not found with the provided ID" }, 404);
+    if (!identifiedUser) {
+      // 🕵️ FALLBACK 1: Try finding by phone number from shipping address
+      const phone = shippingAddress?.phone;
+      const email = shippingAddress?.email || body.email;
+
+      if (phone || email) {
+        const query = [];
+        if (phone) {
+          const numericPhone = phone.replace(/\D/g, "");
+          query.push({ phone: { $regex: numericPhone } });
+          query.push({ phone: phone });
+        }
+        if (email) {
+          query.push({ email: email.toLowerCase() });
+        }
+
+        identifiedUser = await Customer.findOne({ $or: query });
+
+        if (identifiedUser) {
+          userModel = "Customer";
+          console.log(`[ORDER INFO] User auto-linked via PHONE/EMAIL fallback: ${phone || email} (Original ID ${placerId} not found)`);
+        }
+      }
+    }
+
+    if (!identifiedUser) {
+      // 🕵️ FALLBACK 2: Try finding in ALL collections (raw)
+      const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
+
+      // Try to find where this ID actually exists
+      let foundInCollection = null;
+      try {
+        const collections = await mongoose.connection.db.listCollections().toArray();
+        for (const coll of collections) {
+          const doc = await mongoose.connection.db.collection(coll.name).findOne({
+            _id: mongoose.Types.ObjectId.isValid(placerId) ? new mongoose.Types.ObjectId(placerId) : placerId
+          });
+          if (doc) {
+            foundInCollection = coll.name;
+            break;
+          }
+        }
+      } catch (e) {
+        console.error("Global search failed:", e);
+      }
+
+      // Sample a few IDs from Customers to verify connectivity
+      const sample = await Customer.find().limit(3).select('_id').lean();
+      const sampleIds = sample.map(s => s._id.toString()).join(', ');
+
+      console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Found in: ${foundInCollection || 'NONE'}`);
+
+      return json({
+        success: false,
+        error: "Customer/User/Supplier not found with the provided ID",
+        debugId: placerId,
+        debugDb: dbName,
+        debugFoundIn: foundInCollection || "NONE",
+        debugSamples: sampleIds
+      }, 404);
     }
 
     // 2) items array or single-item shortcut
@@ -549,15 +621,20 @@ export async function POST(request) {
         );
       }
 
-      const user = await getUserFromRequest(request);
-      const customerCategory = user?.category;
+      const customerCategory = identifiedUser?.category || "D";
       let displayPrice = product.price;
 
       if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory]) {
         displayPrice = product.categoryPrices[customerCategory];
       }
 
-      const unitPrice = displayPrice;
+      // Use the unitPrice sent by the client (what the customer saw in cart/checkout).
+      // If the client price is LOWER than the resolved DB price (possible price manipulation),
+      // enforce the DB price. This ensures the invoice always matches the checkout display.
+      const clientUnitPrice = Number(it.unitPrice ?? it.price ?? 0);
+      const unitPrice = (clientUnitPrice > 0 && clientUnitPrice <= displayPrice)
+        ? clientUnitPrice  // honour what the customer was shown
+        : displayPrice;   // fallback to DB-resolved price (and protects against inflation)
 
       const totalPrice = unitPrice * qty;
       subtotal += totalPrice;
@@ -596,12 +673,37 @@ export async function POST(request) {
       );
     }
 
-    // 4) Totals mapped to your schema
-    const gstAmount = Number(body.gstAmount ?? body.taxAmount ?? body.tax ?? 0);
-    const shippingCharges = Number(body.shippingCharges ?? 0);
-    const platformFee = Number(body.platformFee ?? 0);
+    // 4) Totals mapped to your schema - Recalculate GST dynamically on backend
+    const calculatedGst = builtItems.reduce((sum, item) => sum + (item.totalPrice * ((item.gst || 0) / 100)), 0);
+    const gstAmount = Number(calculatedGst.toFixed(2));
+    const platformFee = 0;    // Removed - no platform fee
     const discounts = Number(body.discounts ?? 0);
-    const total = subtotal + gstAmount + shippingCharges + platformFee - discounts;
+
+    // --- 🛍️ MOV (Minimum Order Value) VALIDATION ---
+    // MOV is checked against Grand Total = subtotal + GST (before any delivery charge)
+    const grandTotalBeforeMOV = subtotal + gstAmount - discounts;
+    const movApplied = body.movApplied === true;
+    let movDeliveryCharge = 0;
+    let shippingCharges = 0;
+
+    if (grandTotalBeforeMOV < MOV_AMOUNT) {
+      if (!movApplied) {
+        // Client did NOT acknowledge delivery charge — block order creation
+        return json({
+          success: false,
+          error: "MOV_NOT_MET",
+          message: `Minimum Order Value (MOV) is ₹${MOV_AMOUNT}. Orders below MOV require an additional ₹${MOV_DELIVERY_CHARGE} delivery charge.`,
+          movAmount: MOV_AMOUNT,
+          movDeliveryCharge: MOV_DELIVERY_CHARGE,
+          currentTotal: grandTotalBeforeMOV,
+        }, 422);
+      }
+      // Client agreed to pay delivery charge
+      movDeliveryCharge = MOV_DELIVERY_CHARGE;
+      shippingCharges = MOV_DELIVERY_CHARGE;
+    }
+
+    const total = Number((grandTotalBeforeMOV + movDeliveryCharge).toFixed(2));
 
     // Calculate aggregated GST percentage
     const orderGst = subtotal > 0 ? (gstAmount / subtotal) * 100 : 0;
@@ -647,6 +749,10 @@ export async function POST(request) {
       paymentMethod === "cash_on_delivery" ||
       paymentMethod === "cash";
 
+    const isCN =
+      paymentMethod === "cn" ||
+      paymentMethod === "credit_note";
+
     if (isCOD) {
       // 🔹 COD rules:
       //  - method normalized to "cod"
@@ -654,6 +760,14 @@ export async function POST(request) {
       paymentMethod = "cod";
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
+    } else if (isCN) {
+      // 🔹 CN rules:
+      //  - method normalized to "cn"
+      //  - status = "pending" at order creation
+      paymentMethod = "cn";
+      if (!paymentStatus) paymentStatus = "pending";
+      // no transactionId required, no paidAt at creation
+
     } else if (paymentMethod === "wallet") {
       // 🔹 Wallet/Points payment
       // DO NOT DEDUCT HERE. The 'Final Debit' at the end of the function handles it securely.
@@ -684,7 +798,7 @@ export async function POST(request) {
           level: 'warn',
           message: 'Payment failed during order creation',
           action: 'PAYMENT_FAILED',
-          userId: user._id,
+          userId: identifiedUser._id,
           metadata: { transactionId, bodyPaymentStatus: paymentStatus },
           req: request
         });
@@ -693,11 +807,12 @@ export async function POST(request) {
 
     // 8) Build orderDoc according to your OrderSchema
     const orderDoc = new Order({
-      user: user._id,
+      user: identifiedUser._id,
       userModel: userModel,
       supplier: supplierRef,
+      orderSource: body.orderSource || (body.supplierId ? "Vendor" : "Customer"),
       items: builtItems,
-      
+
       shippingAddress: shippingAddress,
 
       subtotal,
@@ -708,6 +823,10 @@ export async function POST(request) {
       discounts,
       total,
       currency: body.currency || "INR",
+
+      // MOV tracking fields
+      movApplied,
+      movDeliveryCharge,
 
       status: body.status || "pending",
       placedAt: new Date(),
@@ -747,6 +866,7 @@ export async function POST(request) {
       invoiceNumber,
       generatedAt: now,
       url: body.invoiceUrl || "",
+      status: "optional",
       meta: {
         user: orderDoc.user,
         supplier: orderDoc.supplier,
@@ -762,6 +882,9 @@ export async function POST(request) {
         paymentMethod,
         paymentStatus: orderDoc.payment.status, // Use live status
         paidAt: orderDoc.payment.paidAt || null,
+        // MOV audit fields
+        movApplied,
+        movDeliveryCharge,
       },
     };
 
@@ -769,7 +892,7 @@ export async function POST(request) {
     // 9.5) 🔥 MARKETPLACE AUTO-SETTLEMENT: Settle for ALL unique suppliers in items
     const isNowDelivered = (orderDoc.status || "").toLowerCase() === "delivered" || (orderDoc.delivery?.status || "").toLowerCase() === "delivered";
     const isPaidAtCreation = (orderDoc.payment?.status || "").toLowerCase() === "paid";
-    
+
     console.log(`[ORDER LOG] Flow: Auto-Settlement Check | Del: ${isNowDelivered} | Paid: ${isPaidAtCreation}`);
 
     try {
@@ -780,13 +903,13 @@ export async function POST(request) {
       const suppliers = new Set();
       if (orderDoc.supplier) suppliers.add(orderDoc.supplier.toString());
       (orderDoc.items || []).forEach(item => {
-         if (item.supplier) suppliers.add(item.supplier.toString());
+        if (item.supplier) suppliers.add(item.supplier.toString());
       });
       console.log(`[ORDER LOG] Marketplace Detected Suppliers: ${[...suppliers].join(', ')}`);
 
       for (const sId of suppliers) {
         const supplierId = new mongoose.Types.ObjectId(sId);
-        
+
         let wallet = await Wallet.findOne({ userId: supplierId });
         if (!wallet) {
           wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
@@ -803,7 +926,7 @@ export async function POST(request) {
             userId: supplierId,
             walletId: wallet._id,
             amount: supplierTotal,
-            type: "order_settlement", 
+            type: "order_settlement",
             method: "wallet",
             status: "completed",
             description: `Auto-Settlement for Order Items: ${orderDoc.orderNumber}`,
@@ -814,24 +937,26 @@ export async function POST(request) {
 
         // 2) Force Sync Snapshot for EVERY involved supplier (Marketplace Aware)
         const summary = await Order.aggregate([
-          { $match: { 
-               $or: [
-                 { supplier: supplierId },
-                 { "items.supplier": supplierId }
-               ]
-          } },
+          {
+            $match: {
+              $or: [
+                { supplier: supplierId },
+                { "items.supplier": supplierId }
+              ]
+            }
+          },
           { $unwind: "$items" },
           {
-             $group: {
-               _id: null,
-               realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
-               escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
-             }
+            $group: {
+              _id: null,
+              realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
+              escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
+            }
           }
         ]);
 
         const snap = summary[0] || { realized: 0, escrowed: 0 };
-        
+
         const ledgerTruth = await Transaction.aggregate([
           { $match: { userId: supplierId, status: 'completed' } },
           {
@@ -855,6 +980,26 @@ export async function POST(request) {
     // 10) Save
     await orderDoc.save();
 
+    // 10.5) Trigger duplicate order detection inline
+    try {
+      console.log(`[ORDER LOG] Running duplicate detection for order ${orderDoc._id}...`);
+      const dupRes = await detectAndGroupOrder(orderDoc);
+      if (dupRes.success && dupRes.duplicateDetected) {
+        console.log(`[ORDER LOG] Duplicate detected! Group ID: ${dupRes.duplicateGroupId}, Master ID: ${dupRes.masterOrderId}`);
+        // Fetch updated order doc to reflect duplicate grouping fields in response
+        const updatedDoc = await Order.findById(orderDoc._id);
+        if (updatedDoc) {
+          orderDoc.isDuplicateOrder = updatedDoc.isDuplicateOrder;
+          orderDoc.duplicateGroupId = updatedDoc.duplicateGroupId;
+          orderDoc.duplicateStatus = updatedDoc.duplicateStatus;
+          orderDoc.masterOrderId = updatedDoc.masterOrderId;
+          orderDoc.duplicateOf = updatedDoc.duplicateOf;
+        }
+      }
+    } catch (dupErr) {
+      console.error("[ORDER LOG] Error during duplicate order detection:", dupErr);
+    }
+
     // 11) Optional stock decrement (Default to TRUE unless explicitly false)
     if (body.decrementStock !== false) {
       console.log("Starting stock decrement for order:", orderDoc._id);
@@ -876,14 +1021,14 @@ export async function POST(request) {
       level: 'info',
       message: `Order created successfully: ${orderDoc._id}`,
       action: 'ORDER_CREATED',
-      userId: user._id,
-      metadata: { 
-        orderId: orderDoc._id, 
+      userId: identifiedUser._id,
+      metadata: {
+        orderId: orderDoc._id,
         orderNumber: orderDoc.orderNumber,
-        subtotal, 
+        subtotal,
         total,
         status: orderDoc.status,
-        paymentMethod: body.paymentMethod || "COD" 
+        paymentMethod: body.paymentMethod || "COD"
       },
       req: request
     });
@@ -898,7 +1043,7 @@ export async function POST(request) {
 
         // JIT Audit: Recalculate Truth Balance from ledger
         const ledger = await Transaction.aggregate([
-          { $match: { userId: new mongoose.Types.ObjectId(user._id), status: 'completed' } },
+          { $match: { userId: new mongoose.Types.ObjectId(identifiedUser._id), status: 'completed' } },
           {
             $group: {
               _id: null,
@@ -911,17 +1056,17 @@ export async function POST(request) {
         const realBalance = Math.max(0, truth.in - truth.out);
 
         if (realBalance < total) {
-           throw new Error(`Insufficient wallet balance. Audited Truth: ₹${realBalance} | Total: ₹${total}`);
+          throw new Error(`Insufficient wallet balance. Audited Truth: ₹${realBalance} | Total: ₹${total}`);
         }
 
-        let buyerWallet = await Wallet.findOne({ userId: user._id });
+        let buyerWallet = await Wallet.findOne({ userId: identifiedUser._id });
         if (!buyerWallet) {
-           buyerWallet = new Wallet({ userId: user._id, balance: realBalance, userType: 'supplier' });
+          buyerWallet = new Wallet({ userId: identifiedUser._id, balance: realBalance, userType: 'supplier' });
         }
 
         // Create Debit Transaction
         const debitTx = new Transaction({
-          userId: new mongoose.Types.ObjectId(user._id),
+          userId: new mongoose.Types.ObjectId(identifiedUser._id),
           walletId: new mongoose.Types.ObjectId(buyerWallet._id),
           amount: total,
           type: "order_payment",
@@ -935,7 +1080,7 @@ export async function POST(request) {
         // Update Balance
         buyerWallet.balance = (realBalance - total);
         await buyerWallet.save();
-        console.log(`[FINANCE LOG] 🔒 Point Deduction Finalized for Buyer ${user._id} | New Balance: ₹${buyerWallet.balance}`);
+        console.log(`[FINANCE LOG] 🔒 Point Deduction Finalized for Buyer ${identifiedUser._id} | New Balance: ₹${buyerWallet.balance}`);
       } catch (e) {
         console.error("[CRITICAL FINANCE ERROR]: Order placed but debit failed:", e);
         // We throw here to fail the order if the debit cannot be secured
@@ -947,13 +1092,13 @@ export async function POST(request) {
     if (body.orderSource === "ODT") {
       try {
         const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
-        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'TechRyz Innovation';
-        
+        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
+
         // Dynamic Customer matching
         let partyLedgerName = null;
         try {
           const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany);
-          partyLedgerName = findMatchingTallyLedger(tallyDebtors, user, orderDoc);
+          partyLedgerName = findMatchingTallyLedger(tallyDebtors, identifiedUser, orderDoc);
           console.log(`[Tally Sync] Resolved Customer party ledger: "${partyLedgerName}"`);
         } catch (matchErr) {
           console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
@@ -965,9 +1110,9 @@ export async function POST(request) {
         const productMap = {};
         productDocs.forEach(p => { productMap[p._id.toString()] = p; });
 
-        const xmlPayload = buildTallySalesVoucherXML(orderDoc, productMap, tallyCompany, user, partyLedgerName);
+        const xmlPayload = buildTallySalesVoucherXML(orderDoc, productMap, tallyCompany, identifiedUser, partyLedgerName);
         console.log(`[Tally Sync] Syncing Sales Voucher for Order "${orderDoc.orderNumber}" to Tally at ${tallyUrl}`);
-
+        console.log("PRANALAIIIIIIIIIIIIIIIIIII - ", xmlPayload)
         const tallyResponse = await fetch(tallyUrl, {
           method: 'POST',
           headers: {
@@ -1002,8 +1147,8 @@ export async function POST(request) {
       }
     }
 
-    return json({ 
-      success: true, 
+    return json({
+      success: true,
       order: orderDoc,
       message: "Marketplace order placed & points audited"
     }, 201);
@@ -1051,6 +1196,19 @@ export async function GET(request) {
     const idParam =
       url.searchParams.get("id") || url.searchParams.get("orderId");
 
+    const orderNumberParam = url.searchParams.get("orderNumber");
+    if (orderNumberParam) {
+      const order = await Order.findOne({ orderNumber: orderNumberParam })
+        .populate("user", "name email phone")
+        .populate("supplier", "name")
+        .populate("items.product", "name price sku")
+        .lean();
+      if (!order) {
+        return json({ success: false, error: "Order not found" }, 404);
+      }
+      return json({ success: true, order }, 200);
+    }
+
     /* -----------------------------
        FETCH SINGLE ORDER BY ID
     ------------------------------*/
@@ -1069,7 +1227,7 @@ export async function GET(request) {
       // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
       const order = await query.lean();
-      
+
       // Manual population for departments to avoid CastError with "others"
       await manualPopulateDepartments(order);
 
@@ -1100,30 +1258,42 @@ export async function GET(request) {
     if (userId) rawQ.user = new mongoose.Types.ObjectId(userId);
     if (status) rawQ.status = status;
     if (supplierId) rawQ.supplier = new mongoose.Types.ObjectId(supplierId);
-    
+
     if (department) {
-      const oid = new mongoose.Types.ObjectId(department);
-      rawQ.$or = [
-        { department: department },
-        { department: oid },
-        { "department.$oid": department }
-      ];
+      const resolvedDept = await normalizeDept(department);
+      if (mongoose.Types.ObjectId.isValid(resolvedDept)) {
+        const oid = new mongoose.Types.ObjectId(resolvedDept);
+        rawQ.$or = [
+          { department: resolvedDept },
+          { department: oid },
+          { "department.$oid": resolvedDept.toString() }
+        ];
+      } else {
+        rawQ.department = resolvedDept;
+      }
     }
-    
+
     if (fromDepartment) {
-      const fromOid = new mongoose.Types.ObjectId(fromDepartment);
+      const resolvedFromDept = await normalizeDept(fromDepartment);
+      const isOid = mongoose.Types.ObjectId.isValid(resolvedFromDept);
+      const fromOid = isOid ? new mongoose.Types.ObjectId(resolvedFromDept) : null;
+
+      const historyMatchOr = [
+        { from: resolvedFromDept }
+      ];
+      if (isOid) {
+        historyMatchOr.push({ from: fromOid });
+        historyMatchOr.push({ "from.$oid": resolvedFromDept.toString() });
+      }
+
       const historyMatch = {
         $elemMatch: {
-          $or: [
-            { from: fromDepartment },
-            { from: fromOid },
-            { "from.$oid": fromDepartment }
-          ]
+          $or: historyMatchOr
         }
       };
-      
+
       if (rawQ.$or) {
-        rawQ.$and = [ { $or: rawQ.$or }, { departmentHistory: historyMatch } ];
+        rawQ.$and = [{ $or: rawQ.$or }, { departmentHistory: historyMatch }];
         delete rawQ.$or;
       } else {
         rawQ.departmentHistory = historyMatch;
@@ -1154,7 +1324,7 @@ export async function GET(request) {
     // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
     const orders = await query.lean();
-    
+
     // Manual population for departments to avoid CastError with "others"
     await manualPopulateDepartments(orders);
 
@@ -1169,10 +1339,10 @@ export async function GET(request) {
 
   } catch (err) {
     console.error("GET /api/order error:", err);
-    return json({ 
-        success: false, 
-        error: err.message || "Server error",
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+    return json({
+      success: false,
+      error: err.message || "Server error",
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     }, 500);
   }
 }
@@ -1194,6 +1364,27 @@ export async function PATCH(request) {
     // fetch current order
     const order = await Order.findById(idParam);
     if (!order) return json({ success: false, error: "Order not found" }, 404);
+
+    // Block operations on shadow duplicate orders (pending review or merged)
+    const isDuplicateBlocked = order.isDuplicateOrder && !["ignored", "separate_valid"].includes(order.duplicateStatus);
+    if (isDuplicateBlocked) {
+      // Allow cancellation or updating duplicate properties
+      const allowedKeys = ["duplicateStatus", "duplicateGroupId", "masterOrderId", "duplicateOf", "cancellationReason"];
+      const requestedKeys = Object.keys(body);
+      const tryingToCancel = body.status === "cancelled" || body.status === "canceled";
+
+      const hasRestrictedUpdates = requestedKeys.some(key => {
+        if (key === "status" && tryingToCancel) return false;
+        return !allowedKeys.includes(key);
+      });
+
+      if (hasRestrictedUpdates) {
+        return json({
+          success: false,
+          error: "Action blocked: This order is marked as a duplicate and is pending review or merged."
+        }, 400);
+      }
+    }
 
     const curStatus = String(order.status || "").toLowerCase();
     const requestedStatus = body.status
@@ -1224,8 +1415,8 @@ export async function PATCH(request) {
           ? orderDoc.shippingCharge
           : orderDoc.shippingCharges &&
             typeof orderDoc.shippingCharges === "number"
-          ? orderDoc.shippingCharges
-          : (orderDoc.invoice &&
+            ? orderDoc.shippingCharges
+            : (orderDoc.invoice &&
               orderDoc.invoice.meta &&
               orderDoc.invoice.meta.shippingCharges) ||
             0;
@@ -1284,9 +1475,8 @@ export async function PATCH(request) {
         return json(
           {
             success: false,
-            error: `Order cannot be cancelled from status "${
-              order.status
-            }". Allowed statuses: ${allowedAutoCancel.join(", ")}.`,
+            error: `Order cannot be cancelled from status "${order.status
+              }". Allowed statuses: ${allowedAutoCancel.join(", ")}.`,
           },
           400
         );
@@ -1300,6 +1490,29 @@ export async function PATCH(request) {
       setData["invoice.meta.orderStatus"] = "cancelled";
       setData["invoice.meta.cancellationReason"] = cancellationReason;
       setData["invoice.meta.cancellationAt"] = new Date();
+
+      // Persist notes, department, and departmentNotes if present
+      if ("department" in body) {
+        setData.department = body.department;
+      }
+      if ("notes" in body && typeof body.notes === "string") {
+        setData.notes = body.notes.trim();
+        setData["invoice.meta.notes"] = body.notes.trim();
+      }
+      if ("departmentNotes" in body && typeof body.departmentNotes === "string") {
+        setData.departmentNotes = body.departmentNotes.trim();
+      }
+      if ("departmentHistory" in body && Array.isArray(body.departmentHistory)) {
+        setData.departmentHistory = body.departmentHistory;
+      } else {
+        const historyEntry = {
+          updatedAt: new Date(),
+          notes: body.departmentNotes || body.notes || cancellationReason,
+          updatedBy: body.changedBy || "System"
+        };
+        update.$push = update.$push || {};
+        update.$push.departmentHistory = historyEntry;
+      }
 
       // --- REFUND AMOUNT LOGIC ---
       const cancellationFee = Number(body.cancellationFee ?? 0);
@@ -1461,7 +1674,7 @@ export async function PATCH(request) {
           return json({ success: false, error: "Order not found" }, 404);
 
         const updated = await Order.findById(order._id).lean();
-        
+
         await logger({
           level: 'info',
           message: `Return requested for order: ${order._id}`,
@@ -1553,11 +1766,11 @@ export async function PATCH(request) {
         // If client-provided refund amount in returnResolution, validate match
         const clientRefundAmount =
           body.returnResolution &&
-          typeof body.returnResolution.refundAmount === "number"
+            typeof body.returnResolution.refundAmount === "number"
             ? body.returnResolution.refundAmount
             : typeof body.refundAmount === "number"
-            ? body.refundAmount
-            : undefined;
+              ? body.refundAmount
+              : undefined;
 
         if (
           typeof clientRefundAmount === "number" &&
@@ -1681,17 +1894,62 @@ export async function PATCH(request) {
       setData["invoice.meta.orderStatus"] = body.status;
     }
 
+    // --- INVOICE VERIFICATION & WORKFLOW TRANSITION ---
+    const isVerifyingInvoice = body.action === "verify_invoice" ||
+      body.invoiceStatus === "verified" ||
+      (body.invoice && body.invoice.status === "verified") ||
+      body["invoice.status"] === "verified";
+
+    if (isVerifyingInvoice) {
+      // 🚨 NEW: Block verification if there are pending claims
+      const pendingClaims = await Claim.findOne({
+        orderId: order._id,
+        status: { $in: ["REQUESTED", "PENDING"] }
+      });
+
+      if (pendingClaims) {
+        return json(
+          {
+            success: false,
+            error: "Order verification blocked: There are pending claims that require Sales approval first."
+          },
+          400
+        );
+      }
+
+      setData["invoice.status"] = "verified";
+
+      // Auto-transition to ART department
+      const artDept = await normalizeDept("art");
+      const oldDept = await normalizeDept(order.department);
+
+      if (artDept && String(artDept) !== String(oldDept)) {
+        setData.department = artDept;
+
+        const historyEntry = {
+          from: oldDept,
+          to: artDept,
+          updatedBy: (body.changedBy || body.userId) ? new mongoose.Types.ObjectId(body.changedBy || body.userId) : null,
+          updatedAt: new Date(),
+          notes: body.notes || body.departmentNotes || "Invoice verified by ODT - Automatically transitioned to ART"
+        };
+
+        if (!update.$push) update.$push = {};
+        update.$push.departmentHistory = historyEntry;
+      }
+    }
+
     // --- DEPARTMENT UPDATES ---
-    if ("department" in body) {
+    if ("department" in body && !isVerifyingInvoice) {
       const newDept = await normalizeDept(body.department);
       const oldDept = await normalizeDept(order.department);
 
 
 
-      
+
       if (newDept !== oldDept) {
         setData.department = newDept;
-        
+
         // Push to departmentHistory
         const historyEntry = {
           from: oldDept,
@@ -1701,7 +1959,7 @@ export async function PATCH(request) {
           notes: body.departmentNotes || body.notes || ""
         };
 
-        
+
         if (!update.$push) update.$push = {};
         update.$push.departmentHistory = historyEntry;
       }
@@ -1711,39 +1969,54 @@ export async function PATCH(request) {
     // --- IMPORTANT PAYMENT SANITY CHECKS ---
     // Prevent clients from arbitrarily writing payment.status = 'refunded' or 'refund_pending'
     // unless this request was processed by the above cancel/return flows.
-    if ("paymentStatus" in body || (body.payment && "status" in body.payment)) {
-      const attempted = (body.paymentStatus ?? body.payment.status)
+    if ("paymentStatus" in body || (body.payment && typeof body.payment === "object")) {
+      const attempted = (body.paymentStatus ?? (body.payment?.status || ""))
         .toString()
         .toLowerCase();
+
       if (attempted === "refunded" || attempted === "refund_pending") {
-        return json(
-          {
-            success: false,
-            error: `Directly setting payment status to "${attempted}" is not allowed. Use cancellation / return flows which validate refunds.`,
-          },
-          400
-        );
-      } else {
-        // allow other safe statuses (paid, pending, failed)
-        setData["payment.status"] = body.paymentStatus ?? body.payment.status;
-        setData["invoice.meta.paymentStatus"] =
-          body.paymentStatus ?? body.payment.status;
-        if (
-          (body.paymentStatus ?? body.payment.status) === "paid" &&
-          !body.paymentPaidAt
-        ) {
-          setData["payment.paidAt"] = new Date();
-          setData["invoice.meta.paidAt"] = new Date();
+        return json({ success: false, error: 'Direct status set to "refunded" or "refund_pending" not allowed.' }, 400);
+      }
+
+      // Safe to process payments
+      if (body.payment && typeof body.payment === "object") {
+        if ("status" in body.payment) {
+          setData["payment.status"] = body.payment.status;
+          setData["invoice.meta.paymentStatus"] = body.payment.status;
+
+          if (body.payment.status === "paid" || body.payment.status === "partially_paid") {
+            setData["payment.paidAt"] = new Date();
+            setData["invoice.meta.paidAt"] = new Date();
+          }
+        }
+
+        if ("method" in body.payment)
+          setData["payment.method"] = body.payment.method;
+
+        if ("paidAmount" in body.payment) {
+          const paidAmount = Number(body.payment.paidAmount);
+          setData["payment.paidAmount"] = paidAmount;
+
+          // If order total available, calculate balance
+          const currentOrder = await Order.findById(idParam).lean();
+          if (currentOrder && currentOrder.total) {
+            const balance = Math.max(0, currentOrder.total - paidAmount);
+            setData["payment.balanceAmount"] = balance;
+
+            if (paidAmount >= currentOrder.total) {
+              setData["payment.status"] = "paid";
+            } else if (paidAmount > 0) {
+              setData["payment.status"] = "partially_paid";
+            }
+          }
+        }
+
+        if ("meta" in body.payment) {
+          setData["payment.meta"] = {
+            ...(body.payment.meta || {})
+          };
         }
       }
-    }
-
-    if (body.payment && typeof body.payment === "object") {
-      if ("method" in body.payment)
-        setData["payment.method"] = body.payment.method;
-      if ("amount" in body.payment)
-        setData["payment.amount"] = Number(body.payment.amount);
-      // Do NOT accept client-sent refundAmount here — refunds only through cancel/return flows
     }
 
     if ("paymentMethod" in body) {
@@ -1785,6 +2058,46 @@ export async function PATCH(request) {
       setData["invoice.meta.notes"] = body.notes.trim();
     }
 
+    // Support saving items, subtotal, tax, total, department, departmentNotes, and departmentHistory in fallback path
+    if ("items" in body && Array.isArray(body.items)) {
+      setData.items = body.items;
+    }
+    if ("subtotal" in body) {
+      setData.subtotal = Number(body.subtotal);
+    }
+    if ("tax" in body) {
+      setData.tax = Number(body.tax);
+    }
+    if ("shippingCharges" in body) {
+      setData.shippingCharges = Number(body.shippingCharges);
+    }
+    if ("movDeliveryCharge" in body) {
+      setData.movDeliveryCharge = Number(body.movDeliveryCharge);
+    }
+    if ("movApplied" in body) {
+      setData.movApplied = Boolean(body.movApplied);
+    }
+    if ("total" in body) {
+      setData.total = Number(body.total);
+    }
+    if ("department" in body) {
+      setData.department = body.department;
+    }
+    if ("departmentNotes" in body && typeof body.departmentNotes === "string") {
+      setData.departmentNotes = body.departmentNotes.trim();
+    }
+    if ("departmentHistory" in body && Array.isArray(body.departmentHistory)) {
+      setData.departmentHistory = body.departmentHistory;
+    } else if (body.departmentNotes || body.notes || body.cancellationReason || body.status || "department" in body) {
+      const historyEntry = {
+        updatedAt: new Date(),
+        notes: body.departmentNotes || body.notes || body.cancellationReason || `Status updated to ${body.status || order.status}`,
+        updatedBy: body.changedBy || "System"
+      };
+      update.$push = update.$push || {};
+      update.$push.departmentHistory = historyEntry;
+    }
+
     if (Object.keys(setData).length > 0) update.$set = setData;
     if (!update.$set) {
       return json(
@@ -1803,13 +2116,48 @@ export async function PATCH(request) {
       return json({ success: false, error: "Order not found" }, 404);
     }
 
+    // 💰 RECORD TRANSACTION FOR DOORSTEP COLLECTION
+    if (body.payment?.paidAmount && Number(body.payment.paidAmount) > 0) {
+      try {
+        const Transaction = (await import("@/lib/db/models/transaction")).default;
+        const Wallet = (await import("@/lib/db/models/wallet")).default;
+
+        const orderDoc = await Order.findById(idParam).lean();
+        if (orderDoc) {
+          const cash = Number(body.payment.meta?.cash || 0);
+          const online = Number(body.payment.meta?.online || 0);
+          const totalCollected = cash + online || Number(body.payment.paidAmount);
+
+          const tx = new Transaction({
+            userId: orderDoc.user,
+            amount: totalCollected,
+            type: "order_payment",
+            method: cash > 0 && online > 0 ? "mixed" : (cash > 0 ? "cash" : "online"),
+            status: "completed",
+            description: `Payment for Order ${orderDoc.orderNumber} collected at delivery`,
+            metadata: {
+              orderId: orderDoc._id,
+              orderNumber: orderDoc.orderNumber,
+              cashAmount: cash,
+              onlineAmount: online,
+              collectedBy: body.payment.meta?.capturedVia || "Delivery Partner"
+            }
+          });
+          await tx.save();
+          console.log(`[TRANSACTION] Recorded ₹${totalCollected} collection for Order ${orderDoc.orderNumber}`);
+        }
+      } catch (txErr) {
+        console.error("[TRANSACTION ERROR] Failed to record doorstep collection:", txErr);
+      }
+    }
+
     // 🔥 THE MARKETPLACE SETTLEMENT ENGINE: Settle for EVERY Supplier in the order
     const finalState = await Order.findById(idParam).lean();
     if (!finalState) return json({ success: false, error: "Order lost" }, 404);
 
     const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
     const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
-    
+
     console.log(`[PATCH SETTLEMENT] Flow: Update Trigger | Del: ${isDelivered} | Paid: ${isPaid}`);
 
     await logger({
@@ -1836,13 +2184,13 @@ export async function PATCH(request) {
         const suppliers = new Set();
         if (finalState.supplier) suppliers.add(finalState.supplier.toString());
         (finalState.items || []).forEach(item => {
-           if (item.supplier) suppliers.add(item.supplier.toString());
+          if (item.supplier) suppliers.add(item.supplier.toString());
         });
         console.log(`[PATCH SETTLEMENT] Marketplace Suppliers in Order: ${[...suppliers].join(', ')}`);
 
         for (const sId of suppliers) {
           const supplierId = new mongoose.Types.ObjectId(sId);
-          
+
           let wallet = await Wallet.findOne({ userId: supplierId });
           if (!wallet) {
             wallet = new Wallet({ userId: supplierId, balance: 0, userType: 'supplier' });
@@ -1854,10 +2202,10 @@ export async function PATCH(request) {
             .reduce((sum, item) => sum + (item.totalPrice || 0), 0);
 
           if (supplierTotal > 0) {
-            const existingTx = await Transaction.findOne({ 
-              "metadata.orderId": finalState._id, 
+            const existingTx = await Transaction.findOne({
+              "metadata.orderId": finalState._id,
               userId: supplierId,
-              type: "order_settlement" 
+              type: "order_settlement"
             });
 
             if (!existingTx) {
@@ -1866,7 +2214,7 @@ export async function PATCH(request) {
                 userId: supplierId,
                 walletId: wallet._id,
                 amount: supplierTotal,
-                type: "order_settlement", 
+                type: "order_settlement",
                 method: "wallet",
                 status: "completed",
                 description: `Settlement for Order Items: ${finalState.orderNumber}`,
@@ -1880,37 +2228,39 @@ export async function PATCH(request) {
 
           // 2) Force Live Sync for this supplier (Marketplace Aware)
           const metrics = await Order.aggregate([
-            { $match: { 
-                 $or: [
-                   { supplier: supplierId },
-                   { "items.supplier": supplierId }
-                 ]
-            } },
+            {
+              $match: {
+                $or: [
+                  { supplier: supplierId },
+                  { "items.supplier": supplierId }
+                ]
+              }
+            },
             { $unwind: "$items" },
             {
-               $group: {
-                 _id: null,
-                 realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
-                 escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
-               }
+              $group: {
+                _id: null,
+                realized: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $eq: ["$status", "delivered"] }, { $eq: ["$payment.status", "paid"] }] }, "$items.totalPrice", 0] } },
+                escrowed: { $sum: { $cond: [{ $and: [{ $eq: ["$items.supplier", supplierId] }, { $in: ["$status", ["pending", "confirmed", "packed", "shipped", "out_for_delivery"]] }] }, "$items.totalPrice", 0] } }
+              }
             }
           ]);
 
           const snap = metrics[0] || { realized: 0, escrowed: 0 };
-          
+
           const ledgerTruth = await Transaction.aggregate([
             { $match: { userId: supplierId, status: 'completed' } },
             {
               $group: {
                 _id: null,
-                balance: { 
-                  $sum: { 
+                balance: {
+                  $sum: {
                     $cond: [
-                      { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] }, 
-                      { $abs: "$amount" }, 
+                      { $in: ["$type", ["deposit", "refund", "transfer", "order_settlement", "adjustment"]] },
+                      { $abs: "$amount" },
                       { $multiply: [{ $abs: "$amount" }, -1] } // Always subtract debits
-                    ] 
-                  } 
+                    ]
+                  }
                 }
               }
             }
@@ -1927,17 +2277,43 @@ export async function PATCH(request) {
       }
     }
 
-    const finalStatePopulated = await Order.findById(idParam)
-      .populate("department", "departmentName")
-      .populate("departmentHistory.from", "departmentName")
-      .populate("departmentHistory.to", "departmentName")
-      .lean();
+    // --- FINAL RESPONSE ---
+    try {
+      const finalStatePopulated = await Order.findById(idParam)
+        .populate("department", "departmentName")
+        .populate("departmentHistory.from", "departmentName")
+        .populate("departmentHistory.to", "departmentName")
+        .lean();
 
-    return json({ success: true, message: "Multi-supplier settlement handled", data: finalStatePopulated || finalState });
-
+      return json({
+        success: true,
+        message: "Order updated and settlement processed",
+        data: finalStatePopulated || finalState
+      });
+    } catch (finalErr) {
+      console.error("[PATCH] Final population error:", finalErr);
+      return json({ success: true, message: "Order updated but response population failed", data: finalState });
+    }
 
   } catch (err) {
-    console.error("PATCH /api/order error:", err);
+    console.error("PATCH /api/order overall error:", err);
+    return json({ success: false, error: err.message || "Server error" }, 500);
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    await dbConnect();
+    const url = new URL(request.url);
+    const idParam = url.searchParams.get("id") || url.searchParams.get("orderId");
+    if (!idParam || !mongoose.Types.ObjectId.isValid(idParam)) {
+      return json({ success: false, error: "Invalid orderId" }, 400);
+    }
+    const order = await Order.findByIdAndDelete(idParam);
+    if (!order) return json({ success: false, error: "Order not found" }, 404);
+    return json({ success: true, message: "Order deleted successfully" }, 200);
+  } catch (err) {
+    console.error("DELETE /api/order error:", err);
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }

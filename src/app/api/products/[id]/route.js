@@ -1,9 +1,8 @@
-
-
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
-import Category from "@/lib/db/models/category";
+import Brand from "@/lib/db/models/brand";
+import Branch from "@/lib/db/models/Branch";
 import Subscription from "@/lib/db/models/subscription";
 import RestockRequest from "@/lib/db/models/RestockRequest";
 import Notification from "@/lib/db/models/notification";
@@ -106,14 +105,16 @@ export async function GET(request, { params }) {
 
     // 1️⃣ Try Mongo ObjectId
     if (isValidObjectIdString(id)) {
-      product = await Product.findById(id).lean({ virtuals: true });
+      product = await Product.findById(id)
+        .lean({ virtuals: true });
     }
 
     // 2️⃣ Fallback to slug / sku
     if (!product) {
       product = await Product.findOne({
         $or: [{ slug: id }, { sku: id }],
-      }).lean({ virtuals: true });
+      })
+        .lean({ virtuals: true });
     }
 
     if (!product) {
@@ -123,20 +124,20 @@ export async function GET(request, { params }) {
       );
     }
 
-    // Fetch category (optional)
-    let category = null;
-    if (product.categoryId && isValidObjectIdString(String(product.categoryId))) {
-      const cat = await Category.findById(product.categoryId)
+    // Fetch brand (optional)
+    let brand = null;
+    if (product.brandId && isValidObjectIdString(String(product.brandId))) {
+      const b = await Brand.findById(product.brandId)
         .select("_id name slug image parent")
         .lean();
 
-      if (cat) {
-        category = {
-          id: String(cat._id),
-          name: cat.name,
-          slug: cat.slug ?? null,
-          image: cat.image ?? null,
-          parent: cat.parent ?? null,
+      if (b) {
+        brand = {
+          id: String(b._id),
+          name: b.name,
+          slug: b.slug ?? null,
+          image: b.image ?? null,
+          parent: b.parent ?? null,
         };
       }
     }
@@ -145,7 +146,7 @@ export async function GET(request, { params }) {
       success: true,
       data: {
         ...product,
-        category,
+        brand,
       },
     });
   } catch (err) {
@@ -191,7 +192,7 @@ export async function PUT(request, { params }) {
       level: 'info',
       message: `Product updated (PUT): ${updated.name}`,
       action: 'PRODUCT_UPDATED',
-      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null, locationName: updated.locationName || null, locationPath: updated.locationPath || null },
+      metadata: { productId: updated._id, name: updated.name, branchId: updated.branchId || null },
       req: request
     });
 
@@ -233,22 +234,10 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
     }
 
-    // Explicitly update categoryPrices if provided to ensure nested object merging/replacement
-    if (body.categoryPrices) {
-      product.categoryPrices = {
-        ...product.categoryPrices,
-        ...body.categoryPrices
-      };
-      // Mark as modified to ensure Mongoose saves the nested object
-      product.markModified('categoryPrices');
-      delete body.categoryPrices; // Remove from body to avoid double-processing via Object.assign
-    }
-
     // Apply remaining updates
     Object.assign(product, body);
 
     const updated = await product.save();
-    console.log(`[PATCH PRODUCT ${id}] Saved State Category Prices:`, updated.categoryPrices);
 
     if (!updated) {
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
@@ -256,28 +245,28 @@ export async function PATCH(request, { params }) {
 
     // --- AUTO-RESUME PAUSED SUBSCRIPTIONS ---
     if (updated.stockQuantity > 0) {
-        try {
-            // Explicitly cast ID
-            const mongoose = require('mongoose');
-            const productIdObj = new mongoose.Types.ObjectId(id);
+      try {
+        // Explicitly cast ID
+        const mongoose = require('mongoose');
+        const productIdObj = new mongoose.Types.ObjectId(id);
 
-            const pausedSubs = await Subscription.find({
-                product: productIdObj,
-                status: 'Paused',
-                quantity: { $lte: updated.stockQuantity }
-            });
+        const pausedSubs = await Subscription.find({
+          product: productIdObj,
+          status: 'Paused',
+          quantity: { $lte: updated.stockQuantity }
+        });
 
-            if (pausedSubs.length > 0) {
-                console.log(`[PRODUCT UPDATE] Found ${pausedSubs.length} paused subscriptions for Product ${id}. Reactivating...`);
-                for (const sub of pausedSubs) {
-                    sub.status = 'Active';
-                    await sub.save();
-                    console.log(`[PRODUCT UPDATE] Reactivated Subscription ${sub._id}`);
-                }
-            }
-        } catch (subErr) {
-            console.error("Error reactivating subscriptions:", subErr);
+        if (pausedSubs.length > 0) {
+          console.log(`[PRODUCT UPDATE] Found ${pausedSubs.length} paused subscriptions for Product ${id}. Reactivating...`);
+          for (const sub of pausedSubs) {
+            sub.status = 'Active';
+            await sub.save();
+            console.log(`[PRODUCT UPDATE] Reactivated Subscription ${sub._id}`);
+          }
         }
+      } catch (subErr) {
+        console.error("Error reactivating subscriptions:", subErr);
+      }
     }
 
     // --- AUTO-PROCESS RESTOCK NOTIFICATIONS ---
@@ -287,7 +276,7 @@ export async function PATCH(request, { params }) {
       level: 'info',
       message: `Product updated (PATCH): ${updated.name}`,
       action: 'PRODUCT_UPDATED',
-      metadata: { productId: updated._id, name: updated.name, locationId: updated.locationId || null, locationName: updated.locationName || null, locationPath: updated.locationPath || null },
+      metadata: { productId: updated._id, name: updated.name, branchId: updated.branchId || null },
       req: request
     });
 

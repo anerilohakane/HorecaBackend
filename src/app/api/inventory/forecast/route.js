@@ -90,8 +90,11 @@ Analyze this inventory data for "${productName}":
 Return a 2-sentence strategic recommendation. Include a specific suggested reorder quantity and a "Urgency Level" (Low, Medium, High). 
 Format: Just the recommendation text.`;
 
-        const result = await ai.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(prompt);
-        aiRecommendation = result.response.text();
+        const response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: [{ role: 'user', parts: [{ text: prompt }] }]
+        });
+        aiRecommendation = response.text;
       } catch (err) {
         console.error("AI Recommendation error:", err);
       }

@@ -212,18 +212,13 @@ export async function GET(req) {
                     const price = sub.product.price || 0;
                     const total = price * sub.quantity;
                     
-                    let subShipping = 0;
-                    let subPlatform = 0;
                     let subGst = 0;
 
-                    if (sub.metadata) {
-                        subShipping = Number(sub.metadata.shippingCharges || 0);
-                        subPlatform = Number(sub.metadata.platformFee || 0);
-                        subGst = Number(sub.metadata.gstAmount || 0);
-                    }
+                    // Calculate GST as percentage of item price (not from metadata flat amount)
+                    subGst = price * sub.quantity * ((sub.product.gst || 0) / 100);
 
-                    totalShipping += subShipping;
-                    totalPlatform += subPlatform;
+                    totalShipping += 0;   // No shipping charges
+                    totalPlatform += 0;   // No platform fee
                     totalGst += subGst;
 
                     items.push({

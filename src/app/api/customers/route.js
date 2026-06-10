@@ -19,6 +19,15 @@ export async function GET(req) {
     const phone = searchParams.get("phone");
     const name = searchParams.get("name");
     const email = searchParams.get("email");
+    const supplierId = searchParams.get("supplierId");
+
+    if (supplierId) {
+      query.supplierId = supplierId;
+    } else {
+      // If we only want vendor customers to have supplierId, but maybe SCM side doesn't send supplierId?
+      // Wait, if no supplierId is provided, we should probably fetch ALL customers? Or maybe only SCM customers?
+      // For now, if supplierId is provided, filter by it.
+    }
 
     if (phone) {
       // Basic numeric-only search for phone number matching
@@ -59,7 +68,7 @@ export async function GET(req) {
       },
       data: customers,
     });
-    
+
   } catch (err) {
     console.error("🔥 ERROR in GET /api/customers:", err);
     return NextResponse.json(

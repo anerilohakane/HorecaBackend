@@ -123,15 +123,12 @@
 //       return NextResponse.json({ success: false, error: "Duplicate key error", details: err.keyValue }, { status: 409 });
 //     }
 //     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
-//   }
-// }
-
-
 // src/app/api/products/route.js
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
-import Category from "@/lib/db/models/category";
+import Brand from "@/lib/db/models/brand";
+import Supplier from "@/lib/db/models/supplier";
 import { logger } from "@/lib/logger";
 import { getUserFromRequest } from "@/lib/serverAuth";
 
@@ -193,12 +190,13 @@ export async function GET(request) {
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
     const limit = Math.min(1000, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10));
     const q = url.searchParams.get("q");
-    const categoryId = url.searchParams.get("categoryId");
+    const brandId = url.searchParams.get("brandId");
+    const branchId = url.searchParams.get("branchId");
     const supplierId = url.searchParams.get("supplierId");
+    const supplierBrand = url.searchParams.get("supplierBrand");
     const isActive = url.searchParams.get("isActive");
     const sort = url.searchParams.get("sort") || "-createdAt";
     const sku = url.searchParams.get("sku");
-    const locationId = url.searchParams.get("locationId");
 
     const filter = {};
 
@@ -215,17 +213,17 @@ export async function GET(request) {
       ];
     }
 
-    // If categoryId is provided, expand parent → children so clicking a parent
-    // category returns products from ALL its subcategories too.
-    if (categoryId) {
+    // If brandId is provided, expand parent → children so clicking a parent
+    // brand returns products from ALL its subbrands too.
+    if (brandId) {
       let resolvedId = null;
 
-      if (isValidObjectIdString(categoryId)) {
-        resolvedId = categoryId;
+      if (isValidObjectIdString(brandId)) {
+        resolvedId = brandId;
       } else {
-        const cat = await Category.findOne({ $or: [{ slug: categoryId }, { name: { $regex: `^${categoryId}$`, $options: "i" } }] }).lean();
-        if (cat) {
-          resolvedId = String(cat._id);
+        const brnd = await Brand.findOne({ $or: [{ slug: brandId }, { name: { $regex: `^${brandId}$`, $options: "i" } }] }).lean();
+        if (brnd) {
+          resolvedId = String(brnd._id);
         } else {
           return NextResponse.json({
             success: true,
@@ -234,20 +232,46 @@ export async function GET(request) {
         }
       }
 
-      // Fetch all children of this category
-      const children = await Category.find({ parent: resolvedId }).select('_id').lean();
+      // Fetch all children of this brand
+      const children = await Brand.find({ parent: resolvedId }).select('_id').lean();
       const childIds = children.map(c => String(c._id));
 
-      // Filter by the category itself AND all its children
-      const allCategoryIds = [resolvedId, ...childIds];
-      filter.categoryId = { $in: allCategoryIds };
+      // Filter by the brand itself AND all its children
+      const allBrandIds = [resolvedId, ...childIds];
+      filter.brandId = { $in: allBrandIds };
     }
 
 
     if (supplierId) filter.supplierId = supplierId;
+
+    if (supplierBrand) {
+      const matchingSuppliers = await Supplier.find({ 
+        $or: [
+          { brand: supplierBrand },
+          { businessName: supplierBrand },
+          { brandName: supplierBrand }
+        ]
+      }).select('_id').lean();
+      const supIds = matchingSuppliers.map(s => String(s._id));
+      if (supIds.length > 0) {
+        if (filter.supplierId) {
+          // Intersection if supplierId is also provided
+          const currentId = String(filter.supplierId);
+          filter.supplierId = supIds.includes(currentId) ? currentId : null;
+        } else {
+          filter.supplierId = { $in: supIds };
+        }
+      } else {
+        return NextResponse.json({
+          success: true,
+          data: { items: [], pagination: { total: 0, page, limit, pages: 0 } }
+        });
+      }
+    }
+
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
-    if (locationId) filter.locationId = locationId;
+    if (branchId) filter.branchId = branchId;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
@@ -264,43 +288,34 @@ export async function GET(request) {
         .lean()
     ]);
 
-    // populate category info client-side friendly (map)
-    const categoryIds = Array.from(new Set(items.map(i => i.categoryId ? String(i.categoryId) : null).filter(id => id && id !== "undefined")));
-    const categories = categoryIds.length ? await Category.find({ _id: { $in: categoryIds } }).select('_id name image slug').lean() : [];
-    const categoryMap = new Map(categories.map(c => [String(c._id), c]));
+    // populate brand info client-side friendly (map)
+    const brandIds = Array.from(new Set(items.map(i => i.brandId).filter(id => id && isValidObjectIdString(String(id)))));
+    const brands = brandIds.length ? await Brand.find({ _id: { $in: brandIds } }).select('_id name image slug').lean() : [];
+    const brandMap = new Map(brands.map(c => [String(c._id), c]));
 
-    const user = await getUserFromRequest(request);
-    const customerCategory = user?.category;
-
-    const itemsWithCategory = items.map(item => {
-      const cat = item.categoryId ? (categoryMap.get(String(item.categoryId)) || null) : null;
-      
-      // Determine price based on customer category
-      let displayPrice = item.price;
-      
-      if (customerCategory && item.categoryPrices && item.categoryPrices[customerCategory]) {
-        displayPrice = item.categoryPrices[customerCategory];
-      }
+    const itemsWithBrand = items.map(item => {
+      const bId = item.brandId ? String(item.brandId) : null;
+      const b = bId ? brandMap.get(bId) : null;
 
       return {
         ...item,
-        price: displayPrice,
+        price: item.price,
         originalPrice: item.price,
-        category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
+        brand: b ? { id: String(b._id), name: b.name, image: b.image ?? null, slug: b.slug ?? null } : null
       };
     });
 
     return NextResponse.json({
       success: true,
       data: {
-        items: itemsWithCategory,
+        items: itemsWithBrand,
         pagination: {
           total,
           page,
           limit,
           pages: Math.ceil(total / limit)
         }
-      } 
+      }
     });
   } catch (err) {
     console.error("GET /api/products error:", err);
@@ -321,33 +336,33 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Missing required fields (name, price, stockQuantity, images[])." }, { status: 400 });
     }
 
-    // Ensure category exists and set categoryId properly
-    let resolvedCategoryId = null;
-    if (body.categoryId) {
-      if (isValidObjectIdString(String(body.categoryId))) {
-        const cat = await Category.findById(String(body.categoryId)).lean();
-        if (!cat) {
-          return NextResponse.json({ success: false, error: "categoryId not found" }, { status: 400 });
+    // Ensure brand exists and set brandId properly
+    let resolvedBrandId = null;
+    if (body.brandId) {
+      if (isValidObjectIdString(String(body.brandId))) {
+        const brnd = await Brand.findById(String(body.brandId)).lean();
+        if (!brnd) {
+          return NextResponse.json({ success: false, error: "brandId not found" }, { status: 400 });
         }
-        resolvedCategoryId = String(cat._id);
+        resolvedBrandId = String(brnd._id);
       } else {
         // try slug or exact name match
-        const maybe = String(body.categoryId).trim();
-        const cat = await Category.findOne({ $or: [{ slug: maybe }, { name: { $regex: `^${maybe}$`, $options: "i" } }] }).lean();
-        if (!cat) {
-          return NextResponse.json({ success: false, error: "category not found by slug/name" }, { status: 400 });
+        const maybe = String(body.brandId).trim();
+        const brnd = await Brand.findOne({ $or: [{ slug: maybe }, { name: { $regex: `^${maybe}$`, $options: "i" } }] }).lean();
+        if (!brnd) {
+          return NextResponse.json({ success: false, error: "brand not found by slug/name" }, { status: 400 });
         }
-        resolvedCategoryId = String(cat._id);
+        resolvedBrandId = String(brnd._id);
       }
-    } else if (body.category) {
-      // Accept "category" (name/slug) as fallback
-      const maybe = String(body.category).trim();
-      const cat = await Category.findOne({ $or: [{ slug: maybe }, { name: { $regex: `^${maybe}$`, $options: "i" } }] }).lean();
-      if (cat) resolvedCategoryId = String(cat._id);
+    } else if (body.brand) {
+      // Accept "brand" (name/slug) as fallback
+      const maybe = String(body.brand).trim();
+      const brnd = await Brand.findOne({ $or: [{ slug: maybe }, { name: { $regex: `^${maybe}$`, $options: "i" } }] }).lean();
+      if (brnd) resolvedBrandId = String(brnd._id);
     }
 
-    if (!resolvedCategoryId) {
-      return NextResponse.json({ success: false, error: "Product must include a valid categoryId (or category slug/name)" }, { status: 400 });
+    if (!resolvedBrandId) {
+      return NextResponse.json({ success: false, error: "Product must include a valid brandId (or brand slug/name)" }, { status: 400 });
     }
 
     // Optional: if client supplied SKUs, check for conflicts before attempting to save
@@ -368,24 +383,23 @@ export async function POST(request) {
       }
     }
 
-    // Build payload (ensure categoryId is set and unit is mapped)
+    // Build payload (ensure brandId is set)
     const payload = {
       ...body,
-      categoryId: resolvedCategoryId,
-      unit: body.unit ? mapUOM(body.unit) : undefined
+      brandId: resolvedBrandId,
     };
 
     // Create product; Product model's pre-save hook will auto-generate SKUs if missing
+    console.log('Incoming POST /api/products body:', JSON.stringify(body, null, 2));
     const product = new Product(payload);
     await product.save();
-    console.log(`[POST PRODUCT] Saved State Category Prices:`, product.categoryPrices);
 
-    // populate category basic info for response
-    const cat = await Category.findById(resolvedCategoryId).select('_id name image slug').lean();
+    // populate brand basic info for response
+    const brnd = await Brand.findById(resolvedBrandId).select('_id name image slug').lean();
 
     const result = {
       ...product.toObject(),
-      category: cat ? { id: String(cat._id), name: cat.name, image: cat.image ?? null, slug: cat.slug ?? null } : null
+      brand: brnd ? { id: String(brnd._id), name: brnd.name, image: brnd.image ?? null, slug: brnd.slug ?? null } : null
     };
 
     await logger({
@@ -397,10 +411,8 @@ export async function POST(request) {
         productId: product._id,
         sku: product.sku,
         name: product.name,
-        categoryId: resolvedCategoryId,
-        locationId: product.locationId || null,
-        locationName: product.locationName || null,
-        locationPath: product.locationPath || null
+        brandId: resolvedBrandId,
+        branchId: product.branchId || null
       },
       req: request
     });

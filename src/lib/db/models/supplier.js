@@ -8,7 +8,10 @@ const { Schema } = mongoose;
 
 const supplierSchema = new Schema(
   {
-    businessName: { type: String, trim: true },
+    businessName: { type: String, required: [true, "Business Name is required"], trim: true },
+    categories: [{ type: String, trim: true }],
+    subcategories: [{ type: String, trim: true }],
+    brand: { type: String, trim: true },
     ownerName: { type: String, trim: true },
     email: {
       type: String,
@@ -31,7 +34,11 @@ const supplierSchema = new Schema(
       enum: ["farmer", "wholesaler", "retailer", "processor", "other", "Agriculture"]
     },
     shopName: { type: String, trim: true },
-    gstNumber: { type: String, trim: true },
+    gstNumber: { 
+      type: String, 
+      trim: true,
+      match: [/^$|^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, 'Please enter a valid GST number format']
+    },
     panNumber: { type: String, trim: true },
 
     address: {
@@ -42,6 +49,28 @@ const supplierSchema = new Schema(
       postalCode: { type: String, trim: true },
     },
 
+    godownIncharge: {
+      type: Schema.Types.ObjectId,
+      ref: "Employee"
+    },
+
+    salesPersons: [{
+      name: { type: String, required: true },
+      email: {
+        type: String,
+        required: true,
+        match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email address']
+      },
+      phone: { type: String, required: true },
+      position: { type: String, required: true }
+    }],
+
+    termsAndConditions: [{
+      category: { type: String, required: true },
+      terms: { type: String, required: true }
+    }],
+
+
     bankDetails: {
       accountHolderName: { type: String },
       bankName: { type: String },
@@ -50,6 +79,16 @@ const supplierSchema = new Schema(
     },
 
     documents: { type: Array, default: [] },
+    products: { type: Array, default: [] },
+
+    poTemplateId: {
+      type: Schema.Types.ObjectId,
+      ref: "POTemplate"
+    },
+    claimTemplateId: {
+      type: Schema.Types.ObjectId,
+      ref: "ClaimTemplate"
+    },
 
     status: {
       type: String,
@@ -117,5 +156,6 @@ supplierSchema.methods.generatePasswordResetToken = function () {
   return resetToken;
 };
 
-const Supplier = mongoose.models.Supplier || mongoose.model("Supplier", supplierSchema);
+delete mongoose.models.Supplier;
+const Supplier = mongoose.model("Supplier", supplierSchema);
 export default Supplier;

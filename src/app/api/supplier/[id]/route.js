@@ -2,6 +2,9 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
+import Product from "@/lib/db/models/product";
+import Brand from "@/lib/db/models/brand";
+import mongoose from "mongoose";
 
 // cloudinary setup (server-side)
 import cloudinary from "cloudinary";
@@ -45,7 +48,7 @@ export async function GET(request, { params }) {
 
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
-    const sup = await Supplier.findById(id).select("-password").lean();
+    const sup = await Supplier.findById(id).populate("brandIds", "name slug").select("-password").lean();
     if (!sup) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 
     return NextResponse.json({ success: true, data: sup });
@@ -64,15 +67,86 @@ export async function PATCH(request, { params }) {
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
     const body = await request.json();
+
+    // Do not update password here (pre-save hooks won't run). Use a dedicated password-change route if needed.
+    if (body.password !== undefined) {
+      delete body.password;
+    }
+
     if (body.email) {
       const exists = await Supplier.findOne({ email: body.email.toLowerCase().trim(), _id: { $ne: id } });
       if (exists) return NextResponse.json({ success: false, error: "Email already in use" }, { status: 400 });
       body.email = body.email.toLowerCase().trim();
     }
 
-    // Do not update password here (pre-save hooks won't run). Use a dedicated password-change route if needed.
+    // Handle multiple brands
+    if (body.brandNames !== undefined || body.brandName !== undefined) {
+      const resolvedBrandIds = [];
+      const brandsToProcess = body.brandNames && body.brandNames.length > 0 
+        ? body.brandNames 
+        : (body.brandName ? [body.brandName] : []);
+
+      for (const bName of brandsToProcess) {
+        if (!bName) continue;
+        let brnd = await Brand.findOne({ name: new RegExp(`^${bName}$`, "i") });
+        if (!brnd) {
+          brnd = await Brand.create({ name: bName });
+        }
+        resolvedBrandIds.push(brnd._id);
+      }
+      body.brandIds = resolvedBrandIds;
+    }
+
     const updated = await Supplier.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true, context: "query" }).select("-password");
     if (!updated) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
+
+    // Update or Create products in the global Product collection
+    if (body.products && Array.isArray(body.products) && body.products.length > 0) {
+      for (const p of body.products) {
+        if (!p.productName || !p.productCode) continue;
+
+        let finalBrandId = undefined;
+        if (p.brand) {
+          if (mongoose.Types.ObjectId.isValid(p.brand)) {
+             finalBrandId = p.brand;
+          } else {
+             let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
+             if (!brnd) {
+                 brnd = await Brand.create({ name: p.brand });
+             }
+             finalBrandId = brnd._id;
+          }
+        }
+
+        const productData = {
+          supplierId: id,
+          name: p.productName,
+          sku: p.productCode,
+          brandId: finalBrandId,
+          unit: p.uom || "Kg",
+          basePrice: Number(p.basePrice || 0),
+          assuredMargin: Number(p.assuredMargin || 0),
+          price: Number(p.basePrice || 0) + (Number(p.basePrice || 0) * Number(p.assuredMargin || 0) / 100),
+          poTemplateId: p.poTemplateId || undefined,
+          claimTemplateId: p.claimTemplateId || undefined,
+          isColdStorage: p.isColdStorage === 'Yes' || p.isColdStorage === true,
+          temperature: p.temperature || null,
+        };
+
+        if (p.image) {
+          productData.images = [{ url: p.image, publicId: `sup_${id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, isMain: true }];
+        }
+
+        await Product.findOneAndUpdate(
+          { sku: p.productCode },
+          { $set: productData },
+          { upsert: true, new: true, runValidators: true }
+        );
+      }
+    }
+
+    console.log("Updated supplier data:", updated);
+
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {

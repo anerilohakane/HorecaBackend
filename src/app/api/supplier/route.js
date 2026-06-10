@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
-import Category from "@/lib/db/models/category";
+import Brand from "@/lib/db/models/brand";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 // cloudinary server-side config - available if you want to process images server-side later
 import cloudinary from "cloudinary";
@@ -242,30 +243,51 @@ export async function POST(request) {
     }
 
     const { email, phone, gstNumber, panNumber } = body;
-    
-    const existing = await Supplier.findOne({ 
-      $or: [
-        { email: email?.toLowerCase().trim() },
-        { phone },
-        { gstNumber },
-        { panNumber }
-      ] 
-    });
 
-    if (existing) {
-      let conflictField = "Credential";
-      if (existing.email === email?.toLowerCase().trim()) conflictField = "Email";
-      else if (existing.phone === phone) conflictField = "Phone Number";
-      else if (existing.gstNumber === gstNumber) conflictField = "GST Number";
-      else if (existing.panNumber === panNumber) conflictField = "PAN ID";
+    // Improved conflict check: only search for truthy values to avoid matching empty strings
+    const conflictQuery = [];
+    if (email) conflictQuery.push({ email: email.toLowerCase().trim() });
+    if (phone) conflictQuery.push({ phone });
+    if (gstNumber) conflictQuery.push({ gstNumber });
+    if (panNumber) conflictQuery.push({ panNumber });
 
-      return NextResponse.json({ 
-        success: false, 
-        error: `${conflictField} is already registered in the central system.` 
-      }, { status: 400 });
+    if (conflictQuery.length > 0) {
+      const existing = await Supplier.findOne({ $or: conflictQuery });
+      if (existing) {
+        let conflictField = "Credential";
+        if (existing.email === email?.toLowerCase().trim()) conflictField = "Email";
+        else if (existing.phone === phone) conflictField = "Phone Number";
+        else if (existing.gstNumber === gstNumber) conflictField = "GST Number";
+        else if (existing.panNumber === panNumber) conflictField = "PAN ID";
+
+        return NextResponse.json({
+          success: false,
+          error: `${conflictField} is already registered in the central system.`
+        }, { status: 400 });
+      }
     }
 
-    const supplier = new Supplier(body);
+    const supplierPayload = { ...body };
+    if (!supplierPayload.poTemplateId) delete supplierPayload.poTemplateId;
+    if (!supplierPayload.claimTemplateId) delete supplierPayload.claimTemplateId;
+
+    // Handle multiple brands
+    const resolvedBrandIds = [];
+    const brandsToProcess = supplierPayload.brandNames && supplierPayload.brandNames.length > 0 
+      ? supplierPayload.brandNames 
+      : (supplierPayload.brandName ? [supplierPayload.brandName] : []);
+
+    for (const bName of brandsToProcess) {
+      if (!bName) continue;
+      let brnd = await Brand.findOne({ name: new RegExp(`^${bName}$`, "i") });
+      if (!brnd) {
+        brnd = await Brand.create({ name: bName });
+      }
+      resolvedBrandIds.push(brnd._id);
+    }
+    supplierPayload.brandIds = resolvedBrandIds;
+
+    const supplier = new Supplier(supplierPayload);
     await supplier.save();
 
     // Sync Supplier Ledger to Tally Prime 9
@@ -383,7 +405,6 @@ export async function POST(request) {
     const safeObj = supplier.toObject();
     delete safeObj.password;
 
-    // Generate token and set cookie (you asked previously to print token)
     const token = jwt.sign({ id: supplier._id.toString(), role: supplier.role || "supplier" }, ACCESS_SECRET, { expiresIn: `${TOKEN_MAX_AGE}s` });
 
     console.log("Token from central register:", token);
@@ -407,11 +428,21 @@ export async function POST(request) {
     );
   } catch (err) {
     console.error("POST /api/suppliers error", err);
+
+    // Handle Duplicate Key Errors (Mongo Code 11000)
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern)[0];
+      return NextResponse.json({
+        success: false,
+        error: `The ${field} you provided is already in use.`
+      }, { status: 400 });
+    }
+
     if (err.name === "ValidationError") {
-      const errors = Object.values(err.errors).map(e => e.message);
+      const errors = Object.values(err.errors).map((e) => e.message);
       return NextResponse.json({ success: false, error: "Validation failed", details: errors }, { status: 400 });
     }
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message, details: err.details || [] }, { status: 500 });
   }
 }
 

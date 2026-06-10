@@ -15,21 +15,40 @@ const CustomerSchema = new mongoose.Schema(
       trim: true
     },
 
-    businessName: {
+    username: {
       type: String,
-      default: null,
+      sparse: true,
+      unique: true,
       trim: true
     },
 
-    shopName: {
+    password: {
       type: String,
-      default: null,
       trim: true
+    },
+
+    businessName: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
+    gstNumber: {
+      type: String,
+      trim: true,
+      default: null
+    },
+
+    licenseImage: {
+      type: String,
+      trim: true,
+      default: null
     },
 
     email: {
       type: String,
-      default: null,
+      sparse: true,
+      unique: true,
       trim: true,
       lowercase: true
     },
@@ -43,6 +62,22 @@ const CustomerSchema = new mongoose.Schema(
     city: { type: String, default: null },
     state: { type: String, default: null },
     pincode: { type: String, default: null },
+    
+    locations: [{
+      address: { type: String, trim: true },
+      city: { type: String, trim: true },
+      state: { type: String, trim: true },
+      pincode: { type: String, trim: true },
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+      isPrimary: { type: Boolean, default: false }
+    }],
+    
+    supplierId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Supplier",
+      default: null
+    },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 
@@ -62,7 +97,10 @@ const CustomerSchema = new mongoose.Schema(
       default: null
     }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: "customers"
+  }
 );
 
 export default mongoose.models.Customer ||

@@ -1,77 +1,53 @@
-// /models/Category.js
 import mongoose from "mongoose";
 
-const { Schema } = mongoose;
-
-const imageSubSchema = new Schema({
-  url: { type: String },
-  publicId: { type: String }
-}, { _id: false });
-
-const categorySchema = new Schema(
+const CategorySchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "Category name is required"],
+      required: true,
       trim: true,
-      unique: true
     },
     description: {
       type: String,
-      trim: true
+      trim: true,
     },
-    image: imageSubSchema,
+    image: {
+      type: String, // or an object if you use { url, publicId }
+    },
     parent: {
-      type: Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      default: null
+      default: null,
     },
     handlingFee: {
       type: Number,
       default: 0,
-      min: [0, "Handling fee cannot be negative"],
-      validate: {
-        validator: function(value) {
-          return value >= 0;
-        },
-        message: "Handling fee must be a non-negative number"
-      }
     },
     isActive: {
       type: Boolean,
-      default: true
+      default: true,
     },
     createdBy: {
-      type: Schema.Types.ObjectId,
-      ref: "Admin"
-    }
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
   }
 );
 
-// Virtual for subcategories
-categorySchema.virtual('subcategories', {
-  ref: 'Category',
-  localField: '_id',
-  foreignField: 'parent'
+// Virtual for subcategories (children)
+CategorySchema.virtual("subcategories", {
+  ref: "Category",
+  localField: "_id",
+  foreignField: "parent",
 });
 
-// Method to get full category path (for breadcrumbs)
-categorySchema.methods.getPath = async function () {
-  const path = [this];
-  let currentCategory = this;
-  while (currentCategory.parent) {
-    const parentCategory = await mongoose.model('Category').findById(currentCategory.parent);
-    if (!parentCategory) break;
-    path.unshift(parentCategory);
-    currentCategory = parentCategory;
-  }
-  return path;
-};
+CategorySchema.set("toObject", { virtuals: true });
+CategorySchema.set("toJSON", { virtuals: true });
 
-const Category = mongoose.models.Category || mongoose.model("Category", categorySchema);
+delete mongoose.models.Category;
+
+const Category = mongoose.models.Category || mongoose.model("Category", CategorySchema);
 export default Category;

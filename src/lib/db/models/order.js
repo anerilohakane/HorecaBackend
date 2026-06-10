@@ -17,6 +17,7 @@ const { Schema } = mongoose;
 /* ---------- Enums / constants ---------- */
 const ORDER_STATUSES = [
   "pending",
+  "processing",
   "confirmed",
   "packed",
   "shipped",
@@ -28,7 +29,7 @@ const ORDER_STATUSES = [
   "replacement_sent",
 ];
 
-const PAYMENT_STATUSES = ["pending", "paid", "failed", "refunded"];
+const PAYMENT_STATUSES = ["pending", "paid", "partially_paid", "failed", "refunded"];
 const DELIVERY_STATUSES = [
   "pending",
   "out_for_delivery",
@@ -66,6 +67,7 @@ const InvoiceSchema = new Schema(
     invoiceNumber: { type: String },
     generatedAt: { type: Date },
     url: { type: String }, // if you upload invoice PDF and store link
+    status: { type: String, enum: ["optional", "verified"], default: "optional" },
     meta: { type: Schema.Types.Mixed },
   },
   { _id: false }
@@ -78,6 +80,8 @@ const PaymentSchema = new Schema(
     status: { type: String, enum: PAYMENT_STATUSES, default: "pending" },
     transactionId: { type: String },
     paidAt: { type: Date },
+    paidAmount: { type: Number, default: 0 },
+    balanceAmount: { type: Number, default: 0 },
     meta: { type: Schema.Types.Mixed },
   },
   { _id: false }
@@ -171,6 +175,10 @@ const OrderSchema = new Schema(
     discounts: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
+    // MOV (Minimum Order Value) fields — for audit/tracking
+    movApplied: { type: Boolean, default: false },         // true if order was placed below MOV with delivery charge consent
+    movDeliveryCharge: { type: Number, default: 0 },       // ₹250 delivery charge for below-MOV orders (0 if MOV met)
+
     currency: { type: String, default: "INR" },
 
     // lifecycle
@@ -203,10 +211,17 @@ const OrderSchema = new Schema(
     cancellationReason: { type: String },
     metadata: { type: Schema.Types.Mixed },
 
-    // Tally integration fields
-    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT"], default: "Customer" },
-    tallySynced: { type: Boolean },
-    tallyError: { type: String },
+    // Duplicate Order System fields
+    isDuplicateOrder: { type: Boolean, default: false },
+    duplicateGroupId: { type: Schema.Types.ObjectId },
+    duplicateOf: { type: Schema.Types.ObjectId, ref: "Order" },
+    duplicateStatus: { 
+      type: String, 
+      enum: ["none", "pending_review", "merged", "cancelled", "ignored", "separate_valid"], 
+      default: "none"
+    },
+    masterOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT"], default: "Customer" }
   },
   {
     timestamps: true,
@@ -219,6 +234,9 @@ OrderSchema.index({ user: 1 });
 OrderSchema.index({ supplier: 1 });
 OrderSchema.index({ status: 1 });
 OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ duplicateGroupId: 1 });
+OrderSchema.index({ duplicateStatus: 1 });
+OrderSchema.index({ masterOrderId: 1 });
 
 /* ---------- Helpful pre-save hooks (optional) ---------- */
 
@@ -232,10 +250,24 @@ OrderSchema.pre("validate", function (next) {
     const short = Math.floor(1000 + Math.random() * 9000);
     this.orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${short}`;
   }
+
+  if (!this.orderSource || this.orderSource === "Customer") {
+    if (this.userModel === "Customer") {
+      this.orderSource = "Customer";
+    } else if (this.userModel === "Supplier") {
+      this.orderSource = "Vendor";
+    } else if (this.userModel === "User") {
+      this.orderSource = "ODT";
+    }
+  }
+
   next();
 });
 
 /* ---------- Exports ---------- */
+if (mongoose.models.Order) {
+  delete mongoose.models.Order;
+}
 const Order = mongoose.models.Order || mongoose.model("Order", OrderSchema);
 
 // --- 🔔 AUTOMATIC NOTIFICATIONS HOOK ---

@@ -150,7 +150,7 @@ function parseTallyResponse(xmlString) {
 
   const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
   const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
-  
+
   const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
   const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
 
@@ -224,7 +224,7 @@ export async function POST(request) {
     try {
       const tallyUrl = 'https://yummy-freebee-circular.ngrok-free.dev';
       const xmlPayload = buildTallyXML(name, parentDoc ? parentDoc.name : null);
-      
+
       console.log(`[Tally Sync] Syncing category "${name}" to Tally at ${tallyUrl}`);
       const tallyResponse = await fetch(tallyUrl, {
         method: 'POST',
@@ -279,8 +279,8 @@ export async function POST(request) {
       updatedAt: category.updatedAt,
     };
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       data: result,
       tallySynced,
       tallyError
