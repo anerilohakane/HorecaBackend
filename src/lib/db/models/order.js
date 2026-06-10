@@ -221,7 +221,7 @@ const OrderSchema = new Schema(
       default: "none"
     },
     masterOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
-    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT"], default: "Customer" }
+    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT", "Sales"], default: "Customer" }
   },
   {
     timestamps: true,
