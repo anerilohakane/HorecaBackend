@@ -7,7 +7,7 @@ export async function POST(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { salesRepresentativeId } = body;
+    const { salesRepresentativeId, proofImageUrl } = body;
 
     const priceRequest = await PriceNegotiation.findById(id);
     if (!priceRequest) {
@@ -18,10 +18,12 @@ export async function POST(request, { params }) {
       return NextResponse.json({ success: false, error: "Only pending requests can be approved" }, { status: 400 });
     }
 
-    // Update status to approved and closed
     priceRequest.status = "approved";
     if (salesRepresentativeId) {
       priceRequest.salesRepresentative = salesRepresentativeId;
+    }
+    if (proofImageUrl) {
+      priceRequest.proofImageUrl = proofImageUrl;
     }
 
     await priceRequest.save();

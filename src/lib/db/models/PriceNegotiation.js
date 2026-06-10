@@ -72,6 +72,10 @@ const PriceNegotiationSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Order",
       default: null
+    },
+    proofImageUrl: {
+      type: String,
+      default: null
     }
   },
   {
