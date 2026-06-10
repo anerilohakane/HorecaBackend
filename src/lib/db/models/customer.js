@@ -88,8 +88,9 @@ const CustomerSchema = new mongoose.Schema(
 
     category: {
       type: String,
-      enum: ["A", "B", "C", "D", "E"],
-      default: "D"
+      enum: ["A", "B", "C"],
+      required: true,
+      default: "C"
     },
 
     lastLoginAt: {

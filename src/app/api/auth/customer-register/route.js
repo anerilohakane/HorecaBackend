@@ -12,11 +12,15 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId
+      licenseImage, name, locations, supplierId, category
     } = body;
 
     if (!username || username.length < 3) {
       return NextResponse.json({ success: false, error: "Username must be at least 3 characters" }, { status: 400 });
+    }
+
+    if (!category || !['A', 'B', 'C'].includes(category)) {
+      return NextResponse.json({ success: false, error: "Valid customer tier (A, B, C) is required" }, { status: 400 });
     }
 
     if (!password || password.length < 8) {
@@ -121,6 +125,7 @@ export async function POST(req) {
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       licenseImage,
+      category,
       supplierId: supplierId || null,
       lastLoginAt: new Date()
     });
@@ -137,7 +142,7 @@ export async function POST(req) {
 
     // Create JWT
     const token = jwt.sign(
-      { _id: newUser._id, phone: newUser.phone, category: newUser.category || "D", username: newUser.username },
+      { _id: newUser._id, phone: newUser.phone, category: newUser.category, username: newUser.username },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
