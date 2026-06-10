@@ -4,6 +4,7 @@ import PriceNegotiation from "@/lib/db/models/PriceNegotiation";
 import Customer from "@/lib/db/models/customer";
 import Product from "@/lib/db/models/product";
 import Setting from "@/lib/db/models/Setting";
+import User from "@/lib/db/models/User";
 
 export async function GET(request) {
   await dbConnect();
