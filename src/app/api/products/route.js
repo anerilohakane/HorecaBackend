@@ -139,6 +139,47 @@ function isValidObjectIdString(id) {
   return typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
 }
 
+// Helper to map SCM units to mongoose schema enums
+const mapUOM = (uom) => {
+  if (!uom) return "pcs";
+  const normalized = String(uom).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+      return "kg";
+    case "gram":
+    case "g":
+      return "g";
+    case "liter":
+    case "liters":
+    case "l":
+      return "liters";
+    case "ml":
+    case "milliliter":
+      return "ml";
+    case "piece":
+    case "pieces":
+    case "pcs":
+    case "pc":
+      return "pcs";
+    case "box":
+    case "boxes":
+      return "box";
+    case "dozen":
+      return "dozen";
+    case "pack":
+    case "packs":
+    case "pkt":
+    case "packet":
+      return "pack";
+    case "ton":
+    case "tons":
+      return "ton";
+    default:
+      return "pcs";
+  }
+};
+
 const DEFAULT_LIMIT = 20;
 
 export async function GET(request) {
@@ -147,7 +188,7 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const limit = Math.min(100, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10));
+    const limit = Math.min(1000, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10));
     const q = url.searchParams.get("q");
     const brandId = url.searchParams.get("brandId");
     const branchId = url.searchParams.get("branchId");
@@ -204,7 +245,13 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
 
     if (supplierBrand) {
-      const matchingSuppliers = await Supplier.find({ brand: supplierBrand }).select('_id').lean();
+      const matchingSuppliers = await Supplier.find({ 
+        $or: [
+          { brand: supplierBrand },
+          { businessName: supplierBrand },
+          { brandName: supplierBrand }
+        ]
+      }).select('_id').lean();
       const supIds = matchingSuppliers.map(s => String(s._id));
       if (supIds.length > 0) {
         if (filter.supplierId) {

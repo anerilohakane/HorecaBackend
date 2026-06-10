@@ -1,7 +1,189 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import PurchaseOrder from "@/lib/db/models/inventory/PurchaseOrder";
+import Product from "@/lib/db/models/product";
 import { logger } from "@/lib/logger";
+
+// Helper to escape XML characters
+const escapeXML = (str) => {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Helper to map units to Tally active unit name
+const mapMongooseUnitToTally = (mongooseUnit) => {
+  if (!mongooseUnit) return "Nos";
+  const normalized = String(mongooseUnit).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+    case "kilograms":
+      return "Kg";
+    case "g":
+    case "gram":
+    case "grams":
+      return "Kg";
+    case "liters":
+    case "liter":
+    case "ml":
+    case "milliliter":
+    case "ltr":
+      return "Ltr";
+    case "pcs":
+    case "piece":
+    case "pieces":
+    case "nos":
+    case "box":
+    case "dozen":
+    case "pack":
+    case "ton":
+    default:
+      return "Nos";
+  }
+};
+
+// Helper to format Date as YYYYMMDD
+const formatTallyDate = (dateVal) => {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  let dd = String(d.getDate()).padStart(2, '0');
+
+  // Normalization for Tally Educational Mode in Dev/Testing (e.g. ngrok or localhost URLs, or custom env flag)
+  const tallyUrl = process.env.TALLY_URL || '';
+  const isDevTally = !tallyUrl || tallyUrl.includes('ngrok') || tallyUrl.includes('localhost') || process.env.NODE_ENV !== 'production';
+  if (isDevTally && dd !== '01' && dd !== '02' && dd !== '31') {
+    dd = '01'; // Force to 1st of the month
+  }
+
+  return `${yyyy}${mm}${dd}`;
+};
+
+// Helper to parse Tally responses
+function parseTallyResponse(xmlString) {
+  if (!xmlString) return { success: false, error: "Empty response from Tally" };
+
+  const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
+  const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+  
+  const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
+  const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+
+  if (createdCount > 0 || alteredCount > 0) {
+    return { success: true };
+  }
+
+  const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+  if (errorMatch && errorMatch[1]) {
+    return { success: false, error: errorMatch[1].trim() };
+  }
+
+  return { success: false, error: "Failed to parse Tally response", raw: xmlString };
+}
+
+// Function to construct the Tally Voucher XML
+function buildTallyPOVoucherXML(po, productMap) {
+  const dateStr = formatTallyDate(po.createdAt || new Date());
+  const supplierName = escapeXML(po.supplier?.name || "Unknown Vendor");
+  const poNumber = escapeXML(po.poNumber);
+  const mongoId = escapeXML(po._id.toString());
+  
+  let computedTotal = 0;
+  
+  const itemsXml = po.items.map(item => {
+    const itemName = escapeXML(item.productName);
+    const qty = parseFloat(item.quantity) || parseFloat(item.orderedQty) || 0;
+    const unitPrice = parseFloat(item.unitPrice) || 0;
+    const itemTotal = qty * unitPrice;
+    computedTotal += itemTotal;
+    
+    // Resolve unit from database Product document
+    const productDoc = productMap[item.productId];
+    const tallyUnit = escapeXML(mapMongooseUnitToTally(productDoc?.unit || 'pcs'));
+    
+    const qtyStr = `${qty} ${tallyUnit}`;
+    const rateStr = `${unitPrice}/${tallyUnit}`;
+    const amountStr = (-itemTotal).toFixed(2);
+    
+    return `<ALLINVENTORYENTRIES.LIST>
+       <STOCKITEMNAME>${itemName}</STOCKITEMNAME>
+       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+       <RATE>${rateStr}</RATE>
+       <AMOUNT>${amountStr}</AMOUNT>
+       <ACTUALQTY>${qtyStr}</ACTUALQTY>
+       <BILLEDQTY>${qtyStr}</BILLEDQTY>
+
+       <BATCHALLOCATIONS.LIST>
+        <GODOWNNAME>Unifoods Warehouse</GODOWNNAME>
+        <BATCHNAME>Batch1</BATCHNAME>
+        <DESTINATIONGODOWNNAME>Unifoods Warehouse</DESTINATIONGODOWNNAME>
+        <ORDERNO>${poNumber}</ORDERNO>
+        <TRACKINGNUMBER>1</TRACKINGNUMBER>
+        <AMOUNT>${amountStr}</AMOUNT>
+        <ACTUALQTY>${qtyStr}</ACTUALQTY>
+        <BILLEDQTY>${qtyStr}</BILLEDQTY>
+       </BATCHALLOCATIONS.LIST>
+
+       <ACCOUNTINGALLOCATIONS.LIST>
+        <LEDGERNAME>Purchase</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+        <AMOUNT>${amountStr}</AMOUNT>
+       </ACCOUNTINGALLOCATIONS.LIST>
+      </ALLINVENTORYENTRIES.LIST>`;
+  }).join("\n");
+  
+  const totalAmountStr = computedTotal.toFixed(2);
+
+  return `<ENVELOPE>
+ <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+ <BODY>
+  <IMPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>Vouchers</REPORTNAME>
+    <STATICVARIABLES>
+     <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+    </STATICVARIABLES>
+   </REQUESTDESC>
+   <REQUESTDATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <VOUCHER VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">
+      <DATE>${dateStr}</DATE>
+      <VCHSTATUSDATE>${dateStr}</VCHSTATUSDATE>
+      <EFFECTIVEDATE>${dateStr}</EFFECTIVEDATE>
+      <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
+      <PARTYLEDGERNAME>${supplierName}</PARTYLEDGERNAME>
+      <PARTYNAME>${supplierName}</PARTYNAME>
+      <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+      <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
+      <DIFFACTUALQTY>Yes</DIFFACTUALQTY>
+      <ISINVOICE>Yes</ISINVOICE>
+
+      ${itemsXml}
+
+      <LEDGERENTRIES.LIST>
+       <LEDGERNAME>${supplierName}</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+       <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+       <AMOUNT>${totalAmountStr}</AMOUNT>
+       <BILLALLOCATIONS.LIST>
+        <NAME>${mongoId}</NAME>
+        <BILLTYPE>New Ref</BILLTYPE>
+        <AMOUNT>${totalAmountStr}</AMOUNT>
+       </BILLALLOCATIONS.LIST>
+      </LEDGERENTRIES.LIST>
+     </VOUCHER>
+    </TALLYMESSAGE>
+   </REQUESTDATA>
+  </IMPORTDATA>
+ </BODY>
+</ENVELOPE>`;
+}
 
 // GET - List purchase orders
 export async function GET(request) {
@@ -71,6 +253,64 @@ export async function POST(request) {
     const po = new PurchaseOrder(body);
     await po.save();
 
+    // Fetch products to map UOMs
+    let productMap = {};
+    try {
+      const productIds = po.items.map(item => item.productId).filter(Boolean);
+      const products = await Product.find({ _id: { $in: productIds } }).lean();
+      products.forEach(p => {
+        productMap[p._id.toString()] = p;
+      });
+    } catch (err) {
+      console.error("Error fetching product UOMs for Tally PO sync:", err);
+    }
+
+    // Sync to Tally Prime 9 (after PO is saved so poNumber is populated)
+    let tallySynced = false;
+    let tallyError = null;
+
+    try {
+      const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+      const xmlPayload = buildTallyPOVoucherXML(po, productMap);
+      
+      console.log(`[Tally Sync] Syncing PO "${po.poNumber}" to Tally at ${tallyUrl}`);
+      const tallyResponse = await fetch(tallyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: xmlPayload
+      });
+
+      if (tallyResponse.ok) {
+        const responseText = await tallyResponse.text();
+        const parsed = parseTallyResponse(responseText);
+        if (parsed.success) {
+          tallySynced = true;
+          console.log(`[Tally Sync] PO "${po.poNumber}" synced successfully to Tally.`);
+        } else {
+          tallyError = parsed.error;
+          console.error(`[Tally Sync] Tally error syncing PO "${po.poNumber}":`, tallyError);
+        }
+      } else {
+        tallyError = `Tally server responded with status ${tallyResponse.status}`;
+        console.error(`[Tally Sync] HTTP error syncing PO "${po.poNumber}":`, tallyError);
+      }
+    } catch (err) {
+      tallyError = err.message || String(err);
+      console.error(`[Tally Sync] Exception syncing PO "${po.poNumber}":`, err);
+    }
+
+    if (tallySynced || tallyError) {
+      await PurchaseOrder.updateOne(
+        { _id: po._id },
+        { $set: { tallySynced, tallyError } }
+      );
+      po.tallySynced = tallySynced;
+      po.tallyError = tallyError;
+    }
+
     await logger({
       action: "created",
       message: `Created PO: ${po.poNumber} for ${po.supplier?.name}`,
@@ -80,11 +320,13 @@ export async function POST(request) {
         supplier: po.supplier?.name,
         items: po.items.length,
         total: po.totalAmount,
+        tallySynced,
+        tallyError
       },
       req: request,
     });
 
-    return NextResponse.json({ success: true, data: po }, { status: 201 });
+    return NextResponse.json({ success: true, data: po, tallySynced, tallyError }, { status: 201 });
   } catch (error) {
     console.error("Error in PO POST:", error);
     return NextResponse.json(

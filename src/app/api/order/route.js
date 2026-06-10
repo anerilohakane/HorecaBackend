@@ -200,6 +200,271 @@ async function normalizeDept(name) {
 
 
 
+// Helper to escape XML characters
+const escapeXML = (str) => {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Helper to map units to Tally active unit name
+const mapMongooseUnitToTally = (mongooseUnit) => {
+  if (!mongooseUnit) return "Nos";
+  const normalized = String(mongooseUnit).trim().toLowerCase();
+  switch (normalized) {
+    case "kg":
+    case "kilogram":
+    case "kilograms":
+      return "Kg";
+    case "g":
+    case "gram":
+    case "grams":
+      return "Kg";
+    case "liters":
+    case "liter":
+    case "ml":
+    case "milliliter":
+    case "ltr":
+      return "Ltr";
+    case "pcs":
+    case "piece":
+    case "pieces":
+    case "nos":
+    case "box":
+    case "dozen":
+    case "pack":
+    case "ton":
+    default:
+      return "Nos";
+  }
+};
+
+// Helper to format Date as YYYYMMDD with educational mode support
+const formatTallyDate = (dateVal) => {
+  const d = dateVal ? new Date(dateVal) : new Date();
+  if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  let dd = String(d.getDate()).padStart(2, '0');
+
+  // Normalization for Tally Educational Mode in Dev/Testing
+  const tallyUrl = process.env.TALLY_URL || '';
+  const isDevTally = !tallyUrl || tallyUrl.includes('ngrok') || tallyUrl.includes('localhost') || process.env.NODE_ENV !== 'production';
+  if (isDevTally && dd !== '01' && dd !== '02' && dd !== '31') {
+    dd = '01'; // Force to 1st of the month
+  }
+
+  return `${yyyy}${mm}${dd}`;
+};
+
+// Helper to parse Tally responses
+function parseTallyResponse(xmlString) {
+  if (!xmlString) return { success: false, error: "Empty response from Tally" };
+
+  const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
+  const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+
+  const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
+  const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+
+  if (createdCount > 0 || alteredCount > 0) {
+    return { success: true };
+  }
+
+  const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+  if (errorMatch && errorMatch[1]) {
+    return { success: false, error: errorMatch[1].trim() };
+  }
+
+  return { success: false, error: "Failed to parse Tally response", raw: xmlString };
+}
+
+// Helper to fetch all Debtors from Tally
+async function fetchTallyDebtors(tallyUrl, companyName) {
+  const payload = `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>EXPORT</TALLYREQUEST>
+    <TYPE>COLLECTION</TYPE>
+    <ID>LedgerCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVCURRENTCOMPANY>${escapeXML(companyName)}</SVCURRENTCOMPANY>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="LedgerCollection">
+            <TYPE>Ledger</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+            <FILTER>DebtorsFilter</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="DebtorsFilter">
+            $Parent = "Sundry Debtors"
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+
+  try {
+    const res = await fetch(tallyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml' },
+      body: payload
+    });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const matches = [...xml.matchAll(/<LEDGER NAME="([^"]+)"[^>]*>/g)];
+    const ledgers = matches.map(m => m[1]);
+    return ledgers;
+  } catch (err) {
+    console.error("[Tally Sync] Failed to fetch debtors from Tally:", err);
+    return [];
+  }
+}
+
+// Helper to match customer info to Tally debtors
+function findMatchingTallyLedger(tallyLedgers, customerDoc, orderDoc) {
+  const searchTerms = [
+    customerDoc?.businessName,
+    customerDoc?.name,
+    customerDoc?.shopName,
+    orderDoc?.shippingAddress?.fullName
+  ].filter(Boolean).map(s => s.toLowerCase().trim());
+
+  if (searchTerms.length === 0) return "Anup and Co";
+
+  // 1. Exact match first
+  for (const term of searchTerms) {
+    const exact = tallyLedgers.find(l => l.toLowerCase().trim() === term);
+    if (exact) return exact;
+  }
+
+  // 2. Starts with / contains match
+  for (const term of searchTerms) {
+    const match = tallyLedgers.find(l => {
+      const normalizedL = l.toLowerCase().trim();
+      return normalizedL.startsWith(term) || term.startsWith(normalizedL) || normalizedL.includes(term) || term.includes(normalizedL);
+    });
+    if (match) return match;
+  }
+
+  // Default fallback to prevent 'Ledger does not exist' error for new customers
+  return "Anup and Co";
+}
+
+// Function to construct the Tally Sales Voucher XML
+function buildTallySalesVoucherXML(order, productMap, companyName, userObject, partyLedgerName) {
+  const dateStr = formatTallyDate(order.placedAt || order.createdAt || new Date());
+
+  // Resolve customer/party name
+  const rawPartyName = partyLedgerName || "Anup and Co";
+  const partyName = escapeXML(rawPartyName);
+
+  const orderNumber = escapeXML(order.orderNumber);
+  const mongoId = escapeXML(order._id.toString());
+
+  let computedTotal = 0;
+
+  const itemsXml = order.items.map(item => {
+    const itemName = escapeXML(item.name);
+    const qty = parseFloat(item.quantity) || 0;
+    const unitPrice = parseFloat(item.unitPrice) || 0;
+    const itemTotal = qty * unitPrice;
+    computedTotal += itemTotal;
+
+    // Resolve unit
+    const productDoc = productMap[item.product.toString()];
+    const tallyUnit = escapeXML(mapMongooseUnitToTally(productDoc?.unit || 'pcs'));
+
+    // Just send the number without the unit string. Tally will automatically use the base unit configured for the item.
+    // This prevents Tally from dropping the quantity to 0 if "Nos" doesn't match the item's configured unit.
+    const qtyStr = `${qty}`;
+    const rateStr = `${unitPrice}`;
+    const amountStr = itemTotal.toFixed(2); // Positive for Sales
+
+    return `<ALLINVENTORYENTRIES.LIST>
+       <STOCKITEMNAME>${itemName}</STOCKITEMNAME>
+       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+       <RATE>${rateStr}</RATE>
+       <AMOUNT>${amountStr}</AMOUNT>
+       <ACTUALQTY>${qtyStr}</ACTUALQTY>
+       <BILLEDQTY>${qtyStr}</BILLEDQTY>
+
+       <BATCHALLOCATIONS.LIST>
+        <GODOWNNAME>Unifoods Warehouse</GODOWNNAME>
+        <BATCHNAME>Batch1</BATCHNAME>
+        <AMOUNT>${amountStr}</AMOUNT>
+        <ACTUALQTY>${qtyStr}</ACTUALQTY>
+        <BILLEDQTY>${qtyStr}</BILLEDQTY>
+       </BATCHALLOCATIONS.LIST>
+
+       <ACCOUNTINGALLOCATIONS.LIST>
+        <LEDGERNAME>Sales</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${amountStr}</AMOUNT>
+       </ACCOUNTINGALLOCATIONS.LIST>
+      </ALLINVENTORYENTRIES.LIST>`;
+  }).join("\n");
+
+  const totalAmountStr = (-computedTotal).toFixed(2); // Negative for Sales
+
+  const xmlStr = `<ENVELOPE>
+ <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+ <BODY>
+  <IMPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>Vouchers</REPORTNAME>
+    <STATICVARIABLES>
+     <SVCURRENTCOMPANY>${escapeXML(companyName)}</SVCURRENTCOMPANY>
+    </STATICVARIABLES>
+   </REQUESTDESC>
+   <REQUESTDATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+      <DATE>${dateStr}</DATE>
+      <VCHSTATUSDATE>${dateStr}</VCHSTATUSDATE>
+      <EFFECTIVEDATE>${dateStr}</EFFECTIVEDATE>
+      <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+      <PARTYLEDGERNAME>${partyName}</PARTYLEDGERNAME>
+      <PARTYNAME>${partyName}</PARTYNAME>
+      <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+      <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
+      <DIFFACTUALQTY>Yes</DIFFACTUALQTY>
+      <ISINVOICE>Yes</ISINVOICE>
+
+      ${itemsXml}
+
+      <LEDGERENTRIES.LIST>
+       <LEDGERNAME>${partyName}</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+       <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+       <AMOUNT>${totalAmountStr}</AMOUNT>
+       <BILLALLOCATIONS.LIST>
+        <NAME>${orderNumber}</NAME>
+        <BILLTYPE>New Ref</BILLTYPE>
+        <AMOUNT>${totalAmountStr}</AMOUNT>
+       </BILLALLOCATIONS.LIST>
+      </LEDGERENTRIES.LIST>
+     </VOUCHER>
+    </TALLYMESSAGE>
+   </REQUESTDATA>
+  </IMPORTDATA>
+ </BODY>
+</ENVELOPE>`;
+
+  console.log("[Tally Sync] Generated XML Payload:\n", xmlStr);
+  return xmlStr;
+}
+
 export async function POST(request) {
 
   try {
@@ -216,7 +481,7 @@ export async function POST(request) {
 
     // 🛑 DEBUG: Ensure it's a valid ID
     if (!mongoose.Types.ObjectId.isValid(placerId)) {
-       return json({ success: false, error: `Invalid ID format provided: ${placerId}` }, 400);
+      return json({ success: false, error: `Invalid ID format provided: ${placerId}` }, 400);
     }
 
     let identifiedUser = null;
@@ -237,38 +502,38 @@ export async function POST(request) {
       // 🕵️ FALLBACK 1: Try finding by phone number from shipping address
       const phone = shippingAddress?.phone;
       const email = shippingAddress?.email || body.email;
-      
-      if (phone || email) {
-         const query = [];
-         if (phone) {
-            const numericPhone = phone.replace(/\D/g, "");
-            query.push({ phone: { $regex: numericPhone } });
-            query.push({ phone: phone });
-         }
-         if (email) {
-            query.push({ email: email.toLowerCase() });
-         }
 
-         identifiedUser = await Customer.findOne({ $or: query });
-         
-         if (identifiedUser) {
-            userModel = "Customer";
-            console.log(`[ORDER INFO] User auto-linked via PHONE/EMAIL fallback: ${phone || email} (Original ID ${placerId} not found)`);
-         }
+      if (phone || email) {
+        const query = [];
+        if (phone) {
+          const numericPhone = phone.replace(/\D/g, "");
+          query.push({ phone: { $regex: numericPhone } });
+          query.push({ phone: phone });
+        }
+        if (email) {
+          query.push({ email: email.toLowerCase() });
+        }
+
+        identifiedUser = await Customer.findOne({ $or: query });
+
+        if (identifiedUser) {
+          userModel = "Customer";
+          console.log(`[ORDER INFO] User auto-linked via PHONE/EMAIL fallback: ${phone || email} (Original ID ${placerId} not found)`);
+        }
       }
     }
 
     if (!identifiedUser) {
       // 🕵️ FALLBACK 2: Try finding in ALL collections (raw)
       const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
-      
+
       // Try to find where this ID actually exists
       let foundInCollection = null;
       try {
         const collections = await mongoose.connection.db.listCollections().toArray();
         for (const coll of collections) {
-          const doc = await mongoose.connection.db.collection(coll.name).findOne({ 
-            _id: mongoose.Types.ObjectId.isValid(placerId) ? new mongoose.Types.ObjectId(placerId) : placerId 
+          const doc = await mongoose.connection.db.collection(coll.name).findOne({
+            _id: mongoose.Types.ObjectId.isValid(placerId) ? new mongoose.Types.ObjectId(placerId) : placerId
           });
           if (doc) {
             foundInCollection = coll.name;
@@ -284,9 +549,9 @@ export async function POST(request) {
       const sampleIds = sample.map(s => s._id.toString()).join(', ');
 
       console.error(`[ORDER ERROR] User not found for ID: ${placerId} | DB: ${dbName} | Found in: ${foundInCollection || 'NONE'}`);
-      
-      return json({ 
-        success: false, 
+
+      return json({
+        success: false,
         error: "Customer/User/Supplier not found with the provided ID",
         debugId: placerId,
         debugDb: dbName,
@@ -533,7 +798,7 @@ export async function POST(request) {
           level: 'warn',
           message: 'Payment failed during order creation',
           action: 'PAYMENT_FAILED',
-          userId: user._id,
+          userId: identifiedUser._id,
           metadata: { transactionId, bodyPaymentStatus: paymentStatus },
           req: request
         });
@@ -580,7 +845,7 @@ export async function POST(request) {
       cancellationReason: "",
       department: await normalizeDept(body.department || "odt"),
 
-
+      orderSource: body.orderSource || "Customer",
 
       metadata: body.metadata || null,
     });
@@ -778,7 +1043,7 @@ export async function POST(request) {
 
         // JIT Audit: Recalculate Truth Balance from ledger
         const ledger = await Transaction.aggregate([
-          { $match: { userId: new mongoose.Types.ObjectId(user._id), status: 'completed' } },
+          { $match: { userId: new mongoose.Types.ObjectId(identifiedUser._id), status: 'completed' } },
           {
             $group: {
               _id: null,
@@ -794,14 +1059,14 @@ export async function POST(request) {
           throw new Error(`Insufficient wallet balance. Audited Truth: ₹${realBalance} | Total: ₹${total}`);
         }
 
-        let buyerWallet = await Wallet.findOne({ userId: user._id });
+        let buyerWallet = await Wallet.findOne({ userId: identifiedUser._id });
         if (!buyerWallet) {
-          buyerWallet = new Wallet({ userId: user._id, balance: realBalance, userType: 'supplier' });
+          buyerWallet = new Wallet({ userId: identifiedUser._id, balance: realBalance, userType: 'supplier' });
         }
 
         // Create Debit Transaction
         const debitTx = new Transaction({
-          userId: new mongoose.Types.ObjectId(user._id),
+          userId: new mongoose.Types.ObjectId(identifiedUser._id),
           walletId: new mongoose.Types.ObjectId(buyerWallet._id),
           amount: total,
           type: "order_payment",
@@ -815,11 +1080,70 @@ export async function POST(request) {
         // Update Balance
         buyerWallet.balance = (realBalance - total);
         await buyerWallet.save();
-        console.log(`[FINANCE LOG] 🔒 Point Deduction Finalized for Buyer ${user._id} | New Balance: ₹${buyerWallet.balance}`);
+        console.log(`[FINANCE LOG] 🔒 Point Deduction Finalized for Buyer ${identifiedUser._id} | New Balance: ₹${buyerWallet.balance}`);
       } catch (e) {
         console.error("[CRITICAL FINANCE ERROR]: Order placed but debit failed:", e);
         // We throw here to fail the order if the debit cannot be secured
         throw new Error(`Payment processing failed. ${e.message}`);
+      }
+    }
+
+    // Sync to Tally Prime 9 as a Sales Voucher if created from ODT Dashboard
+    if (body.orderSource === "ODT") {
+      try {
+        const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
+
+        // Dynamic Customer matching
+        let partyLedgerName = null;
+        try {
+          const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany);
+          partyLedgerName = findMatchingTallyLedger(tallyDebtors, identifiedUser, orderDoc);
+          console.log(`[Tally Sync] Resolved Customer party ledger: "${partyLedgerName}"`);
+        } catch (matchErr) {
+          console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
+        }
+
+        // Fetch product documents to resolve units
+        const productIds = orderDoc.items.map(it => it.product);
+        const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
+        const productMap = {};
+        productDocs.forEach(p => { productMap[p._id.toString()] = p; });
+
+        const xmlPayload = buildTallySalesVoucherXML(orderDoc, productMap, tallyCompany, identifiedUser, partyLedgerName);
+        console.log(`[Tally Sync] Syncing Sales Voucher for Order "${orderDoc.orderNumber}" to Tally at ${tallyUrl}`);
+        console.log("PRANALAIIIIIIIIIIIIIIIIIII - ", xmlPayload)
+        const tallyResponse = await fetch(tallyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: xmlPayload
+        });
+
+        if (tallyResponse.ok) {
+          const responseText = await tallyResponse.text();
+          const parsed = parseTallyResponse(responseText);
+          if (parsed.success) {
+            console.log(`[Tally Sync] Sales Voucher "${orderDoc.orderNumber}" synced successfully to Tally.`);
+            await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: true, tallyError: null } });
+          } else {
+            console.error(`[Tally Sync] Tally error syncing Sales Voucher "${orderDoc.orderNumber}":`, parsed.error);
+            await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError: parsed.error } });
+          }
+        } else {
+          const tallyError = `Tally server responded with status ${tallyResponse.status}`;
+          console.error(`[Tally Sync] HTTP error syncing Sales Voucher "${orderDoc.orderNumber}":`, tallyError);
+          await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError } });
+        }
+      } catch (tallyErr) {
+        console.error(`[Tally Sync] Exception during Sales Voucher sync for Order "${orderDoc.orderNumber}":`, tallyErr.message);
+        try {
+          await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError: tallyErr.message } });
+        } catch (dbErr) {
+          console.error("[Tally Sync] Failed to update Tally error on Order document:", dbErr);
+        }
       }
     }
 
@@ -1048,7 +1372,7 @@ export async function PATCH(request) {
       const allowedKeys = ["duplicateStatus", "duplicateGroupId", "masterOrderId", "duplicateOf", "cancellationReason"];
       const requestedKeys = Object.keys(body);
       const tryingToCancel = body.status === "cancelled" || body.status === "canceled";
-      
+
       const hasRestrictedUpdates = requestedKeys.some(key => {
         if (key === "status" && tryingToCancel) return false;
         return !allowedKeys.includes(key);
@@ -1571,10 +1895,10 @@ export async function PATCH(request) {
     }
 
     // --- INVOICE VERIFICATION & WORKFLOW TRANSITION ---
-    const isVerifyingInvoice = body.action === "verify_invoice" || 
-                              body.invoiceStatus === "verified" || 
-                              (body.invoice && body.invoice.status === "verified") ||
-                              body["invoice.status"] === "verified";
+    const isVerifyingInvoice = body.action === "verify_invoice" ||
+      body.invoiceStatus === "verified" ||
+      (body.invoice && body.invoice.status === "verified") ||
+      body["invoice.status"] === "verified";
 
     if (isVerifyingInvoice) {
       // 🚨 NEW: Block verification if there are pending claims
@@ -1594,7 +1918,7 @@ export async function PATCH(request) {
       }
 
       setData["invoice.status"] = "verified";
-      
+
       // Auto-transition to ART department
       const artDept = await normalizeDept("art");
       const oldDept = await normalizeDept(order.department);
