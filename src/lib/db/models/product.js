@@ -177,6 +177,11 @@ const productSchema = new Schema({
   totalReviews: { type: Number, default: 0 },
   isFeatured: { type: Boolean, default: false },
   isTrending: { type: Boolean, default: false },
+  categoryPrices: {
+    A: { type: Number, default: 0 },
+    B: { type: Number, default: 0 },
+    C: { type: Number, default: 0 }
+  },
   discountStartDate: { type: Date },
   discountEndDate: { type: Date },
   poTemplateId: {

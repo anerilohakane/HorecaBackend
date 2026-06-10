@@ -1,64 +1,7 @@
-// // /app/api/categories/route.js
-// import { NextResponse } from "next/server";
-// import dbConnect from "@/lib/db/connect";
-// import Category from "@/lib/db/models/category";
-
-// export async function GET(request) {
-//   await dbConnect();
-//   try {
-//     const url = new URL(request.url);
-//     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-//     const limit = Math.min(100, parseInt(url.searchParams.get("limit") || "50", 10));
-//     const skip = (page - 1) * limit;
-
-//     const list = await Category.find()
-//       .sort("-createdAt")
-//       .skip(skip)
-//       .limit(limit)
-//       .lean();
-
-//     const total = await Category.countDocuments();
-
-//     return NextResponse.json({
-//       success: true,
-//       data: { items: list, pagination: { total, page, limit, pages: Math.ceil(total / limit) } }
-//     });
-//   } catch (err) {
-//     console.error("GET /api/categories error", err);
-//     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
-//   }
-// }
-
-// export async function POST(request) {
-//   await dbConnect();
-//   try {
-//     const body = await request.json();
-//     if (!body.name) {
-//       return NextResponse.json({ success: false, error: "Category name required" }, { status: 400 });
-//     }
-//     const category = new Category(body);
-//     await category.save();
-//     return NextResponse.json({ success: true, data: category }, { status: 201 });
-//   } catch (err) {
-//     console.error("POST /api/categories error", err);
-//     if (err.name === "ValidationError") {
-//       const errors = Object.values(err.errors).map(e => e.message);
-//       return NextResponse.json({ success: false, error: "Validation failed", details: errors }, { status: 400 });
-//     }
-//     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
-//   }
-// }
-
-
-// /app/api/categories/route.js
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
-import Category from "@/lib/db/models/category";
-import Product from "@/lib/db/models/product"; // optional if you later want to include products
+import Brand from "@/lib/db/models/brand";
 
-
-
-// /app/api/categories/route.js (GET only root categories + populate children)
 export async function GET(request) {
   await dbConnect();
   try {
