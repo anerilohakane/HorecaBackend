@@ -6,7 +6,7 @@ import Product from "@/lib/db/models/product";
 import Brand from "@/lib/db/models/brand";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-
+import Category from "@/lib/db/models/category";
 // cloudinary server-side config - available if you want to process images server-side later
 import cloudinary from "cloudinary";
 cloudinary.v2.config({
@@ -98,18 +98,18 @@ function buildSupplierXML(supplier) {
   const name = escapeXML(supplier.businessName || supplier.shopName || supplier.ownerName);
   const mongoId = escapeXML(supplier._id.toString());
   const mailingName = escapeXML(supplier.shopName || supplier.businessName);
-  
+
   const street = supplier.address?.street ? escapeXML(supplier.address.street) : "";
   const city = supplier.address?.city ? escapeXML(supplier.address.city) : "";
   const state = supplier.address?.state ? escapeXML(supplier.address.state) : "Maharashtra";
   const postalCode = supplier.address?.postalCode ? escapeXML(supplier.address.postalCode) : "";
-  
+
   const phone = supplier.phone ? escapeXML(supplier.phone) : "";
   const email = supplier.email ? escapeXML(supplier.email) : "";
-  
+
   const gstNumber = supplier.gstNumber ? escapeXML(supplier.gstNumber) : "";
   const panNumber = supplier.panNumber ? escapeXML(supplier.panNumber) : "";
-  
+
   const bankName = supplier.bankDetails?.bankName ? escapeXML(supplier.bankDetails.bankName) : "";
   const accountNumber = supplier.bankDetails?.accountNumber ? escapeXML(supplier.bankDetails.accountNumber) : "";
   const accountHolderName = supplier.bankDetails?.accountHolderName ? escapeXML(supplier.bankDetails.accountHolderName) : "";
@@ -217,7 +217,7 @@ function parseTallyResponse(xmlString) {
 
   const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
   const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
-  
+
   const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
   const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
 
@@ -273,8 +273,8 @@ export async function POST(request) {
 
     // Handle multiple brands
     const resolvedBrandIds = [];
-    const brandsToProcess = supplierPayload.brandNames && supplierPayload.brandNames.length > 0 
-      ? supplierPayload.brandNames 
+    const brandsToProcess = supplierPayload.brandNames && supplierPayload.brandNames.length > 0
+      ? supplierPayload.brandNames
       : (supplierPayload.brandName ? [supplierPayload.brandName] : []);
 
     for (const bName of brandsToProcess) {
@@ -344,8 +344,8 @@ export async function POST(request) {
             unit: mapUOM(prodData.uom),
             price: Number(prodData.basePrice) || 0,
             stockQuantity: 0,
-            images: prodData.image 
-              ? [{ url: prodData.image, publicId: `prod_${Date.now()}` }] 
+            images: prodData.image
+              ? [{ url: prodData.image, publicId: `prod_${Date.now()}` }]
               : [{ url: "https://res.cloudinary.com/dqfum2awz/image/upload/v1717900000/placeholder.png", publicId: "placeholder" }],
             isActive: true
           };
@@ -412,9 +412,9 @@ export async function POST(request) {
     const cookie = `authToken=${token}; Path=/; HttpOnly; Max-Age=${TOKEN_MAX_AGE}; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
 
     return NextResponse.json(
-      { 
-        success: true, 
-        data: safeObj, 
+      {
+        success: true,
+        data: safeObj,
         token,
         tallySupplierSynced,
         tallySupplierError,
