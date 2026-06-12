@@ -16,6 +16,7 @@ import User from "@/lib/db/models/User";
 import Customer from "@/lib/db/models/customer";
 import Department from "@/lib/db/models/Department";
 import Claim from "@/lib/db/models/Claim";
+import PriceNegotiation from "@/lib/db/models/PriceNegotiation";
 import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
 import { detectAndGroupOrder } from "@/lib/services/duplicateOrderService";
@@ -587,6 +588,28 @@ export async function POST(request) {
       );
     }
 
+    // 2.5) Price Negotiation Validation
+    let validNegotiation = null;
+    if (body.priceNegotiationId) {
+      validNegotiation = await PriceNegotiation.findById(body.priceNegotiationId);
+      if (!validNegotiation) {
+        return json({ success: false, error: "Price negotiation not found" }, 404);
+      }
+      if (validNegotiation.status !== "approved") {
+        return json({ success: false, error: "Price negotiation is not approved" }, 400);
+      }
+      if (validNegotiation.orderId) {
+        return json({ success: false, error: "An order has already been placed for this negotiation" }, 400);
+      }
+      if (validNegotiation.customer.toString() !== placerId.toString()) {
+        return json({ success: false, error: "Unauthorized: Negotiation belongs to a different customer" }, 403);
+      }
+      // If we are placing an order from a negotiation, force the items array to match the negotiation exactly
+      if (itemsInput.length > 1 || itemsInput[0].product.toString() !== validNegotiation.product.toString()) {
+         return json({ success: false, error: "Order items do not match the approved negotiation" }, 400);
+      }
+    }
+
     // 3) Build items + totals
     const builtItems = [];
     let subtotal = 0;
@@ -632,9 +655,14 @@ export async function POST(request) {
       // If the client price is LOWER than the resolved DB price (possible price manipulation),
       // enforce the DB price. This ensures the invoice always matches the checkout display.
       const clientUnitPrice = Number(it.unitPrice ?? it.price ?? 0);
-      const unitPrice = (clientUnitPrice > 0 && clientUnitPrice <= displayPrice)
+      let unitPrice = (clientUnitPrice > 0 && clientUnitPrice <= displayPrice)
         ? clientUnitPrice  // honour what the customer was shown
         : displayPrice;   // fallback to DB-resolved price (and protects against inflation)
+
+      // 🔥 Price Negotiation Override
+      if (validNegotiation && validNegotiation.product.toString() === product._id.toString()) {
+        unitPrice = validNegotiation.requestedPrice;
+      }
 
       const totalPrice = unitPrice * qty;
       subtotal += totalPrice;
@@ -979,6 +1007,14 @@ export async function POST(request) {
 
     // 10) Save
     await orderDoc.save();
+
+    // 10.25) 🔥 Update Price Negotiation if applicable
+    if (validNegotiation) {
+      validNegotiation.orderId = orderDoc._id;
+      validNegotiation.orderPlacedBy = "Customer";
+      validNegotiation.orderPlacementTimestamp = new Date();
+      await validNegotiation.save();
+    }
 
     // 10.5) Trigger duplicate order detection inline
     try {

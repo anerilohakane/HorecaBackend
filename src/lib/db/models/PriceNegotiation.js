@@ -76,6 +76,15 @@ const PriceNegotiationSchema = new Schema(
     proofImageUrl: {
       type: String,
       default: null
+    },
+    orderPlacementTimestamp: {
+      type: Date,
+      default: null
+    },
+    orderPlacedBy: {
+      type: String,
+      enum: ["Customer", "Sales"],
+      default: null
     }
   },
   {

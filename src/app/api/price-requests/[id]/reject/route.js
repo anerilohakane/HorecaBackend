@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import PriceNegotiation from "@/lib/db/models/PriceNegotiation";
+import Notification from "@/lib/db/models/notification";
 
 export async function POST(request, { params }) {
   await dbConnect();
@@ -33,6 +34,20 @@ export async function POST(request, { params }) {
     }
 
     await priceRequest.save();
+
+    try {
+      await priceRequest.populate("product", "name");
+      const productName = priceRequest.product?.name || "Product";
+      await Notification.create({
+        user: priceRequest.customer,
+        title: "Price Request Rejected",
+        message: `Your price request for ${productName} at ₹${priceRequest.requestedPrice} has been rejected.`,
+        type: "error",
+        metadata: { priceNegotiationId: priceRequest._id, status: "rejected" }
+      });
+    } catch (notifErr) {
+      console.error("Failed to create rejection notification:", notifErr);
+    }
 
     return NextResponse.json({ success: true, data: priceRequest });
   } catch (err) {
