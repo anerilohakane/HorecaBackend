@@ -55,10 +55,14 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     await connectDB();
-    const { claimId, proofUrl, rejectionReason, performedBy } = await req.json();
+    const { claimId, proofUrl, rejectionReason, performedBy, department } = await req.json();
 
     if (!claimId) {
       return NextResponse.json({ success: false, error: "Claim ID is required" }, { status: 400 });
+    }
+
+    if (department && department.toLowerCase() !== 'sales' && department.toLowerCase() !== 'admin') {
+      return NextResponse.json({ success: false, error: "Only Sales team can reject claims" }, { status: 403 });
     }
 
     const claim = await Claim.findOne({ claimId });
