@@ -877,6 +877,8 @@ export async function POST(request) {
       orderSource: body.orderSource || "Customer",
 
       metadata: body.metadata || null,
+
+      priceNegotiationId: validNegotiation ? validNegotiation._id : undefined,
     });
 
 
