@@ -17,6 +17,7 @@ import Customer from "@/lib/db/models/customer";
 import Department from "@/lib/db/models/Department";
 import Claim from "@/lib/db/models/Claim";
 import PriceNegotiation from "@/lib/db/models/PriceNegotiation";
+import Notification from "@/lib/db/models/notification";
 import { getUserFromRequest } from "@/lib/serverAuth";
 import { logger } from "@/lib/logger";
 import { detectAndGroupOrder } from "@/lib/services/duplicateOrderService";
@@ -1013,7 +1014,23 @@ export async function POST(request) {
       validNegotiation.orderId = orderDoc._id;
       validNegotiation.orderPlacedBy = "Customer";
       validNegotiation.orderPlacementTimestamp = new Date();
+      validNegotiation.status = "closed"; // Update status to 'closed' so Sales sees 'Order Placed'
       await validNegotiation.save();
+
+      // Notify the Sales Representative
+      if (validNegotiation.salesRepresentative) {
+        try {
+          await Notification.create({
+            user: validNegotiation.salesRepresentative,
+            title: "Negotiated Order Placed",
+            message: `Customer ${identifiedUser?.name || 'A customer'} has placed an order from your approved price negotiation.`,
+            type: "success",
+            metadata: { priceNegotiationId: validNegotiation._id, orderId: orderDoc._id }
+          });
+        } catch (notifErr) {
+          console.error("Failed to notify sales representative:", notifErr);
+        }
+      }
     }
 
     // 10.5) Trigger duplicate order detection inline
