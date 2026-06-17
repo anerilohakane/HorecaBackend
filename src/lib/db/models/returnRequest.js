@@ -82,6 +82,12 @@ const ReturnRequestSchema = new Schema(
     closedAt: { type: Date },
     
     notes: { type: String },
+    
+    routePlannerDetails: {
+      driverName: { type: String },
+      driverPhone: { type: String },
+      vehicleNumber: { type: String },
+    }
   },
   {
     timestamps: true,
