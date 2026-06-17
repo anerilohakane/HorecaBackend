@@ -3,6 +3,9 @@ import dbConnect from "@/lib/db/connect";
 import ReturnRequest from "@/lib/db/models/returnRequest";
 import ReturnActivityLog from "@/lib/db/models/returnActivityLog";
 import Order from "@/lib/db/models/order";
+import User from "@/lib/db/models/User";
+import Supplier from "@/lib/db/models/supplier";
+import Product from "@/lib/db/models/product";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
