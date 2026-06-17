@@ -24,10 +24,12 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get("customerId");
     const vendorId = searchParams.get("vendorId");
+    const orderId = searchParams.get("orderId");
     
     const query = {};
     if (customerId) query.requester = customerId;
     if (vendorId) query.supplier = vendorId;
+    if (orderId) query.order = orderId;
 
     const returns = await ReturnRequest.find(query)
       .populate("order", "orderId orderNumber totalAmount")
