@@ -21,7 +21,7 @@ const ORDER_STATUSES = [
   "confirmed",
   "packed",
   "shipped",
-  "out_for_delivery",
+  "out_for_x`very",
   "delivered",
   "cancelled",
   "returned",

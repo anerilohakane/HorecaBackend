@@ -26,7 +26,9 @@ export async function GET(request) {
     if (vendorId) query.supplier = vendorId;
 
     const returns = await ReturnRequest.find(query)
-      .populate("order", "orderId totalAmount")
+      .populate("order", "orderId orderNumber totalAmount")
+      .populate("requester", "name email")
+      .populate("supplier", "name")
       .populate("items.product", "name sku")
       .sort({ createdAt: -1 });
 
