@@ -31,7 +31,7 @@ export async function GET(request) {
     const returns = await ReturnRequest.find(query)
       .populate("order", "orderId orderNumber totalAmount")
       .populate("requester", "name email")
-      .populate("supplier", "name")
+      .populate("supplier", "brand businessName")
       .populate("items.product", "name sku")
       .sort({ createdAt: -1 });
 

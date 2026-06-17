@@ -27,7 +27,7 @@ export async function GET(request, { params }) {
       .populate("order")
       .populate("items.product", "name sku")
       .populate("requester", "name email phone")
-      .populate("supplier", "name");
+      .populate("supplier", "brand businessName");
 
     if (!returnReq) {
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: corsHeaders });
