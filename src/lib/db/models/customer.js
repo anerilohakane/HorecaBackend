@@ -93,6 +93,11 @@ const CustomerSchema = new mongoose.Schema(
       default: "C"
     },
 
+    poMandatory: {
+      type: Boolean,
+      default: false
+    },
+
     lastLoginAt: {
       type: Date,
       default: null
