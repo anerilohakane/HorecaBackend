@@ -4,6 +4,7 @@ import ReturnRequest from "@/lib/db/models/returnRequest";
 import ReturnActivityLog from "@/lib/db/models/returnActivityLog";
 import Order from "@/lib/db/models/order";
 import User from "@/lib/db/models/User";
+import Customer from "@/lib/db/models/customer";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
 

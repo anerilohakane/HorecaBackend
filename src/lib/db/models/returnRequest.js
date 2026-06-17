@@ -25,7 +25,7 @@ const ReturnRequestSchema = new Schema(
   {
     rrn: { type: String, required: true, unique: true, index: true }, // Return Request Number
     order: { type: Schema.Types.ObjectId, ref: "Order", required: true },
-    requester: { type: Schema.Types.ObjectId, ref: "User", required: true }, // Customer
+    requester: { type: Schema.Types.ObjectId, ref: "Customer", required: true }, // Customer
     supplier: { type: Schema.Types.ObjectId, ref: "Supplier" }, // Vendor
     
     items: { type: [ReturnItemSchema], required: true },
