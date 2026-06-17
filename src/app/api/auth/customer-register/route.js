@@ -106,7 +106,7 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId, category
+      licenseImage, name, locations, supplierId, category, poMandatory
     } = body;
 
     if (!username || username.length < 3) {
@@ -174,9 +174,6 @@ export async function POST(req) {
       isPrimary: index === 0
     }));
 
-    if (!licenseImage) {
-      return NextResponse.json({ success: false, error: "Business license image is required" }, { status: 400 });
-    }
 
     await dbConnect();
 
@@ -220,6 +217,7 @@ export async function POST(req) {
       gstNumber: gstNumber || null,
       licenseImage,
       category,
+      poMandatory: poMandatory || false,
       supplierId: supplierId || null,
       lastLoginAt: new Date()
     });
