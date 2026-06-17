@@ -56,6 +56,19 @@ export async function PUT(request, { params }) {
 
     const oldStatus = returnReq.status;
     
+    // Strict Backend Validation
+    if (body.items && Array.isArray(body.items)) {
+      for (const item of body.items) {
+        const maxAllowed = item.requestedReturnQty || item.quantity || 0;
+        if (item.approvedQuantity > maxAllowed) {
+          return NextResponse.json(
+            { error: `Approved quantity (${item.approvedQuantity}) cannot exceed requested quantity (${maxAllowed})` },
+            { status: 400, headers: corsHeaders }
+          );
+        }
+      }
+    }
+
     // Update fields
     Object.keys(body).forEach((key) => {
       // Don't arbitrarily overwrite specific protected objects unless handled
