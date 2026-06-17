@@ -4,7 +4,20 @@ const { Schema } = mongoose;
 const ReturnItemSchema = new Schema(
   {
     product: { type: Schema.Types.ObjectId, ref: "Product", required: true },
-    quantity: { type: Number, required: true, min: 1 },
+    
+    // Partial Return Fields
+    orderedQuantity: { type: Number },
+    deliveredQuantity: { type: Number },
+    previouslyReturnedQuantity: { type: Number, default: 0 },
+    
+    requestedReturnQty: { type: Number, required: true, min: 1 },
+    approvedQuantity: { type: Number, default: 0 },
+    pickedQuantity: { type: Number, default: 0 },
+    
+    // Item Level Workflow
+    status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
+    rejectionReason: { type: String },
+
     reason: { type: String, required: true },
     condition: { type: String }, // e.g., opened, unopened, damaged
     
@@ -15,6 +28,7 @@ const ReturnItemSchema = new Schema(
     mismatchReason: { type: String },
     
     // Godown fields
+    receivedQuantity: { type: Number, default: 0 },
     acceptedQuantity: { type: Number, default: 0 },
     rejectedQuantity: { type: Number, default: 0 },
   },
@@ -37,6 +51,7 @@ const ReturnRequestSchema = new Schema(
       type: String,
       enum: [
         "Pending Vendor Approval",
+        "Partially Approved",
         "Vendor Approved",
         "Vendor Rejected",
         "Routed to SCM",

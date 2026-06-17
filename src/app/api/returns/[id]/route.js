@@ -64,7 +64,7 @@ export async function PUT(request, { params }) {
       }
     });
 
-    if (body.status === "Vendor Approved") {
+    if (body.status === "Vendor Approved" || body.status === "Partially Approved") {
       // Set Pickup SLA to 3 days from approval
       returnReq.pickupSlaDueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
       returnReq.vendorActedAt = new Date();

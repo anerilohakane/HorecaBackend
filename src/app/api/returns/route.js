@@ -56,17 +56,59 @@ export async function POST(request) {
     const randomHex = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, "0");
     const rrn = `RRN-${new Date().toISOString().slice(2,10).replace(/-/g,"")}-${randomHex}`;
 
-    // Format items
-    const formattedItems = selectedItems.map((item) => ({
-      product: item.product?._id || item.productId || item.product,
-      quantity: item.quantity,
-      reason: reason,
-      condition: "Unknown",
-    }));
-
-    // Find the order to get the supplier if available
+    // Find the order to validate quantities and get supplier
     const order = await Order.findById(orderId);
-    const supplier = order?.supplier || null;
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404, headers: corsHeaders });
+    }
+    const supplier = order.supplier || null;
+
+    // Fetch past returns to calculate cumulative previously returned quantities
+    const existingReturns = await ReturnRequest.find({ order: orderId });
+
+    // Format and validate items
+    const formattedItems = [];
+    for (const item of selectedItems) {
+      const pId = item.product?._id || item.productId || item.product;
+      const orderItem = order.items.find(i => String(i.product) === String(pId));
+      if (!orderItem) continue;
+
+      const orderedQty = orderItem.quantity;
+      const deliveredQty = orderItem.quantity; // Assuming full delivery for now
+      
+      let prevReturned = 0;
+      existingReturns.forEach(ret => {
+        // Exclude cancelled/rejected returns if needed, but for safe max calculation we count all non-rejected
+        if (ret.status !== "Vendor Rejected" && ret.status !== "Return Closed") {
+          const retItem = ret.items.find(ri => String(ri.product) === String(pId));
+          if (retItem && retItem.status !== "Rejected") {
+            prevReturned += (retItem.requestedReturnQty || retItem.quantity || 0);
+          }
+        }
+      });
+
+      const reqQty = Number(item.requestedReturnQty || item.quantity);
+      if (reqQty <= 0) {
+        return NextResponse.json({ error: "Invalid return quantity" }, { status: 400, headers: corsHeaders });
+      }
+      
+      if (reqQty + prevReturned > deliveredQty) {
+        return NextResponse.json({ 
+          error: `Cannot return ${reqQty} of ${orderItem.name}. Maximum allowed is ${deliveredQty - prevReturned}` 
+        }, { status: 400, headers: corsHeaders });
+      }
+
+      formattedItems.push({
+        product: pId,
+        requestedReturnQty: reqQty,
+        orderedQuantity: orderedQty,
+        deliveredQuantity: deliveredQty,
+        previouslyReturnedQuantity: prevReturned,
+        reason: reason,
+        condition: "Unknown",
+        status: "Pending"
+      });
+    }
 
     // Determine initial status based on vendor assignment
     let initialStatus = "Pending Vendor Approval";
