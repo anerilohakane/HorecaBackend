@@ -652,6 +652,42 @@ export async function POST(request) {
       );
     }
 
+    // 2.2) PO Mandatory Validation for Customers
+    let providedPoNumber = body.b2b?.purchaseOrderNumber || body.poNumber || body.purchaseOrderNumber || null;
+    
+    if (userModel === "Customer" && identifiedUser.poMandatory) {
+      if (!providedPoNumber || String(providedPoNumber).trim() === "") {
+        return json(
+          {
+            success: false,
+            error: "Purchase Order (PO) is mandatory for this customer. Please provide a PO number to proceed with the order.",
+          },
+          400
+        );
+      }
+
+      // Rule-based validation: Prevent duplicate PO numbers for the same customer
+      const existingOrderWithPO = await Order.findOne({
+        user: identifiedUser._id,
+        $or: [
+          { "b2b.purchaseOrderNumber": providedPoNumber },
+          { poNumber: providedPoNumber },
+          { metadata: { poNumber: providedPoNumber } }
+        ],
+        status: { $nin: ["cancelled", "canceled", "failed"] }
+      });
+
+      if (existingOrderWithPO) {
+        return json(
+          {
+            success: false,
+            error: `Rule-based validation failed: An active order (${existingOrderWithPO.orderNumber}) already exists for PO number '${providedPoNumber}'. Duplicate POs are not allowed.`,
+          },
+          400
+        );
+      }
+    }
+
     // 2.5) Price Negotiation Validation
     let validNegotiation = null;
     if (body.priceNegotiationId) {
@@ -931,7 +967,10 @@ export async function POST(request) {
       },
 
       delivery: body.delivery || {},
-      b2b: body.b2b || {},
+      b2b: {
+        ...(body.b2b || {}),
+        purchaseOrderNumber: providedPoNumber || body.b2b?.purchaseOrderNumber
+      },
 
       notes,
       cancellationReason: "",
