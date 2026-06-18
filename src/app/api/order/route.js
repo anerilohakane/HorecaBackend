@@ -436,7 +436,7 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
       <VCHSTATUSDATE>${dateStr}</VCHSTATUSDATE>
       <EFFECTIVEDATE>${dateStr}</EFFECTIVEDATE>
       <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-      <PARTYLEDGERNAME>${partyName}</PARTYLEDGERNAME>
+      <PARTYLEDGERNAME>${userObject && userObject._id ? escapeXML(userObject._id.toString()) : partyName}</PARTYLEDGERNAME>
       <PARTYNAME>${partyName}</PARTYNAME>
       <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
       <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
@@ -446,7 +446,7 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
       ${itemsXml}
 
       <LEDGERENTRIES.LIST>
-       <LEDGERNAME>${partyName}</LEDGERNAME>
+       <LEDGERNAME>${userObject && userObject._id ? escapeXML(userObject._id.toString()) : partyName}</LEDGERNAME>
        <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
        <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
        <AMOUNT>${totalAmountStr}</AMOUNT>
@@ -464,6 +464,69 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
 </ENVELOPE>`;
 
   console.log("[Tally Sync] Generated XML Payload:\n", xmlStr);
+  return xmlStr;
+}
+
+// Function to construct the Tally Payment Voucher XML
+function buildTallyPaymentVoucherXML(order, companyName, userObject, partyLedgerName) {
+  const dateStr = formatTallyDate(order.placedAt || order.createdAt || new Date());
+  
+  // Resolve customer/party name
+  const rawPartyName = partyLedgerName || "Anup and Co";
+  const partyName = escapeXML(rawPartyName);
+  
+  const orderNumber = escapeXML(order.orderNumber);
+  const totalAmountStr = parseFloat(order.total || 0).toFixed(2); // Positive
+
+  // VCHTYPE="Payment" means WE pay SOMEONE. But the user asked for Payment Voucher explicitly. 
+  // In a Tally Payment Voucher (F5), we debit Receiver, credit Cash.
+  
+  const xmlStr = `<ENVELOPE>
+ <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+ <BODY>
+  <IMPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>Vouchers</REPORTNAME>
+    <STATICVARIABLES>
+     <SVCURRENTCOMPANY>${escapeXML(companyName)}</SVCURRENTCOMPANY>
+    </STATICVARIABLES>
+   </REQUESTDESC>
+   <REQUESTDATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <VOUCHER VCHTYPE="Payment" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <DATE>${dateStr}</DATE>
+      <VCHSTATUSDATE>${dateStr}</VCHSTATUSDATE>
+      <EFFECTIVEDATE>${dateStr}</EFFECTIVEDATE>
+      <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
+      <PARTYLEDGERNAME>${userObject && userObject._id ? escapeXML(userObject._id.toString()) : partyName}</PARTYLEDGERNAME>
+      <PARTYNAME>${partyName}</PARTYNAME>
+      <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>
+
+      <ALLLEDGERENTRIES.LIST>
+       <LEDGERNAME>${userObject && userObject._id ? escapeXML(userObject._id.toString()) : partyName}</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+       <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+       <AMOUNT>-${totalAmountStr}</AMOUNT>
+       <BILLALLOCATIONS.LIST>
+        <NAME>${orderNumber}</NAME>
+        <BILLTYPE>New Ref</BILLTYPE>
+        <AMOUNT>-${totalAmountStr}</AMOUNT>
+       </BILLALLOCATIONS.LIST>
+      </ALLLEDGERENTRIES.LIST>
+
+      <ALLLEDGERENTRIES.LIST>
+       <LEDGERNAME>Cash</LEDGERNAME>
+       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+       <AMOUNT>${totalAmountStr}</AMOUNT>
+      </ALLLEDGERENTRIES.LIST>
+     </VOUCHER>
+    </TALLYMESSAGE>
+   </REQUESTDATA>
+  </IMPORTDATA>
+ </BODY>
+</ENVELOPE>`;
+
+  console.log("[Tally Sync] Generated Payment XML Payload:\n", xmlStr);
   return xmlStr;
 }
 
@@ -643,7 +706,7 @@ export async function POST(request) {
       }
       // If we are placing an order from a negotiation, force the items array to match the negotiation exactly
       if (itemsInput.length > 1 || itemsInput[0].product.toString() !== validNegotiation.product.toString()) {
-         return json({ success: false, error: "Order items do not match the approved negotiation" }, 400);
+        return json({ success: false, error: "Order items do not match the approved negotiation" }, 400);
       }
     }
 
@@ -1183,6 +1246,8 @@ export async function POST(request) {
     }
 
     // Sync to Tally Prime 9 as a Sales Voucher if created from ODT Dashboard
+    // [DISABLED] - User requested to sync Payment Voucher when verified and sent to ART instead.
+    /*
     if (body.orderSource === "ODT") {
       try {
         const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
@@ -1206,7 +1271,6 @@ export async function POST(request) {
 
         const xmlPayload = buildTallySalesVoucherXML(orderDoc, productMap, tallyCompany, identifiedUser, partyLedgerName);
         console.log(`[Tally Sync] Syncing Sales Voucher for Order "${orderDoc.orderNumber}" to Tally at ${tallyUrl}`);
-        console.log("PRANALAIIIIIIIIIIIIIIIIIII - ", xmlPayload)
         const tallyResponse = await fetch(tallyUrl, {
           method: 'POST',
           headers: {
@@ -1240,6 +1304,7 @@ export async function POST(request) {
         }
       }
     }
+    */
 
     return json({
       success: true,
@@ -2030,6 +2095,51 @@ export async function PATCH(request) {
 
         if (!update.$push) update.$push = {};
         update.$push.departmentHistory = historyEntry;
+      }
+
+      // --- Tally Payment Voucher Sync on ART transition ---
+      try {
+        const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
+
+        let partyLedgerName = null;
+        try {
+          const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany);
+          // Try to get user details if populated, else pass raw reference
+          const userObj = typeof order.user === "object" ? order.user : { _id: order.user };
+          partyLedgerName = findMatchingTallyLedger(tallyDebtors, userObj, order);
+        } catch (matchErr) {
+          console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
+        }
+
+        const xmlPayload = buildTallyPaymentVoucherXML(order, tallyCompany, typeof order.user === "object" ? order.user : { _id: order.user }, partyLedgerName);
+        console.log(`[Tally Sync] Syncing Payment Voucher for Order "${order.orderNumber}" to Tally at ${tallyUrl}`);
+        
+        fetch(tallyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: xmlPayload
+        }).then(async tallyResponse => {
+           if (tallyResponse.ok) {
+             const responseText = await tallyResponse.text();
+             const parsed = parseTallyResponse(responseText);
+             if (parsed.success) {
+               console.log(`[Tally Sync] Payment Voucher "${order.orderNumber}" synced successfully to Tally.`);
+               await Order.updateOne({ _id: order._id }, { $set: { tallySynced: true, tallyError: null } });
+             } else {
+               console.error(`[Tally Sync] Tally error syncing Payment Voucher "${order.orderNumber}":`, parsed.error);
+             }
+           } else {
+             console.error(`[Tally Sync] HTTP error syncing Payment Voucher "${order.orderNumber}"`);
+           }
+        }).catch(err => {
+           console.error(`[Tally Sync] Fetch error syncing Payment Voucher:`, err);
+        });
+      } catch(tallyErr) {
+        console.error(`[Tally Sync] Exception during Payment Voucher sync:`, tallyErr);
       }
     }
 
