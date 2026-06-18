@@ -72,7 +72,10 @@ export async function POST(request) {
     const formattedItems = [];
     for (const item of selectedItems) {
       const pId = item.product?._id || item.productId || item.product;
-      const orderItem = order.items.find(i => String(i.product) === String(pId));
+      const orderItem = order.items.find(i => {
+        const iProductId = i.product?._id || i.product?.id || i.productId || i.product;
+        return String(iProductId) === String(pId);
+      });
       if (!orderItem) continue;
 
       const orderedQty = orderItem.quantity;
