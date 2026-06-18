@@ -32,6 +32,17 @@ const customerCreditNoteSchema = new mongoose.Schema(
     },
     sentAt: { type: Date },
     notes: { type: String, default: "" },
+    items: [
+      {
+        description: String,
+        hsnSac: String,
+        quantity: Number,
+        rate: Number,
+        amount: Number,
+        cgstPercent: Number,
+        sgstPercent: Number,
+      }
+    ],
   },
   { timestamps: true }
 );
