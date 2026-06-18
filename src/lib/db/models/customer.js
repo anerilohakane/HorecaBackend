@@ -78,6 +78,10 @@ const CustomerSchema = new mongoose.Schema(
       ref: "Supplier",
       default: null
     },
+    tallyId: {
+      type: String,
+      default: null
+    },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 

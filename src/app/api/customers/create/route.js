@@ -53,6 +53,7 @@ function buildCustomerXML(customer) {
                 <NAME>${name}</NAME>
                 <NAME>${mongoId}</NAME>
               </NAME.LIST>
+              <LANGUAGECODE> 1033</LANGUAGECODE>
             </LANGUAGENAME.LIST>
             <PARENT>Sundry Debtors</PARENT>
             <ISBILLWISEON>Yes</ISBILLWISEON>
@@ -188,6 +189,56 @@ export async function POST(request) {
         if (parsed.success) {
           tallyCustomerSynced = true;
           console.log(`[Tally Sync] Customer synced successfully to Tally.`);
+          
+          // Fetch the generated GUID from Tally and store it
+          try {
+            const guidPayload = `<ENVELOPE>
+              <HEADER>
+                <VERSION>1</VERSION>
+                <TALLYREQUEST>EXPORT</TALLYREQUEST>
+                <TYPE>COLLECTION</TYPE>
+                <ID>LedgerCollection</ID>
+              </HEADER>
+              <BODY>
+                <DESC>
+                  <STATICVARIABLES>
+                    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+                    <SVCURRENTCOMPANY>${escapeXML(process.env.TALLY_SALES_COMPANY || 'Unifoods')}</SVCURRENTCOMPANY>
+                  </STATICVARIABLES>
+                  <TDL>
+                    <TDLMESSAGE>
+                      <COLLECTION NAME="LedgerCollection">
+                        <TYPE>Ledger</TYPE>
+                        <FETCH>GUID</FETCH>
+                        <FILTER>NameFilter</FILTER>
+                      </COLLECTION>
+                      <SYSTEM TYPE="Formulae" NAME="NameFilter">
+                        $_Id = "${escapeXML(newCustomer._id.toString())}"
+                      </SYSTEM>
+                    </TDLMESSAGE>
+                  </TDL>
+                </DESC>
+              </BODY>
+            </ENVELOPE>`;
+            
+            const guidResponse = await fetch(tallyUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/xml' },
+              body: guidPayload
+            });
+            
+            if (guidResponse.ok) {
+              const guidXml = await guidResponse.text();
+              const guidMatch = guidXml.match(/<GUID>([^<]+)<\/GUID>/);
+              if (guidMatch && guidMatch[1]) {
+                newCustomer.tallyId = guidMatch[1];
+                await newCustomer.save();
+                console.log(`[Tally Sync] Fetched and stored Tally GUID: ${newCustomer.tallyId}`);
+              }
+            }
+          } catch (guidErr) {
+            console.error(`[Tally Sync] Failed to fetch GUID for customer:`, guidErr);
+          }
         } else {
           tallyCustomerError = parsed.error;
           console.error(`[Tally Sync] Tally error syncing customer:`, parsed.error);
