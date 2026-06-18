@@ -666,6 +666,55 @@ export async function POST(request) {
         );
       }
 
+      // Rule-based validation: Verify PO against the PurchaseOrder system
+      try {
+        const PurchaseOrder = (await import("@/lib/db/models/inventory/PurchaseOrder")).default;
+        const validPO = await PurchaseOrder.findOne({ poNumber: providedPoNumber });
+        
+        if (!validPO) {
+          return json(
+            {
+              success: false,
+              error: `Invalid Purchase Order: PO '${providedPoNumber}' does not exist in the system.`,
+            },
+            400
+          );
+        }
+
+        // Verify the PO belongs to this customer (stored in supplier.id)
+        if (validPO.supplier?.id && validPO.supplier.id !== identifiedUser._id.toString()) {
+          return json(
+            {
+              success: false,
+              error: `Purchase Order '${providedPoNumber}' does not belong to this customer.`,
+            },
+            400
+          );
+        }
+
+        // Ensure PO is not in a restricted status
+        if (["Cancelled", "Rejected"].includes(validPO.status)) {
+          return json(
+            {
+              success: false,
+              error: `Purchase Order '${providedPoNumber}' is ${validPO.status} and cannot be used for this order.`,
+            },
+            400
+          );
+        }
+      } catch (err) {
+        console.error("Error validating PurchaseOrder against DB:", err);
+        // Continue order creation if we can't fetch the model for some reason, or we can choose to block it.
+        // Let's block it for strict validation.
+        return json(
+          {
+            success: false,
+            error: "Internal error occurred while verifying Purchase Order.",
+          },
+          500
+        );
+      }
+
       // Rule-based validation: Prevent duplicate PO numbers for the same customer
       const existingOrderWithPO = await Order.findOne({
         user: identifiedUser._id,
