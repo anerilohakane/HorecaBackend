@@ -101,7 +101,11 @@ export async function PUT(request, { params }) {
                 const finalQty = approvedQty || rItem.approvedQuantity || 0;
                 
                 if (finalQty > 0) {
-                  const oItem = originalOrder.items.find(i => String(i.product) === String(rItem.product));
+                  const oItem = originalOrder.items.find(i => {
+                    const iProductId = i.product?._id || i.product?.id || i.productId || i.product;
+                    const rProductId = rItem.product?._id || rItem.product?.id || rItem.product;
+                    return String(iProductId) === String(rProductId);
+                  });
                   if (oItem) {
                     const amount = finalQty * oItem.unitPrice;
                     const gstAmount = amount * ((oItem.gst || 0) / 100);
