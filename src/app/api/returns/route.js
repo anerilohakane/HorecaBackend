@@ -59,20 +59,24 @@ export async function POST(request) {
     const rrn = `RRN-${new Date().toISOString().slice(2,10).replace(/-/g,"")}-${randomHex}`;
 
     // Find the order to validate quantities and get supplier
-    const order = await Order.findById(orderId);
+    const order = await Order.findById(orderId).lean();
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404, headers: corsHeaders });
     }
-    const supplier = order.supplier || null;
+    const orderPrimarySupplier = order.supplier || null;
 
     // Fetch past returns to calculate cumulative previously returned quantities
     const existingReturns = await ReturnRequest.find({ order: orderId });
 
-    // Format and validate items
-    const formattedItems = [];
+    // Format and validate items, grouped by supplier
+    const itemsBySupplier = {};
+
     for (const item of selectedItems) {
       const pId = item.product?._id || item.productId || item.product;
-      const orderItem = order.items.find(i => String(i.product) === String(pId));
+      const orderItem = order.items.find(i => {
+        const iProductId = i.product?._id || i.product?.id || i.productId || i.product;
+        return String(iProductId) === String(pId);
+      });
       if (!orderItem) continue;
 
       const orderedQty = orderItem.quantity;
@@ -80,9 +84,11 @@ export async function POST(request) {
       
       let prevReturned = 0;
       existingReturns.forEach(ret => {
-        // Exclude cancelled/rejected returns if needed, but for safe max calculation we count all non-rejected
         if (ret.status !== "Vendor Rejected" && ret.status !== "Return Closed") {
-          const retItem = ret.items.find(ri => String(ri.product) === String(pId));
+          const retItem = ret.items.find(ri => {
+            const riProductId = ri.product?._id || ri.product?.id || ri.productId || ri.product;
+            return String(riProductId) === String(pId);
+          });
           if (retItem && retItem.status !== "Rejected") {
             prevReturned += (retItem.requestedReturnQty || retItem.quantity || 0);
           }
@@ -96,50 +102,68 @@ export async function POST(request) {
       
       if (reqQty + prevReturned > deliveredQty) {
         return NextResponse.json({ 
-          error: `Cannot return ${reqQty} of ${orderItem.name}. Maximum allowed is ${deliveredQty - prevReturned}` 
+          error: `Cannot return ${reqQty}. Maximum allowed is ${deliveredQty - prevReturned}` 
         }, { status: 400, headers: corsHeaders });
       }
 
-      formattedItems.push({
+      const itemSupplier = orderItem.supplier || orderPrimarySupplier || null;
+      const supplierKey = itemSupplier ? String(itemSupplier) : "SCM";
+
+      if (!itemsBySupplier[supplierKey]) {
+        itemsBySupplier[supplierKey] = { supplier: itemSupplier, items: [] };
+      }
+
+      itemsBySupplier[supplierKey].items.push({
         product: pId,
         requestedReturnQty: reqQty,
         orderedQuantity: orderedQty,
         deliveredQuantity: deliveredQty,
         previouslyReturnedQuantity: prevReturned,
-        reason: reason,
+        reason: reason || item.reason || "Not specified",
         condition: "Unknown",
         status: "Pending"
       });
     }
 
-    // Determine initial status based on vendor assignment
-    let initialStatus = "Pending Vendor Approval";
-    if (!supplier) {
-      initialStatus = "Routed to SCM"; // Auto-route to SCM if no vendor
+    const createdReturns = [];
+
+    // Create a return request for each supplier involved
+    for (const group of Object.values(itemsBySupplier)) {
+      if (group.items.length === 0) continue;
+
+      const randomHex = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, "0");
+      const rrn = `RRN-${new Date().toISOString().slice(2,10).replace(/-/g,"")}-${randomHex}`;
+
+      let initialStatus = "Pending Vendor Approval";
+      if (!group.supplier) {
+        initialStatus = "Routed to SCM";
+      }
+
+      const newReturn = await ReturnRequest.create({
+        rrn,
+        order: orderId,
+        requester: customerId,
+        supplier: group.supplier,
+        items: group.items,
+        comments: comment,
+        images: images || [],
+        status: initialStatus,
+        vendorApprovalSlaDueDate: group.supplier ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) : null,
+      });
+
+      await ReturnActivityLog.create({
+        returnRequest: newReturn._id,
+        action: "Return Request Created",
+        newStatus: initialStatus,
+        remarks: `Customer initiated return for ${group.items.length} item(s).`,
+        performedBy: customerId,
+        userType: "Customer"
+      });
+
+      createdReturns.push(newReturn);
     }
 
-    const newReturn = await ReturnRequest.create({
-      rrn,
-      order: orderId,
-      requester: customerId,
-      supplier,
-      items: formattedItems,
-      comments: comment,
-      images: images || [],
-      status: initialStatus,
-      vendorApprovalSlaDueDate: supplier ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) : null,
-    });
-
-    await ReturnActivityLog.create({
-      returnRequest: newReturn._id,
-      action: "Return Request Created",
-      newStatus: initialStatus,
-      remarks: "Customer initiated return.",
-      performedBy: customerId,
-      userType: "Customer"
-    });
-
-    return NextResponse.json({ message: "Return Request created", data: newReturn }, { status: 201, headers: corsHeaders });
+    return NextResponse.json({ message: "Return request submitted successfully", data: createdReturns.length === 1 ? createdReturns[0] : createdReturns }, { headers: corsHeaders });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
   }

@@ -81,92 +81,99 @@ export async function PUT(request, { params }) {
       // Set Pickup SLA to 3 days from approval
       returnReq.pickupSlaDueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
       returnReq.vendorActedAt = new Date();
+    }
 
-      // AUTO-GENERATE CREDIT NOTE IF NOT ALREADY GENERATED
-      if (oldStatus !== "Vendor Approved" && oldStatus !== "Partially Approved") {
+    // AUTO-GENERATE CREDIT NOTE IF NOT ALREADY GENERATED when pickup is confirmed
+    if (body.status === "Awaiting Pickup Confirmation") {
+      returnReq.vendorActedAt = new Date();
+      if (oldStatus !== "Awaiting Pickup Confirmation") {
         try {
-          const CustomerCreditNote = require("@/lib/db/models/art/CustomerCreditNote").default || require("@/lib/db/models/art/CustomerCreditNote");
-          const Employee = require("@/lib/db/models/payroll/Employee").default || require("@/lib/db/models/payroll/Employee");
-          
-          const existingCN = await CustomerCreditNote.findOne({ returnRequest: id });
-          
-          if (!existingCN) {
-            const originalOrder = await Order.findById(returnReq.order);
-            let totalRefund = 0;
-            let cnItems = [];
+        const CustomerCreditNote = require("@/lib/db/models/art/CustomerCreditNote").default || require("@/lib/db/models/art/CustomerCreditNote");
+        const Employee = require("@/lib/db/models/payroll/Employee").default || require("@/lib/db/models/payroll/Employee");
+        
+        const existingCN = await CustomerCreditNote.findOne({ returnRequest: id });
+        
+        if (!existingCN) {
+          const originalOrder = await Order.findById(returnReq.order).lean();
+          let totalRefund = 0;
+          let cnItems = [];
 
-            if (originalOrder && originalOrder.items) {
-              for (const rItem of returnReq.items) {
-                const approvedQty = body.items ? body.items.find(i => String(i.product) === String(rItem.product))?.approvedQuantity : rItem.approvedQuantity;
-                const finalQty = approvedQty || rItem.approvedQuantity || 0;
-                
-                if (finalQty > 0) {
-                  const oItem = originalOrder.items.find(i => String(i.product) === String(rItem.product));
-                  if (oItem) {
-                    const amount = finalQty * oItem.unitPrice;
-                    const gstAmount = amount * ((oItem.gst || 0) / 100);
-                    totalRefund += (amount + gstAmount);
-                    
-                    cnItems.push({
-                      description: oItem.name,
-                      hsnSac: oItem.sku || "",
-                      quantity: finalQty,
-                      rate: oItem.unitPrice,
-                      amount: amount,
-                      cgstPercent: (oItem.gst || 0) / 2,
-                      sgstPercent: (oItem.gst || 0) / 2
-                    });
-                  }
+          if (originalOrder && originalOrder.items) {
+            for (const rItem of returnReq.items) {
+              const approvedQty = body.items ? body.items.find(i => String(i.product) === String(rItem.product))?.approvedQuantity : rItem.approvedQuantity;
+              const finalQty = approvedQty || rItem.approvedQuantity || 0;
+              
+              if (finalQty > 0) {
+                const oItem = originalOrder.items.find(i => {
+                  const iProductId = i.product?._id || i.product?.id || i.productId || i.product;
+                  const rProductId = rItem.product?._id || rItem.product?.id || rItem.product;
+                  return String(iProductId) === String(rProductId);
+                });
+                if (oItem) {
+                  const amount = finalQty * oItem.unitPrice;
+                  const gstAmount = amount * ((oItem.gst || 0) / 100);
+                  totalRefund += (amount + gstAmount);
+                  
+                  cnItems.push({
+                    description: oItem.name,
+                    hsnSac: oItem.sku || "",
+                    quantity: finalQty,
+                    rate: oItem.unitPrice,
+                    amount: amount,
+                    cgstPercent: (oItem.gst || 0) / 2,
+                    sgstPercent: (oItem.gst || 0) / 2
+                  });
                 }
               }
-            }
-
-            if (totalRefund > 0) {
-              // Find ART Member
-              let assignedArtMember = null;
-              let artUsers = await User.find({ department: /ART/i });
-              if (artUsers.length === 0) {
-                const artEmployees = await Employee.find({ "jobDetails.department": /ART/i });
-                if (artEmployees.length > 0) {
-                  const employeeIds = artEmployees.map(e => e.employeeId);
-                  artUsers = await User.find({ employeeId: { $in: employeeIds } });
-                }
-              }
-              if (artUsers.length > 0) {
-                assignedArtMember = artUsers[Math.floor(Math.random() * artUsers.length)]._id;
-              }
-
-              // Generate a CN Number
-              const latestCN = await CustomerCreditNote.findOne().sort({ createdAt: -1 });
-              let cnNumber = "CCN-0001";
-              if (latestCN && latestCN.cnNumber && latestCN.cnNumber.startsWith("CCN-")) {
-                const parts = latestCN.cnNumber.split("-");
-                const num = parseInt(parts[1], 10);
-                if (!isNaN(num)) {
-                  cnNumber = `CCN-${String(num + 1).padStart(4, "0")}`;
-                }
-              }
-
-              await CustomerCreditNote.create({
-                cnNumber,
-                customer: returnReq.requester,
-                order: returnReq.order,
-                returnRequest: returnReq._id,
-                amount: totalRefund,
-                reason: `Refund for Return Request ${returnReq.rrn}`,
-                items: cnItems,
-                assignedArtMember,
-                communicationStatus: "Pending"
-              });
             }
           }
-        } catch (cnError) {
-          console.error("Auto CN Generation Failed:", cnError);
+
+          if (totalRefund > 0) {
+            // Find ART Member
+            let assignedArtMember = null;
+            let artUsers = await User.find({ department: /ART/i });
+            if (artUsers.length === 0) {
+              const artEmployees = await Employee.find({ "jobDetails.department": /ART/i });
+              if (artEmployees.length > 0) {
+                const employeeIds = artEmployees.map(e => e.employeeId);
+                artUsers = await User.find({ employeeId: { $in: employeeIds } });
+              }
+            }
+            if (artUsers.length > 0) {
+              assignedArtMember = artUsers[Math.floor(Math.random() * artUsers.length)]._id;
+            }
+
+            // Generate a CN Number
+            const latestCN = await CustomerCreditNote.findOne().sort({ createdAt: -1 });
+            let cnNumber = "CCN-0001";
+            if (latestCN && latestCN.cnNumber && latestCN.cnNumber.startsWith("CCN-")) {
+              const parts = latestCN.cnNumber.split("-");
+              const num = parseInt(parts[1], 10);
+              if (!isNaN(num)) {
+                cnNumber = `CCN-${String(num + 1).padStart(4, "0")}`;
+              }
+            }
+
+            await CustomerCreditNote.create({
+              cnNumber,
+              customer: returnReq.requester,
+              order: returnReq.order,
+              returnRequest: returnReq._id,
+              amount: totalRefund,
+              reason: `Refund for Return Request ${returnReq.rrn}`,
+              items: cnItems,
+              assignedArtMember,
+              communicationStatus: "Pending"
+            });
+          }
         }
+      } catch (cnError) {
+        console.error("Auto CN Generation Failed:", cnError);
       }
-    } else if (body.status === "Awaiting Pickup Confirmation") {
-      returnReq.vendorActedAt = new Date();
-    } else if (body.status === "Pending SCM Assignment") {
+    }
+    }
+    
+    if (body.status === "Pending SCM Assignment") {
       returnReq.pickupConfirmedAt = new Date();
     }
 
