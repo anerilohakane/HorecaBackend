@@ -171,6 +171,7 @@ export async function PUT(request, { params }) {
         console.error("Auto CN Generation Failed:", cnError);
       }
     }
+    }
     
     if (body.status === "Pending SCM Assignment") {
       returnReq.pickupConfirmedAt = new Date();
