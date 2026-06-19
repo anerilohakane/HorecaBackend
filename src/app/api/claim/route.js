@@ -5,6 +5,16 @@ import Product from "@/lib/db/models/product";
 import Supplier from "@/lib/db/models/supplier";
 import Order from "@/lib/db/models/order";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function GET(req) {
   try {
     await connectDB();
@@ -26,8 +36,8 @@ export async function GET(req) {
       .sort({ createdAt: -1 });
 
     console.log(`[GET /api/claim] Found ${claims.length} claims`);
-    return NextResponse.json({ success: true, data: claims });
+    return NextResponse.json({ success: true, data: claims }, { headers: corsHeaders });
   } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
   }
 }
