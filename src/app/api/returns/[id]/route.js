@@ -94,7 +94,7 @@ export async function PUT(request, { params }) {
         const existingCN = await CustomerCreditNote.findOne({ returnRequest: id });
         
         if (!existingCN) {
-          const originalOrder = await Order.findById(returnReq.order);
+          const originalOrder = await Order.findById(returnReq.order).lean();
           let totalRefund = 0;
           let cnItems = [];
 
