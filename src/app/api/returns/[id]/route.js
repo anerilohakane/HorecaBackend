@@ -83,10 +83,10 @@ export async function PUT(request, { params }) {
       returnReq.vendorActedAt = new Date();
     }
 
-    // AUTO-GENERATE CREDIT NOTE IF NOT ALREADY GENERATED when pickup is confirmed
-    if (body.status === "Awaiting Pickup Confirmation") {
-      returnReq.vendorActedAt = new Date();
-      if (oldStatus !== "Awaiting Pickup Confirmation") {
+    // AUTO-GENERATE CREDIT NOTE IF GODOWN VERIFIES GOOD CONDITION
+    if (body.godownCondition === "Good" && body.cnGenerationAllowed === true) {
+      returnReq.godownReceivedAt = new Date();
+      if (!returnReq.provisionalCreditNote) { // Avoid duplicate CNs
         try {
         const CustomerCreditNote = require("@/lib/db/models/art/CustomerCreditNote").default || require("@/lib/db/models/art/CustomerCreditNote");
         const Employee = require("@/lib/db/models/payroll/Employee").default || require("@/lib/db/models/payroll/Employee");
@@ -165,6 +165,9 @@ export async function PUT(request, { params }) {
               assignedArtMember,
               communicationStatus: "Pending"
             });
+            
+            returnReq.provisionalCreditNote = cnNumber;
+            returnReq.status = "Credit Note Generated";
           }
         }
       } catch (cnError) {
