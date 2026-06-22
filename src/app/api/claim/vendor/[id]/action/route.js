@@ -22,7 +22,11 @@ export async function PATCH(req, { params }) {
     const body = await req.json();
     const { action, reason, remarks } = body;
 
-    if (!user || (user.role !== "vendor" && user.role !== "supplier")) {
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized. Please log in." }, { status: 401, headers: corsHeaders });
+    }
+
+    if (user.role && user.role !== "vendor" && user.role !== "supplier") {
       return NextResponse.json({ success: false, error: "Unauthorized. Vendor role required." }, { status: 403, headers: corsHeaders });
     }
 
