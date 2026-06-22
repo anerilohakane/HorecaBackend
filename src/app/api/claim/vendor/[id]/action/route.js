@@ -3,6 +3,7 @@ import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
 import { notifyODTTeam } from "@/lib/utils/odtNotifications";
 import { getUserFromRequest } from "@/lib/serverAuth";
+import mongoose from "mongoose";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,13 +37,12 @@ export async function PATCH(req, { params }) {
 
     let queryId;
     try {
-      // Safely cast the URL parameter to an ObjectId, trimming any potential whitespace/newlines
-      queryId = new (require('mongoose')).Types.ObjectId(claimId.trim());
+      queryId = new mongoose.Types.ObjectId(claimId.trim());
     } catch (err) {
       return NextResponse.json({ success: false, error: "Invalid Claim ID format" }, { status: 400, headers: corsHeaders });
     }
 
-    const claim = await Claim.findOne({ _id: queryId });
+    const claim = await Claim.findOne({ _id: queryId }) || await Claim.findOne({ claimId: claimId.trim() });
     if (!claim) {
       return NextResponse.json({ success: false, error: "Claim not found" }, { status: 404, headers: corsHeaders });
     }
