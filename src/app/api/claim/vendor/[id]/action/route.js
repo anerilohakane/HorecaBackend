@@ -35,14 +35,13 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ success: false, error: "Invalid action" }, { status: 400, headers: corsHeaders });
     }
 
-    let queryId;
-    try {
-      queryId = new mongoose.Types.ObjectId(claimId.trim());
-    } catch (err) {
-      return NextResponse.json({ success: false, error: "Invalid Claim ID format" }, { status: 400, headers: corsHeaders });
+    const cleanId = claimId.trim();
+    // Allow mongoose to auto-cast _id, and add a fallback to search by the string claimId (e.g. CLM-1234)
+    let claim = await Claim.findById(cleanId);
+    if (!claim) {
+      claim = await Claim.findOne({ claimId: cleanId });
     }
-
-    const claim = await Claim.findOne({ _id: queryId }) || await Claim.findOne({ claimId: claimId.trim() });
+    
     if (!claim) {
       return NextResponse.json({ success: false, error: "Claim not found" }, { status: 404, headers: corsHeaders });
     }
