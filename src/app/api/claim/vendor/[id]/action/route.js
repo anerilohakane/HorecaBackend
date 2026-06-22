@@ -3,7 +3,6 @@ import connectDB from "@/lib/db/connect";
 import Claim from "@/lib/db/models/Claim";
 import { notifyODTTeam } from "@/lib/utils/odtNotifications";
 import { getUserFromRequest } from "@/lib/serverAuth";
-import mongoose from "mongoose";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,9 +16,16 @@ export async function OPTIONS() {
 
 export async function PATCH(req, { params }) {
   try {
+    // Next.js 15+ requires awaiting params
+    const resolvedParams = await params;
+    const claimId = resolvedParams?.id;
+
+    if (!claimId) {
+      return NextResponse.json({ success: false, error: "Claim ID is missing" }, { status: 400, headers: corsHeaders });
+    }
+
     await connectDB();
     const user = await getUserFromRequest(req);
-    const claimId = params.id;
     const body = await req.json();
     const { action, reason, remarks } = body;
 
@@ -36,7 +42,6 @@ export async function PATCH(req, { params }) {
     }
 
     const cleanId = claimId.trim();
-    // Allow mongoose to auto-cast _id, and add a fallback to search by the string claimId (e.g. CLM-1234)
     let claim = await Claim.findById(cleanId);
     if (!claim) {
       claim = await Claim.findOne({ claimId: cleanId });
