@@ -1,11 +1,6 @@
 import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import Order from "@/lib/db/models/order";
-import Product from "@/lib/db/models/product";
-import Supplier from "@/lib/db/models/supplier";
-import User from "@/lib/db/models/User";
-import Customer from "@/lib/db/models/customer";
-import { logger } from "@/lib/logger";
 
 const json = (payload, status = 200) =>
   new Response(JSON.stringify(payload), {
