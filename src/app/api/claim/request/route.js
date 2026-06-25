@@ -75,8 +75,8 @@ export async function POST(req) {
     await claim.save();
 
     // Send approval email to selected person
-    const approvalLink = `${process.env.NEXT_PUBLIC_APP_URL}/api/claim/approve?token=${approvalToken}`;
-    const rejectLink = `${process.env.NEXT_PUBLIC_APP_URL}/api/claim/reject?token=${approvalToken}`;
+    const vendorPortalUrl = process.env.VENDOR_PORTAL_URL || "http://localhost:3004";
+    const dashboardLink = `${vendorPortalUrl}/dashboard/claims`;
 
     const emailHtml = `
       <!DOCTYPE html>
@@ -94,10 +94,9 @@ export async function POST(req) {
           .label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; margin-bottom: 4px; }
           .value { font-size: 15px; font-weight: 600; color: #1e293b; }
           .price-impact { font-size: 20px; font-weight: 800; color: #e11d48; }
-          .actions { margin-top: 32px; display: flex; gap: 12px; }
+          .actions { margin-top: 32px; display: flex; gap: 12px; justify-content: center; }
           .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 14px; transition: all 0.2s; }
-          .btn-approve { background: #10b981; color: #ffffff !important; }
-          .btn-reject { background: #f1f5f9; color: #475569 !important; border: 1px solid #e2e8f0; }
+          .btn-primary { background: #3b82f6; color: #ffffff !important; }
           .footer { background: #f8fafc; padding: 20px 24px; font-size: 12px; color: #94a3b8; text-align: center; }
         </style>
       </head>
@@ -141,12 +140,10 @@ export async function POST(req) {
               </div>
             </div>
 
-            <p style="font-size: 14px; color: #64748b;">Please review the requested adjustment and provide your decision using the buttons below.</p>
+            <p style="font-size: 14px; color: #64748b;">Please review the requested adjustment and provide your decision using the Vendor Dashboard.</p>
             
-            <div style="margin-top: 32px; text-align: center;">
-              <a href="${approvalLink}" class="btn btn-approve">Approve Adjustment</a>
-              &nbsp;
-              <a href="${rejectLink}" class="btn btn-reject">Decline Request</a>
+            <div class="actions">
+              <a href="${dashboardLink}" class="btn btn-primary">View Claim on Dashboard</a>
             </div>
           </div>
           <div class="footer">

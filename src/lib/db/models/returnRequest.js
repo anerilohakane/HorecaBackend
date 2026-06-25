@@ -53,7 +53,10 @@ const ReturnRequestSchema = new Schema(
         "Pending Vendor Approval",
         "Partially Approved",
         "Vendor Approved",
+        "Pending Logistics Approval",
+        "Logistics Approved",
         "Vendor Rejected",
+        "Logistics Rejected",
         "Routed to SCM",
         "Awaiting Pickup Confirmation",
         "Escalated",
@@ -102,7 +105,16 @@ const ReturnRequestSchema = new Schema(
       driverName: { type: String },
       driverPhone: { type: String },
       vehicleNumber: { type: String },
-    }
+    },
+    
+    // Godown Inspection
+    godownCondition: {
+      type: String,
+      enum: ["Pending", "Good", "Damaged"],
+      default: "Pending"
+    },
+    cnGenerationAllowed: { type: Boolean, default: false },
+    godownRemarks: { type: String },
   },
   {
     timestamps: true,

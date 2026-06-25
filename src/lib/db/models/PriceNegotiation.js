@@ -59,6 +59,24 @@ const PriceNegotiationSchema = new Schema(
       default: "pending",
       index: true
     },
+    vendorStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+      index: true
+    },
+    vendorRejectionReason: {
+      type: String,
+      default: null
+    },
+    vendorActionDate: {
+      type: Date,
+      default: null
+    },
+    vendorActionBy: {
+      type: String, // email or name of vendor who acted
+      default: null
+    },
     remarks: {
       type: [RemarkSchema],
       default: []
