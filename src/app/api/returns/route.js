@@ -119,9 +119,13 @@ export async function POST(request) {
         orderedQuantity: orderedQty,
         deliveredQuantity: deliveredQty,
         previouslyReturnedQuantity: prevReturned,
-        reason: reason || item.reason || "Not specified",
+        reason: item.reason || reason || "Not specified",
         condition: "Unknown",
-        status: "Pending"
+        status: "Pending",
+        images: item.images || [],
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+        deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
+        batchDetails: item.batchDetails || "",
       });
     }
 
