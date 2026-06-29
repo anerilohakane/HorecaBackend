@@ -107,7 +107,8 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId, category, poMandatory
+      licenseImage, name, locations, supplierId, category, poMandatory,
+      lat, lng
     } = body;
 
     if (!username || username.length < 3) {
@@ -170,10 +171,13 @@ export async function POST(req) {
       city: loc.city?.trim() || "",
       state: loc.state?.trim() || "",
       pincode: loc.pincode?.trim() || "",
-      lat: loc.lat || null,
-      lng: loc.lng || null,
+      lat: loc.lat != null ? loc.lat : (index === 0 && lat != null ? lat : null),
+      lng: loc.lng != null ? loc.lng : (index === 0 && lng != null ? lng : null),
       isPrimary: index === 0
     }));
+
+    const finalLat = lat != null ? lat : (formattedLocations[0]?.lat != null ? formattedLocations[0].lat : null);
+    const finalLng = lng != null ? lng : (formattedLocations[0]?.lng != null ? formattedLocations[0].lng : null);
 
 
     await dbConnect();
@@ -213,6 +217,9 @@ export async function POST(req) {
       city: primaryLocation.city || null,
       state: primaryLocation.state || null,
       pincode: primaryLocation.pincode || null,
+      lat: finalLat,
+      lng: finalLng,
+      location: finalLat != null && finalLng != null ? { type: "Point", coordinates: [finalLng, finalLat] } : undefined,
       locations: formattedLocations,
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
