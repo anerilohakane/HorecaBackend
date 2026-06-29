@@ -10,10 +10,12 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const assignedArtMember = searchParams.get("assignedArtMember");
     const communicationStatus = searchParams.get("communicationStatus");
+    const customer = searchParams.get("customer");
     
     const query = {};
     if (assignedArtMember) query.assignedArtMember = assignedArtMember;
     if (communicationStatus) query.communicationStatus = communicationStatus;
+    if (customer) query.customer = customer;
 
     const notes = await CustomerCreditNote.find(query)
       .populate("customer", "name email phone businessName")
