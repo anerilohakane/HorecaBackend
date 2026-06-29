@@ -32,8 +32,8 @@ export async function GET(request) {
     if (orderId) query.order = orderId;
 
     const returns = await ReturnRequest.find(query)
-      .populate("order", "orderId orderNumber totalAmount")
-      .populate("requester", "name email")
+      .populate("order", "orderId orderNumber totalAmount shippingAddress")
+      .populate("requester", "name email address phone lat lng")
       .populate("supplier", "brand businessName")
       .populate("items.product", "name sku")
       .sort({ createdAt: -1 });
@@ -119,9 +119,13 @@ export async function POST(request) {
         orderedQuantity: orderedQty,
         deliveredQuantity: deliveredQty,
         previouslyReturnedQuantity: prevReturned,
-        reason: reason || item.reason || "Not specified",
+        reason: item.reason || reason || "Not specified",
         condition: "Unknown",
-        status: "Pending"
+        status: "Pending",
+        images: item.images || [],
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+        deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : null,
+        batchDetails: item.batchDetails || "",
       });
     }
 

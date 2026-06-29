@@ -12,6 +12,16 @@ cloudinary.config({
   secure: true,
 });
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function POST(request) {
   try {
     const formData = await request.formData();
@@ -22,11 +32,11 @@ export async function POST(request) {
       return NextResponse.json({ 
         success: false, 
         error: "Cloudinary is not configured. Please add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your Vercel Project Settings." 
-      }, { status: 500 });
+      }, { status: 500, headers: corsHeaders });
     }
 
     if (!file) {
-      return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "No file provided" }, { status: 400, headers: corsHeaders });
     }
 
     // Convert file to buffer
@@ -51,9 +61,9 @@ export async function POST(request) {
       success: true,
       url: result.secure_url,
       publicId: result.public_id,
-    });
+    }, { headers: corsHeaders });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500, headers: corsHeaders });
   }
 }

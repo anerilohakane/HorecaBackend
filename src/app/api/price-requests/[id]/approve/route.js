@@ -19,6 +19,10 @@ export async function POST(request, { params }) {
       return NextResponse.json({ success: false, error: "Only pending requests can be approved" }, { status: 400 });
     }
 
+    if (priceRequest.vendorStatus !== "approved") {
+      return NextResponse.json({ success: false, error: "Cannot approve: Vendor has not approved this price request yet." }, { status: 403 });
+    }
+
     priceRequest.status = "approved";
     if (salesRepresentativeId) {
       priceRequest.salesRepresentative = salesRepresentativeId;

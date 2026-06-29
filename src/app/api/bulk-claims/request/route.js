@@ -9,7 +9,7 @@ import crypto from "crypto";
 export async function POST(req) {
   try {
     await connectDB();
-    const { orderId, claims, frontendUrl } = await req.json();
+    const { orderId, claims, frontendUrl, requestedBy } = await req.json();
 
     if (!orderId || !claims || !Array.isArray(claims) || claims.length === 0) {
       return NextResponse.json({ success: false, error: "Missing required fields (orderId, claims)" }, { status: 400 });
@@ -92,7 +92,7 @@ export async function POST(req) {
         const lossAmount = expectedSellingPrice - request.requestedPrice;
 
         // Find quantity from the order items
-        const orderItem = order ? order.items.find(item => item.product.toString() === product._id.toString()) : null;
+        const orderItem = order ? order.items.find(item => item.product?.toString() === product._id.toString()) : null;
         const quantity = orderItem ? orderItem.quantity : 1;
         const claimAmount = lossAmount * quantity;
 
@@ -118,7 +118,7 @@ export async function POST(req) {
             {
               action: "REQUEST_CREATED",
               note: `Bulk claim request created for ${quantity} unit(s)`,
-              performedBy: "SCM System",
+              performedBy: requestedBy || "SCM System",
               timestamp: new Date()
             }
           ],
@@ -144,7 +144,7 @@ export async function POST(req) {
         const expected = basePrice + (basePrice * margin / 100);
         const loss = expected - reqPrice;
 
-        const orderItem = order ? order.items.find(item => item.product.toString() === product._id.toString()) : null;
+        const orderItem = order ? order.items.find(item => item.product?.toString() === product._id.toString()) : null;
         const quantity = orderItem ? orderItem.quantity : 1;
         const claimAmount = loss * quantity;
 

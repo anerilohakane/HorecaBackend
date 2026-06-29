@@ -16,13 +16,24 @@ export async function OPTIONS() {
 
 export async function PATCH(req, { params }) {
   try {
+    // Next.js 15+ requires awaiting params
+    const resolvedParams = await params;
+    const claimId = resolvedParams?.id;
+
+    if (!claimId) {
+      return NextResponse.json({ success: false, error: "Claim ID is missing" }, { status: 400, headers: corsHeaders });
+    }
+
     await connectDB();
     const user = await getUserFromRequest(req);
-    const claimId = params.id;
     const body = await req.json();
     const { action, reason, remarks } = body;
 
-    if (!user || (user.role !== "vendor" && user.role !== "supplier")) {
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized. Please log in." }, { status: 401, headers: corsHeaders });
+    }
+
+    if (user.role && user.role !== "vendor" && user.role !== "supplier") {
       return NextResponse.json({ success: false, error: "Unauthorized. Vendor role required." }, { status: 403, headers: corsHeaders });
     }
 
@@ -30,7 +41,12 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ success: false, error: "Invalid action" }, { status: 400, headers: corsHeaders });
     }
 
-    const claim = await Claim.findById(claimId);
+    const cleanId = claimId.trim();
+    let claim = await Claim.findById(cleanId);
+    if (!claim) {
+      claim = await Claim.findOne({ claimId: cleanId });
+    }
+    
     if (!claim) {
       return NextResponse.json({ success: false, error: "Claim not found" }, { status: 404, headers: corsHeaders });
     }
