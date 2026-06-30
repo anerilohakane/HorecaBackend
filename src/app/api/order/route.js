@@ -3826,11 +3826,26 @@ export async function GET(request) {
 
     const orderNumberParam = url.searchParams.get("orderNumber");
     if (orderNumberParam) {
-      const order = await Order.findOne({ orderNumber: orderNumberParam })
+      let order = await Order.findOne({ orderNumber: orderNumberParam })
         .populate("user", "name email phone")
         .populate("supplier", "name")
         .populate("items.product", "name price sku")
         .lean();
+        
+      if (!order) {
+        // Fallback: Check if it's a VendorOrder
+        const VendorOrder = (await import("@/lib/db/models/VendorOrder")).default;
+        order = await VendorOrder.findOne({ orderNumber: orderNumberParam })
+          .populate("user", "name email phone")
+          .populate("supplier", "name")
+          .populate("items.product", "name price sku")
+          .lean();
+          
+        if (order) {
+          order.orderSource = "Vendor";
+        }
+      }
+      
       if (!order) {
         return json({ success: false, error: "Order not found" }, 404);
       }
@@ -3854,11 +3869,24 @@ export async function GET(request) {
       // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
       // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
 
-      const order = await query.lean();
+      let order = await query.lean();
 
       // Manual population for departments to avoid CastError with "others"
       await manualPopulateDepartments(order);
 
+      if (!order) {
+        // Fallback: Check if it's a VendorOrder
+        const VendorOrder = (await import("@/lib/db/models/VendorOrder")).default;
+        let voQuery = VendorOrder.findById(idParam);
+        voQuery = safePopulateQuery(voQuery, "user", "name email phone");
+        voQuery = safePopulateQuery(voQuery, "supplier", "name");
+        voQuery = safePopulateQuery(voQuery, "items.product", "name price sku");
+        
+        order = await voQuery.lean();
+        if (order) {
+          order.orderSource = "Vendor";
+        }
+      }
 
       if (!order) {
         return json({ success: false, error: "Order not found" }, 404);
