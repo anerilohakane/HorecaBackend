@@ -4754,6 +4754,14 @@ export async function PATCH(request) {
       update.$push.departmentHistory = historyEntry;
     }
 
+    if (order.invoice === null) {
+      for (const key of Object.keys(setData)) {
+        if (key.startsWith("invoice.")) {
+          delete setData[key];
+        }
+      }
+    }
+
     if (Object.keys(setData).length > 0) update.$set = setData;
     if (!update.$set) {
       return json(

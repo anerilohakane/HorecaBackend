@@ -42,14 +42,38 @@ export async function POST(request) {
 
     await grn.save();
 
-    // Update PO status if necessary (e.g., Partially Received)
-    po.status = "Partial Received";
-    po.timeline.push({
-      status: "Partial Received",
-      message: `GRN ${grn.grnNumber} generated`,
-      user: body.receivedBy || "Admin"
+    // Smart PO status update: check if ALL items across ALL GRNs are fully received
+    const allGrns = await GoodsReceivedNote.find({ purchaseOrderId: po._id });
+    const receivedTotals = {};
+    allGrns.forEach(g => {
+      g.items.forEach(item => {
+        receivedTotals[item.productId] = (receivedTotals[item.productId] || 0) + item.receivedQty;
+      });
     });
-    await po.save();
+
+    // Check if every original PO item is satisfied
+    const isFullyReceived = po.items.length > 0 && po.items.every(item =>
+      (receivedTotals[item.productId] || 0) >= (item.orderedQty || item.quantity || 0)
+    );
+
+    const newPoStatus = isFullyReceived ? "Completed" : "Partially Received";
+
+    await PurchaseOrder.updateOne(
+      { _id: po._id },
+      {
+        $set: { status: newPoStatus },
+        $push: {
+          timeline: {
+            status: newPoStatus,
+            message: isFullyReceived
+              ? `GRN ${grn.grnNumber} generated. All items fully received — PO Completed.`
+              : `GRN ${grn.grnNumber} generated. Status: Partially Received.`,
+            user: body.receivedBy || "Admin",
+            timestamp: new Date()
+          }
+        }
+      }
+    );
 
     await logger({
       action: "created",

@@ -20,7 +20,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     totalAmount: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ["Draft", "Approved", "Sent", "Partial Received", "Closed", "Completed", "Cancelled"],
+      enum: ["Draft", "Approved", "Sent", "Partially Received", "Closed", "Completed", "Cancelled"],
       default: "Draft",
     },
     prId: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseRequest" },
