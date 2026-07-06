@@ -235,13 +235,15 @@ export async function GET(request) {
           console.error("Failed to fetch frequent items for user:", e);
         }
 
-        // Combine both (unique list)
-        const combinedIds = Array.from(new Set([
-          ...mappedProductIds.map(id => String(id)),
-          ...frequentProductIds.map(id => String(id))
-        ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
+        if (mappedProductIds.length > 0) {
+          // Combine both (unique list)
+          const combinedIds = Array.from(new Set([
+            ...mappedProductIds.map(id => String(id)),
+            ...frequentProductIds.map(id => String(id))
+          ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
 
-        filter._id = { $in: combinedIds };
+          filter._id = { $in: combinedIds };
+        }
       }
     }
 
