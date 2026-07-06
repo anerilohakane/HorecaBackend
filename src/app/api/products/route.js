@@ -129,6 +129,7 @@ import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Brand from "@/lib/db/models/brand";
 import Supplier from "@/lib/db/models/supplier";
+import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
 import { logger } from "@/lib/logger";
 import { getUserFromRequest } from "@/lib/serverAuth";
 
@@ -199,6 +200,16 @@ export async function GET(request) {
     const sku = url.searchParams.get("sku");
 
     const filter = {};
+
+    const user = await getUserFromRequest(request);
+    if (user && (!user.role || user.role === "customer" || user.role === "user")) {
+      const userId = user.id;
+      if (userId) {
+        const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
+        const mappedProductIds = mapping ? (mapping.products || []) : [];
+        filter._id = { $in: mappedProductIds };
+      }
+    }
 
     if (q) {
       // Log search activity
