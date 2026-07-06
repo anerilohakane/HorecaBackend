@@ -5,6 +5,7 @@ import Customer from "@/lib/db/models/customer";
 import Product from "@/lib/db/models/product";
 import User from "@/lib/db/models/User";
 import Setting from "@/lib/db/models/Setting";
+import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
 
 export async function GET(request) {
   await dbConnect();
@@ -51,6 +52,13 @@ export async function POST(request) {
 
     if (!eligibleTiers.includes(customer.category)) {
       return NextResponse.json({ success: false, error: "Customer is not eligible for price negotiation" }, { status: 403 });
+    }
+
+    // Check if product is mapped to customer
+    const mapping = await CustomerProductMapping.findOne({ customer: customerId }).lean();
+    const mappedProductIds = mapping ? (mapping.products || []).map(p => String(p)) : [];
+    if (!mappedProductIds.includes(productId)) {
+      return NextResponse.json({ success: false, error: "Product is not mapped to this customer account" }, { status: 403 });
     }
 
     // Get original price
