@@ -108,10 +108,7 @@ const CustomerSchema = new mongoose.Schema(
       default: false
     },
 
-    mappedProducts: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Product"
-    }],
+
 
     lastLoginAt: {
       type: Date,
