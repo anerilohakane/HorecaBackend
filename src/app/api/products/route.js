@@ -204,7 +204,8 @@ export async function GET(request) {
     const filter = {};
 
     const user = await getUserFromRequest(request);
-    if (user && (!user.role || user.role === "customer" || user.role === "user")) {
+    const showAll = url.searchParams.get("showAll") === "true";
+    if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
       const userId = user.id;
       if (userId) {
         // 1. Get mapped products
