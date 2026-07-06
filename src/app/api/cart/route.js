@@ -173,6 +173,14 @@ export async function POST(request) {
     }
 
     const customer = await Customer.findById(userId).lean();
+    if (!customer) return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 });
+
+    // Enforce product mapping check: customer can only order mapped products
+    const mappedIds = (customer.mappedProducts || []).map(id => String(id));
+    if (!mappedIds.includes(String(productId))) {
+      return NextResponse.json({ success: false, error: "This product is not mapped to your account and is only available for enquiry." }, { status: 403 });
+    }
+
     const customerCategory = customer?.category || "D";
     let displayPrice = product.price;
 

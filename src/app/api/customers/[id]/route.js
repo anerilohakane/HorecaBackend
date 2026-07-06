@@ -13,7 +13,7 @@ export async function PATCH(req, { params }) {
     const { id } = params;
     const body = await req.json();
 
-    const allowedUpdates = ["isVerified", "category"];
+    const allowedUpdates = ["isVerified", "category", "mappedProducts"];
     const updates = {};
     
     Object.keys(body).forEach((key) => {
