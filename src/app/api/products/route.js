@@ -202,11 +202,14 @@ export async function GET(request) {
     const filter = {};
 
     const user = await getUserFromRequest(request);
+    console.log("🔍 [PRODUCTS API GET] Decoded User:", user);
     if (user && (!user.role || user.role === "customer" || user.role === "user")) {
       const userId = user.id;
       if (userId) {
         const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
+        console.log(`🔍 [PRODUCTS API GET] Found mapping for user ${userId}:`, mapping);
         const mappedProductIds = mapping ? (mapping.products || []) : [];
+        console.log(`🔍 [PRODUCTS API GET] Mapped product IDs:`, mappedProductIds);
         filter._id = { $in: mappedProductIds };
       }
     }
