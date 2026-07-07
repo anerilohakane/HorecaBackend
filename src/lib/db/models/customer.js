@@ -108,6 +108,8 @@ const CustomerSchema = new mongoose.Schema(
       default: false
     },
 
+
+
     lastLoginAt: {
       type: Date,
       default: null

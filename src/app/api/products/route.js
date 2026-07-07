@@ -125,10 +125,13 @@
 //     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
 // src/app/api/products/route.js
 import { NextResponse } from "next/server";
+import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import Product from "@/lib/db/models/product";
 import Brand from "@/lib/db/models/brand";
 import Supplier from "@/lib/db/models/supplier";
+import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
+import Order from "@/lib/db/models/order";
 import { logger } from "@/lib/logger";
 import { getUserFromRequest } from "@/lib/serverAuth";
 
@@ -180,7 +183,7 @@ const mapUOM = (uom) => {
   }
 };
 
-const DEFAULT_LIMIT = 20;
+export const DEFAULT_LIMIT = 20;
 
 export async function GET(request) {
   await dbConnect();
@@ -199,6 +202,51 @@ export async function GET(request) {
     const sku = url.searchParams.get("sku");
 
     const filter = {};
+
+    const user = await getUserFromRequest(request);
+    const showAll = url.searchParams.get("showAll") === "true";
+    if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
+      const userId = user.id;
+      if (userId) {
+        // 1. Get mapped products
+        const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
+        const mappedProductIds = mapping ? (mapping.products || []) : [];
+
+        // 2. Get frequently bought products from order history
+        let frequentProductIds = [];
+        try {
+          const userObjectId = new mongoose.Types.ObjectId(userId);
+          const frequentItems = await Order.aggregate([
+            { 
+              $match: { 
+                user: userObjectId,
+                status: { $nin: ['cancelled', 'failed', 'returned'] } 
+              } 
+            },
+            { $unwind: '$items' },
+            {
+              $group: {
+                _id: '$items.product',
+                count: { $sum: 1 }
+              }
+            }
+          ]);
+          frequentProductIds = frequentItems.map(item => item._id);
+        } catch (e) {
+          console.error("Failed to fetch frequent items for user:", e);
+        }
+
+        if (mappedProductIds.length > 0) {
+          // Combine both (unique list)
+          const combinedIds = Array.from(new Set([
+            ...mappedProductIds.map(id => String(id)),
+            ...frequentProductIds.map(id => String(id))
+          ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
+
+          filter._id = { $in: combinedIds };
+        }
+      }
+    }
 
     if (q) {
       // Log search activity

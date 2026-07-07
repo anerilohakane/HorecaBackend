@@ -3,6 +3,7 @@ import dbConnect from "@/lib/db/connect";
 import Cart from "@/lib/db/models/cart";
 import Product from "@/lib/db/models/product";
 import Customer from "@/lib/db/models/customer";
+import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
 import { logger } from "@/lib/logger";
 import { getUserFromRequest } from "@/lib/serverAuth";
 
@@ -173,6 +174,15 @@ export async function POST(request) {
     }
 
     const customer = await Customer.findById(userId).lean();
+    if (!customer) return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 });
+
+    // Enforce product mapping check: customer can only order mapped products
+    const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
+    const mappedIds = (mapping ? (mapping.products || []) : []).map(id => String(id));
+    if (!mappedIds.includes(String(productId))) {
+      return NextResponse.json({ success: false, error: "This product is not mapped to your account and is only available for enquiry." }, { status: 403 });
+    }
+
     const customerCategory = customer?.category || "D";
     let displayPrice = product.price;
 
