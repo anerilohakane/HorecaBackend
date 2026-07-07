@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
 
 /**
  * PATCH /api/customers/[id]
@@ -13,26 +14,41 @@ export async function PATCH(req, { params }) {
     const { id } = params;
     const body = await req.json();
 
+    const { mappedProducts, ...customerUpdates } = body;
+
     const allowedUpdates = ["isVerified", "category"];
     const updates = {};
     
-    Object.keys(body).forEach((key) => {
+    Object.keys(customerUpdates).forEach((key) => {
       if (allowedUpdates.includes(key)) {
-        updates[key] = body[key];
+        updates[key] = customerUpdates[key];
       }
     });
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && mappedProducts === undefined) {
       return NextResponse.json(
         { success: false, error: "No valid update fields provided" },
         { status: 400 }
       );
     }
 
-    const customer = await Customer.findByIdAndUpdate(id, updates, {
-      new: true,
-      runValidators: true,
-    });
+    if (mappedProducts !== undefined) {
+      await CustomerProductMapping.findOneAndUpdate(
+        { customer: id },
+        { products: mappedProducts },
+        { upsert: true, new: true }
+      );
+    }
+
+    let customer;
+    if (Object.keys(updates).length > 0) {
+      customer = await Customer.findByIdAndUpdate(id, updates, {
+        new: true,
+        runValidators: true,
+      }).lean();
+    } else {
+      customer = await Customer.findById(id).lean();
+    }
 
     if (!customer) {
       return NextResponse.json(
@@ -40,6 +56,9 @@ export async function PATCH(req, { params }) {
         { status: 404 }
       );
     }
+
+    const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
+    customer.mappedProducts = mapping ? (mapping.products || []) : [];
 
     return NextResponse.json({
       success: true,
@@ -81,6 +100,9 @@ export async function GET(req, { params }) {
         { status: 404 }
       );
     }
+
+    const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
+    customer.mappedProducts = mapping ? (mapping.products || []) : [];
 
     return NextResponse.json({
       success: true,

@@ -107,7 +107,7 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     console.log("📩 Request Body:", body);
 
-    const { phone, name, email, address, city, state, pincode } = body;
+    const { phone, name, email, address, city, state, pincode, lat, lng } = body;
 
     if (!phone) {
       console.log("❌ Missing phone");
@@ -162,6 +162,9 @@ export async function POST(request) {
       city: city ?? null,
       state: state ?? null,
       pincode: pincode ?? null,
+      lat: lat ?? null,
+      lng: lng ?? null,
+      location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
       lastLoginAt: new Date(),
     });
 
