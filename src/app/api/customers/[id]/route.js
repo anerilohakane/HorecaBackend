@@ -11,7 +11,8 @@ import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
 export async function PATCH(req, { params }) {
   try {
     await dbConnect();
-    const { id } = params;
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const body = await req.json();
 
     const { mappedProducts, ...customerUpdates } = body;
@@ -46,15 +47,15 @@ export async function PATCH(req, { params }) {
         new: true,
         runValidators: true,
       }).lean();
+
+      if (!customer) {
+        return NextResponse.json(
+          { success: false, error: "Customer not found" },
+          { status: 404 }
+        );
+      }
     } else {
       customer = await Customer.findById(id).lean();
-    }
-
-    if (!customer) {
-      return NextResponse.json(
-        { success: false, error: "Customer not found" },
-        { status: 404 }
-      );
     }
 
     const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
@@ -79,7 +80,8 @@ export async function PATCH(req, { params }) {
 export async function GET(req, { params }) {
   try {
     await dbConnect();
-    const { id } = params;
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     console.log(`🔎 [BACKEND] GET /api/customers/${id} - Searching for customer...`);
     
     const customer = await Customer.findById(id).lean();
@@ -109,7 +111,7 @@ export async function GET(req, { params }) {
       data: customer,
     });
   } catch (err) {
-    console.error(`🔥 ERROR in GET /api/customers/${params.id}:`, err);
+    console.error(`🔥 ERROR in GET /api/customers/id:`, err);
     return NextResponse.json(
       { success: false, error: err.message || "Server Error" },
       { status: 500 }
