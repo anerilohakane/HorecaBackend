@@ -85,6 +85,12 @@ const CustomerSchema = new mongoose.Schema(
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 
+    // GeoJSON point for spatial queries
+    location: {
+      type: { type: String, enum: ["Point"], default: "Point" },
+      coordinates: { type: [Number], default: [0, 0] }
+    },
+
     isVerified: {
       type: Boolean,
       default: false
@@ -102,6 +108,8 @@ const CustomerSchema = new mongoose.Schema(
       default: false
     },
 
+
+
     lastLoginAt: {
       type: Date,
       default: null
@@ -112,6 +120,8 @@ const CustomerSchema = new mongoose.Schema(
     collection: "customers"
   }
 );
+
+CustomerSchema.index({ location: "2dsphere" });
 
 export default mongoose.models.Customer ||
   mongoose.model("Customer", CustomerSchema);

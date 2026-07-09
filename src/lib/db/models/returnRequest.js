@@ -31,6 +31,12 @@ const ReturnItemSchema = new Schema(
     receivedQuantity: { type: Number, default: 0 },
     acceptedQuantity: { type: Number, default: 0 },
     rejectedQuantity: { type: Number, default: 0 },
+
+    // Customer Verification fields
+    images: { type: [String], default: [] },
+    expiryDate: { type: Date },
+    deliveryDate: { type: Date },
+    batchDetails: { type: String },
   },
   { _id: false }
 );

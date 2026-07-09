@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import CustomerProductMapping from "@/lib/db/models/customerProductMapping";
 
 /**
  * PATCH /api/customers/[id]
@@ -10,36 +11,55 @@ import Customer from "@/lib/db/models/customer";
 export async function PATCH(req, { params }) {
   try {
     await dbConnect();
-    const { id } = params;
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const body = await req.json();
+
+    const { mappedProducts, ...customerUpdates } = body;
 
     const allowedUpdates = ["isVerified", "category"];
     const updates = {};
     
-    Object.keys(body).forEach((key) => {
+    Object.keys(customerUpdates).forEach((key) => {
       if (allowedUpdates.includes(key)) {
-        updates[key] = body[key];
+        updates[key] = customerUpdates[key];
       }
     });
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && mappedProducts === undefined) {
       return NextResponse.json(
         { success: false, error: "No valid update fields provided" },
         { status: 400 }
       );
     }
 
-    const customer = await Customer.findByIdAndUpdate(id, updates, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!customer) {
-      return NextResponse.json(
-        { success: false, error: "Customer not found" },
-        { status: 404 }
+    if (mappedProducts !== undefined) {
+      await CustomerProductMapping.findOneAndUpdate(
+        { customer: id },
+        { products: mappedProducts },
+        { upsert: true, new: true }
       );
     }
+
+    let customer;
+    if (Object.keys(updates).length > 0) {
+      customer = await Customer.findByIdAndUpdate(id, updates, {
+        new: true,
+        runValidators: true,
+      }).lean();
+
+      if (!customer) {
+        return NextResponse.json(
+          { success: false, error: "Customer not found" },
+          { status: 404 }
+        );
+      }
+    } else {
+      customer = await Customer.findById(id).lean();
+    }
+
+    const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
+    customer.mappedProducts = mapping ? (mapping.products || []) : [];
 
     return NextResponse.json({
       success: true,
@@ -60,7 +80,8 @@ export async function PATCH(req, { params }) {
 export async function GET(req, { params }) {
   try {
     await dbConnect();
-    const { id } = params;
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     console.log(`🔎 [BACKEND] GET /api/customers/${id} - Searching for customer...`);
     
     const customer = await Customer.findById(id).lean();
@@ -82,12 +103,15 @@ export async function GET(req, { params }) {
       );
     }
 
+    const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
+    customer.mappedProducts = mapping ? (mapping.products || []) : [];
+
     return NextResponse.json({
       success: true,
       data: customer,
     });
   } catch (err) {
-    console.error(`🔥 ERROR in GET /api/customers/${params.id}:`, err);
+    console.error(`🔥 ERROR in GET /api/customers/id:`, err);
     return NextResponse.json(
       { success: false, error: err.message || "Server Error" },
       { status: 500 }

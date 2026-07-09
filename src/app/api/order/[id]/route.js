@@ -49,10 +49,24 @@ export async function GET(request, { params }) {
     query = safePopulateQuery(query, "supplier", "name");
     query = safePopulateQuery(query, "items.product", "name price sku");
 
-    const order = await query.lean();
+    let order = await query.lean();
 
     if (!order) {
-      return json({ success: false, error: "Order not found" }, 404);
+      // Fallback: Check if it's a VendorOrder
+      const VendorOrder = (await import("@/lib/db/models/VendorOrder")).default;
+      let voQuery = VendorOrder.findById(id);
+      voQuery = voQuery.populate("user", "name email phone address city state pincode");
+      voQuery = voQuery.populate("supplier", "name");
+      voQuery = voQuery.populate("items.product", "name price sku");
+      
+      const vendorOrder = await voQuery.lean();
+      if (!vendorOrder) {
+        return json({ success: false, error: "Order not found" }, 404);
+      }
+      
+      // Inject orderSource to let the frontend know
+      vendorOrder.orderSource = "Vendor";
+      return json({ success: true, order: vendorOrder }, 200);
     }
 
     return json({ success: true, order }, 200);
@@ -72,9 +86,17 @@ export async function PATCH(request, { params }) {
     }
 
     const body = await request.json();
-    const order = await Order.findById(id);
+    let order = await Order.findById(id);
+    let isVendorOrder = false;
+
     if (!order) {
-      return json({ success: false, error: "Order not found" }, 404);
+      // Fallback: Check if it's a VendorOrder
+      const VendorOrder = (await import("@/lib/db/models/VendorOrder")).default;
+      order = await VendorOrder.findById(id);
+      if (!order) {
+        return json({ success: false, error: "Order not found" }, 404);
+      }
+      isVendorOrder = true;
     }
 
     // Update order status, invoice, payment, or other properties dynamically
@@ -94,7 +116,8 @@ export async function PATCH(request, { params }) {
     await order.save();
 
     // INTERCEPT VENDOR INVOICE SUBMISSION: Update PO timeline only (do not complete yet)
-    if (body.invoice && body.invoice.invoiceNumber) {
+    // Only intercept if it has an orderNumber (which POs have)
+    if (body.invoice && body.invoice.invoiceNumber && order.orderNumber) {
       try {
         const poCollection = mongoose.connection.db.collection("purchaseorders");
         const po = await poCollection.findOne({ poNumber: order.orderNumber });
@@ -124,7 +147,7 @@ export async function PATCH(request, { params }) {
     }
 
     // INTERCEPT ORDER CONFIRMATION: Update PO status to In Progress
-    if (body.status === "confirmed") {
+    if (body.status === "confirmed" && order.orderNumber) {
       try {
         const poCollection = mongoose.connection.db.collection("purchaseorders");
         const po = await poCollection.findOne({ poNumber: order.orderNumber });
