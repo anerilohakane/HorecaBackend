@@ -176,35 +176,38 @@ export async function POST(request) {
     const customer = await Customer.findById(userId).lean();
     if (!customer) return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 });
 
-    // Enforce product mapping check: customer can only order mapped products
-    const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
-    const mappedIds = (mapping ? (mapping.products || []) : []).map(id => String(id));
-
-    // Also include frequent items from order history (same as products/frontend logic)
-    let frequentProductIds = [];
-    try {
-      const mongooseModule = await import('mongoose');
-      const userObjectId = new mongooseModule.Types.ObjectId(userId);
-      const { default: Order } = await import('@/lib/db/models/order');
-      const frequentItems = await Order.aggregate([
-        { $match: { user: userObjectId, status: { $nin: ['cancelled', 'failed', 'returned'] } } },
-        { $unwind: "$items" },
-        { $group: { _id: "$items.product", count: { $sum: 1 } } },
-        { $match: { count: { $gte: 2 } } },
-        { $project: { _id: 1 } }
-      ]);
-      frequentProductIds = frequentItems.map(item => String(item._id));
-    } catch (err) {
-      console.error("Error fetching frequent items for cart check:", err);
-    }
-    
-    const combinedIds = Array.from(new Set([...mappedIds, ...frequentProductIds]));
-
-    if (!combinedIds.includes(String(productId))) {
-      return NextResponse.json({ success: false, error: "This product is not mapped to your account and is only available for enquiry." }, { status: 403 });
-    }
-
     const customerCategory = customer?.category || "D";
+
+    // Enforce product mapping check (Bypass for Category D and E)
+    if (customerCategory !== 'D' && customerCategory !== 'E') {
+      const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
+      const mappedIds = (mapping ? (mapping.products || []) : []).map(id => String(id));
+
+      // Also include frequent items from order history (same as products/frontend logic)
+      let frequentProductIds = [];
+      try {
+        const mongooseModule = await import('mongoose');
+        const userObjectId = new mongooseModule.Types.ObjectId(userId);
+        const { default: Order } = await import('@/lib/db/models/order');
+        const frequentItems = await Order.aggregate([
+          { $match: { user: userObjectId, status: { $nin: ['cancelled', 'failed', 'returned'] } } },
+          { $unwind: "$items" },
+          { $group: { _id: "$items.product", count: { $sum: 1 } } },
+          { $match: { count: { $gte: 2 } } },
+          { $project: { _id: 1 } }
+        ]);
+        frequentProductIds = frequentItems.map(item => String(item._id));
+      } catch (err) {
+        console.error("Error fetching frequent items for cart check:", err);
+      }
+      
+      const combinedIds = Array.from(new Set([...mappedIds, ...frequentProductIds]));
+
+      if (!combinedIds.includes(String(productId))) {
+        return NextResponse.json({ success: false, error: "This product is not mapped to your account and is only available for enquiry." }, { status: 403 });
+      }
+    }
+
     let displayPrice = product.price;
 
     if (customerCategory && product.categoryPrices && product.categoryPrices[customerCategory]) {
