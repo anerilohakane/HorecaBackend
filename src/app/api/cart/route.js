@@ -196,7 +196,12 @@ export async function POST(request) {
           { $match: { count: { $gte: 2 } } },
           { $project: { _id: 1 } }
         ]);
-        frequentProductIds = frequentItems.map(item => String(item._id));
+        frequentProductIds = frequentItems.map(item => {
+          if (item._id && typeof item._id === 'object' && item._id._id) {
+            return String(item._id._id);
+          }
+          return String(item._id);
+        });
       } catch (err) {
         console.error("Error fetching frequent items for cart check:", err);
       }
