@@ -343,10 +343,11 @@ export async function POST(request) {
             sku: prodData.productCode,
             unit: mapUOM(prodData.uom),
             price: Number(prodData.basePrice) || 0,
-            stockQuantity: 0,
             images: prodData.image
               ? [{ url: prodData.image, publicId: `prod_${Date.now()}` }]
               : [{ url: "https://res.cloudinary.com/dqfum2awz/image/upload/v1717900000/placeholder.png", publicId: "placeholder" }],
+            isColdStorage: prodData.isColdStorage === true || prodData.isColdStorage === 'Yes',
+            temperature: prodData.temperature || null,
             isActive: true
           };
 
