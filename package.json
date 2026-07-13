@@ -27,6 +27,7 @@
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.544.0",
+    "mongodb": "^7.5.0",
     "mongoose": "^8.23.0",
     "next": "^16.2.9",
     "next-zod-route": "^1.0.0",
