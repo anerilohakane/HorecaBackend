@@ -178,8 +178,8 @@ export async function POST(request) {
 
     const customerCategory = customer?.category || "D";
 
-    // Enforce product mapping check (Bypass for Category D and E)
-    if (customerCategory !== 'D' && customerCategory !== 'E') {
+    // Enforce product mapping check (Only apply to Category C)
+    if (customerCategory === 'C') {
       const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
       const mappedIds = (mapping ? (mapping.products || []) : []).map(id => String(id));
 
