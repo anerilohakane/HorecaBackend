@@ -23,15 +23,15 @@ function buildCustomerXML(customer) {
   const name = escapeXML(customer.name || customer.businessName || customer.phone || "Unknown Customer");
   const mongoId = escapeXML(customer._id.toString());
   const mailingName = escapeXML(customer.businessName || customer.name || customer.phone || "Unknown Customer");
-  
+
   const address = escapeXML(customer.address || "");
   const city = escapeXML(customer.city || "");
   const state = escapeXML(customer.state || "Maharashtra");
   const pincode = escapeXML(customer.pincode || "");
-  
+
   const phone = escapeXML(customer.phone || "");
   const email = escapeXML(customer.email || "");
-  const gstNumber = escapeXML(customer.gstNumber || ""); 
+  const gstNumber = escapeXML(customer.gstNumber || "");
 
   let addressXml = "";
   if (address || city) {
@@ -85,7 +85,7 @@ function parseTallyResponse(xmlString) {
 
   const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
   const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
-  
+
   const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
   const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
 
@@ -269,7 +269,7 @@ export async function POST(req) {
         if (parsed.success) {
           tallyCustomerSynced = true;
           console.log(`[Tally Sync] Customer synced successfully to Tally.`);
-          
+
           // Fetch the generated GUID from Tally and store it
           try {
             const guidPayload = `<ENVELOPE>
@@ -300,13 +300,13 @@ export async function POST(req) {
                 </DESC>
               </BODY>
             </ENVELOPE>`;
-            
+
             const guidResponse = await fetch(tallyUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'text/xml' },
               body: guidPayload
             });
-            
+
             if (guidResponse.ok) {
               const guidXml = await guidResponse.text();
               const guidMatch = guidXml.match(/<GUID>([^<]+)<\/GUID>/);
