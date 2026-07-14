@@ -39,6 +39,5 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
-delete mongoose.models.User;
 // Check if the model already exists before creating it
 export default mongoose.models.User || mongoose.model("User", userSchema);

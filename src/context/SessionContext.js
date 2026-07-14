@@ -15,7 +15,13 @@ export const SessionProvider = ({ children }) => {
       const response = await fetch('/api/auth/session', {
         credentials: 'include',
       });
-      const data = await response.json();
+      
+      let data = {};
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      }
+
       console.log('fetching data = ', data);
 
       if (response.ok && data.user) {
@@ -44,7 +50,15 @@ export const SessionProvider = ({ children }) => {
         body: JSON.stringify({ username, password, department }),
       });
 
-      const data = await response.json();
+      let data = {};
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.error('Expected JSON, got:', text.substring(0, 200));
+        return { success: false, message: 'Server returned an invalid response. Please check if backend is running.' };
+      }
 
       console.log("Data From Session : - ", data);
       
@@ -58,7 +72,7 @@ export const SessionProvider = ({ children }) => {
         }
         return { success: true };
       } else {
-        return { success: false, message: data.message || 'Login failed' };
+        return { success: false, message: data.message || data.error || 'Login failed' };
       }
     } catch (error) {
       console.error('Login failed:', error);
