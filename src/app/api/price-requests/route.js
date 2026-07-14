@@ -54,31 +54,33 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "Customer is not eligible for price negotiation" }, { status: 403 });
     }
 
-    // Check if product is mapped to customer or is a frequent item
-    const mapping = await CustomerProductMapping.findOne({ customer: customerId }).lean();
-    const mappedProductIds = mapping ? (mapping.products || []).map(p => String(p)) : [];
-    
-    // Also include frequent items from order history (same as products route)
-    let frequentProductIds = [];
-    try {
-      const mongooseModule = await import('mongoose');
-      const userObjectId = new mongooseModule.Types.ObjectId(customerId);
-      const orderModule = await import('@/lib/db/models/order');
-      const Order = orderModule.default || orderModule.Order || orderModule;
-      const frequentItems = await Order.aggregate([
-        { $match: { user: userObjectId, status: { $nin: ['cancelled', 'failed', 'returned'] } } },
-        { $unwind: '$items' },
-        { $group: { _id: '$items.product', count: { $sum: 1 } } }
-      ]);
-      frequentProductIds = frequentItems.map(item => String(item._id));
-    } catch (e) {
-      console.error("Failed to fetch frequent items for price request:", e);
-    }
-    
-    const eligibleProductIds = Array.from(new Set([...mappedProductIds, ...frequentProductIds]));
+    if (customer.category === "C") {
+      // Check if product is mapped to customer or is a frequent item
+      const mapping = await CustomerProductMapping.findOne({ customer: customerId }).lean();
+      const mappedProductIds = mapping ? (mapping.products || []).map(p => String(p)) : [];
+      
+      // Also include frequent items from order history (same as products route)
+      let frequentProductIds = [];
+      try {
+        const mongooseModule = await import('mongoose');
+        const userObjectId = new mongooseModule.Types.ObjectId(customerId);
+        const orderModule = await import('@/lib/db/models/order');
+        const Order = orderModule.default || orderModule.Order || orderModule;
+        const frequentItems = await Order.aggregate([
+          { $match: { user: userObjectId, status: { $nin: ['cancelled', 'failed', 'returned'] } } },
+          { $unwind: '$items' },
+          { $group: { _id: '$items.product', count: { $sum: 1 } } }
+        ]);
+        frequentProductIds = frequentItems.map(item => String(item._id));
+      } catch (e) {
+        console.error("Failed to fetch frequent items for price request:", e);
+      }
+      
+      const eligibleProductIds = Array.from(new Set([...mappedProductIds, ...frequentProductIds]));
 
-    if (!eligibleProductIds.includes(productId)) {
-      return NextResponse.json({ success: false, error: "Product is not mapped to this customer account" }, { status: 403 });
+      if (!eligibleProductIds.includes(productId)) {
+        return NextResponse.json({ success: false, error: "Product is not mapped to this customer account" }, { status: 403 });
+      }
     }
 
     // Get original price
