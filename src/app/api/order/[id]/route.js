@@ -47,7 +47,7 @@ export async function GET(request, { params }) {
     let query = Order.findById(id);
     query = safePopulateQuery(query, "user", "name email phone address city state pincode");
     query = safePopulateQuery(query, "supplier", "name");
-    query = safePopulateQuery(query, "items.product", "name price sku");
+    query = safePopulateQuery(query, "items.product", "name price sku isColdStorage");
 
     let order = await query.lean();
 
@@ -57,7 +57,7 @@ export async function GET(request, { params }) {
       let voQuery = VendorOrder.findById(id);
       voQuery = voQuery.populate("user", "name email phone address city state pincode");
       voQuery = voQuery.populate("supplier", "name");
-      voQuery = voQuery.populate("items.product", "name price sku");
+      voQuery = voQuery.populate("items.product", "name price sku isColdStorage");
       
       const vendorOrder = await voQuery.lean();
       if (!vendorOrder) {

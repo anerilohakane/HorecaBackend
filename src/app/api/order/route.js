@@ -3829,7 +3829,7 @@ export async function GET(request) {
       let order = await Order.findOne({ orderNumber: orderNumberParam })
         .populate("user", "name email phone")
         .populate("supplier", "name")
-        .populate("items.product", "name price sku")
+        .populate("items.product", "name price sku isColdStorage")
         .lean();
         
       if (!order) {
@@ -3838,7 +3838,7 @@ export async function GET(request) {
         order = await VendorOrder.findOne({ orderNumber: orderNumberParam })
           .populate("user", "name email phone")
           .populate("supplier", "name")
-          .populate("items.product", "name price sku")
+          .populate("items.product", "name price sku isColdStorage")
           .lean();
           
         if (order) {
@@ -3864,7 +3864,7 @@ export async function GET(request) {
 
       query = safePopulateQuery(query, "user", "name email phone");
       query = safePopulateQuery(query, "supplier", "name");
-      query = safePopulateQuery(query, "items.product", "name price sku");
+      query = safePopulateQuery(query, "items.product", "name price sku isColdStorage");
       // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
       // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
       // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
@@ -3880,7 +3880,7 @@ export async function GET(request) {
         let voQuery = VendorOrder.findById(idParam);
         voQuery = safePopulateQuery(voQuery, "user", "name email phone");
         voQuery = safePopulateQuery(voQuery, "supplier", "name");
-        voQuery = safePopulateQuery(voQuery, "items.product", "name price sku");
+        voQuery = safePopulateQuery(voQuery, "items.product", "name price sku isColdStorage");
         
         order = await voQuery.lean();
         if (order) {
@@ -3974,7 +3974,7 @@ export async function GET(request) {
 
     query = safePopulateQuery(query, "user", "name email phone");
     query = safePopulateQuery(query, "supplier", "name");
-    query = safePopulateQuery(query, "items.product", "name price sku");
+    query = safePopulateQuery(query, "items.product", "name price sku isColdStorage");
     // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
     // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
     // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
