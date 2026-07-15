@@ -195,6 +195,7 @@ export async function GET(request) {
     const q = url.searchParams.get("q");
     const brandId = url.searchParams.get("brandId");
     const branchId = url.searchParams.get("branchId");
+    const categoryId = url.searchParams.get("categoryId") || url.searchParams.get("category");
     const supplierId = url.searchParams.get("supplierId");
     const supplierBrand = url.searchParams.get("supplierBrand");
     const isActive = url.searchParams.get("isActive");
@@ -328,6 +329,7 @@ export async function GET(request) {
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
     if (branchId) filter.branchId = branchId;
+    if (categoryId) filter.categoryId = categoryId;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
