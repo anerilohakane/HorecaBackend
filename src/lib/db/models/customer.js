@@ -62,7 +62,7 @@ const CustomerSchema = new mongoose.Schema(
     city: { type: String, default: null },
     state: { type: String, default: null },
     pincode: { type: String, default: null },
-    
+
     locations: [{
       address: { type: String, trim: true },
       city: { type: String, trim: true },
@@ -72,7 +72,7 @@ const CustomerSchema = new mongoose.Schema(
       lng: { type: Number, default: null },
       isPrimary: { type: Boolean, default: false }
     }],
-    
+
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",

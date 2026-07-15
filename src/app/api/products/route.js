@@ -217,11 +217,11 @@ export async function GET(request) {
         try {
           const userObjectId = new mongoose.Types.ObjectId(userId);
           const frequentItems = await Order.aggregate([
-            { 
-              $match: { 
+            {
+              $match: {
                 user: userObjectId,
-                status: { $nin: ['cancelled', 'failed', 'returned'] } 
-              } 
+                status: { $nin: ['cancelled', 'failed', 'returned'] }
+              }
             },
             { $unwind: '$items' },
             {
@@ -293,7 +293,7 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
 
     if (supplierBrand) {
-      const matchingSuppliers = await Supplier.find({ 
+      const matchingSuppliers = await Supplier.find({
         $or: [
           { brand: supplierBrand },
           { businessName: supplierBrand },

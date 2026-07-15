@@ -48,7 +48,7 @@ export async function GET(request, { params }) {
 
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
-    const sup = await Supplier.findById(id).populate("brandIds", "name slug").select("-password").lean();
+    const sup = await Supplier.findById(id).populate({ path: "brandIds", select: "name slug", strictPopulate: false }).select("-password").lean();
     if (!sup) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 
     return NextResponse.json({ success: true, data: sup });
@@ -82,8 +82,8 @@ export async function PATCH(request, { params }) {
     // Handle multiple brands
     if (body.brandNames !== undefined || body.brandName !== undefined) {
       const resolvedBrandIds = [];
-      const brandsToProcess = body.brandNames && body.brandNames.length > 0 
-        ? body.brandNames 
+      const brandsToProcess = body.brandNames && body.brandNames.length > 0
+        ? body.brandNames
         : (body.brandName ? [body.brandName] : []);
 
       for (const bName of brandsToProcess) {
@@ -108,13 +108,13 @@ export async function PATCH(request, { params }) {
         let finalBrandId = undefined;
         if (p.brand) {
           if (mongoose.Types.ObjectId.isValid(p.brand)) {
-             finalBrandId = p.brand;
+            finalBrandId = p.brand;
           } else {
-             let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
-             if (!brnd) {
-                 brnd = await Brand.create({ name: p.brand });
-             }
-             finalBrandId = brnd._id;
+            let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
+            if (!brnd) {
+              brnd = await Brand.create({ name: p.brand });
+            }
+            finalBrandId = brnd._id;
           }
         }
 
