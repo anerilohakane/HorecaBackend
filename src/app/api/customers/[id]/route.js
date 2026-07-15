@@ -19,7 +19,7 @@ export async function PATCH(req, { params }) {
 
     const allowedUpdates = ["isVerified", "category"];
     const updates = {};
-    
+
     Object.keys(customerUpdates).forEach((key) => {
       if (allowedUpdates.includes(key)) {
         updates[key] = customerUpdates[key];
@@ -96,7 +96,7 @@ export async function GET(req, { params }) {
     const resolvedParams = await params;
     const { id } = resolvedParams;
     console.log(`🔎 [BACKEND] GET /api/customers/${id} - Searching for customer...`);
-    
+
     const customer = await Customer.findById(id).lean();
     console.log(`📦 [BACKEND] Customer found:`, customer ? "YES" : "NO");
 
@@ -104,10 +104,10 @@ export async function GET(req, { params }) {
       const dbName = mongoose.connection.db?.databaseName || "UNKNOWN";
       const registeredModels = mongoose.modelNames();
       console.error(`[CUSTOMER ERROR] Customer not found for ID: ${id} | DB: ${dbName} | Models: ${registeredModels.join(', ')}`);
-      
+
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: "Customer not found",
           debugId: id,
           debugDb: dbName

@@ -220,29 +220,29 @@ export async function GET(request) {
           const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
           const mappedProductIds = mapping ? (mapping.products || []) : [];
 
-          // 2. Get frequently bought products from order history
-          let frequentProductIds = [];
-          try {
-            const userObjectId = new mongoose.Types.ObjectId(userId);
-            const frequentItems = await Order.aggregate([
-              { 
-                $match: { 
-                  user: userObjectId,
-                  status: { $nin: ['cancelled', 'failed', 'returned'] } 
-                } 
-              },
-              { $unwind: '$items' },
-              {
-                $group: {
-                  _id: '$items.product',
-                  count: { $sum: 1 }
-                }
+        // 2. Get frequently bought products from order history
+        let frequentProductIds = [];
+        try {
+          const userObjectId = new mongoose.Types.ObjectId(userId);
+          const frequentItems = await Order.aggregate([
+            {
+              $match: {
+                user: userObjectId,
+                status: { $nin: ['cancelled', 'failed', 'returned'] }
               }
-            ]);
-            frequentProductIds = frequentItems.map(item => item._id);
-          } catch (e) {
-            console.error("Failed to fetch frequent items for user:", e);
-          }
+            },
+            { $unwind: '$items' },
+            {
+              $group: {
+                _id: '$items.product',
+                count: { $sum: 1 }
+              }
+            }
+          ]);
+          frequentProductIds = frequentItems.map(item => item._id);
+        } catch (e) {
+          console.error("Failed to fetch frequent items for user:", e);
+        }
 
           if (mappedProductIds.length > 0) {
             // Combine both (unique list)
@@ -302,7 +302,7 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
 
     if (supplierBrand) {
-      const matchingSuppliers = await Supplier.find({ 
+      const matchingSuppliers = await Supplier.find({
         $or: [
           { brand: supplierBrand },
           { businessName: supplierBrand },
