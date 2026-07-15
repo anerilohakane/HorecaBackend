@@ -5,7 +5,8 @@ import ClaimTemplate from "@/lib/db/models/ClaimTemplate";
 export async function PUT(req, { params }) {
   try {
     await connectDB();
-    const id = params.id;
+    const resolvedParams = await params;
+    const id = resolvedParams.id;
     const body = await req.json();
 
     const template = await ClaimTemplate.findByIdAndUpdate(id, body, { new: true });
@@ -23,7 +24,8 @@ export async function PUT(req, { params }) {
 export async function DELETE(req, { params }) {
   try {
     await connectDB();
-    const id = params.id;
+    const resolvedParams = await params;
+    const id = resolvedParams.id;
 
     const template = await ClaimTemplate.findByIdAndDelete(id);
     
