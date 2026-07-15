@@ -89,7 +89,15 @@ export async function GET(request) {
                   row[col] = claim[mappedField] ? new Date(claim[mappedField]).toLocaleDateString() : "";
               } else if (mappedField === "lossAmount") {
                   const expected = claim.expectedSellingPrice || 0;
-                  const base = product.basePrice || 0;
+                  
+                  // Check if the user mapped a specific field for Rate (e.g., requestedPrice)
+                  let base = product.basePrice || 0;
+                  if (template.headers.some(h => h.mappedField === "requestedPrice")) {
+                      base = claim.requestedPrice || 0;
+                  } else if (template.headers.some(h => h.mappedField === "actualSellingPrice")) {
+                      base = claim.actualSellingPrice || 0;
+                  }
+
                   const qty = claim.quantity || 1;
                   row[col] = Math.abs(expected - base) * qty;
               } else {
