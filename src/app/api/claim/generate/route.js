@@ -20,7 +20,7 @@ export async function POST(req) {
     await connectDB();
     const { claimId } = await req.json();
 
-    const claim = await Claim.findOne({ claimId }).populate("vendorId").populate("productId").populate("claimTemplateId");
+    const claim = await Claim.findOne({ claimId }).populate("vendorId").populate("productId").populate("claimTemplateId").populate({ path: "orderId", populate: { path: "user" }});
     if (!claim) {
       return NextResponse.json({ success: false, error: "Claim not found" }, { status: 404 });
     }
@@ -33,66 +33,62 @@ export async function POST(req) {
     const vendor = claim.vendorId || {};
     const template = claim.claimTemplateId;
 
-    // Comprehensive Mapping helper for template fields
-    const dataMap = {
-      "Product Name": product.name,
-      "Product Code": product.sku,
-      "SKU": product.sku,
-      "Item Name": product.name,
-      "Base Price": product.basePrice,
-      "Margin (%)": product.assuredMargin,
-      "Assured Margin": product.assuredMargin,
-      "Assurred Margin": product.assuredMargin,
-      "Margin": product.assuredMargin,
-      "Expected Price": claim.expectedSellingPrice,
-      "Expected Selling Price": claim.expectedSellingPrice,
-      "Actual Price": claim.actualSellingPrice,
-      "Actual Selling Price": claim.actualSellingPrice,
-      "Loss Amount": claim.lossAmount,
-      "Amount": claim.lossAmount,
-      "Claim ID": claim.claimId,
-      "Vendor Name": vendor.businessName,
-      "Vendor": vendor.businessName,
-      "Vendor Email": vendor.email,
-      "Vendor Phone": vendor.phone,
-      "Requested Price": claim.requestedPrice,
-      "Date": new Date().toLocaleDateString(),
-      "Status": claim.status,
-      "Category": product.categoryId?.name || "",
-      "Unit": product.unit || ""
-    };
+    const order = claim.orderId || {};
+    const customer = (order.userModel === "Customer" && order.user) ? order.user : {};
 
-    // Normalize keys for fuzzy matching (lowercase and remove spaces/special chars)
-    const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const normalizedMap = {};
-    Object.keys(dataMap).forEach(key => {
-      normalizedMap[normalize(key)] = dataMap[key];
-    });
-
-    // Prepare data for Excel dynamically
+    // Prepare data for Excel dynamically using headers mapping
     let finalData = {};
-    if (template && template.fields && template.fields.length > 0) {
-      template.fields.forEach(field => {
-        const normField = normalize(field);
-        // Try exact match first, then normalized match
-        if (dataMap[field] !== undefined) {
-          finalData[field] = dataMap[field];
-        } else if (normalizedMap[normField] !== undefined) {
-          finalData[field] = normalizedMap[normField];
+    if (template && template.headers && template.headers.length > 0) {
+      template.headers.forEach(header => {
+        const col = header.columnName;
+        const mappedField = header.mappedField;
+        
+        if (!col) return;
+
+        if (header.mappingType === "claim_field" && mappedField) {
+            if (mappedField === "createdAt" || mappedField === "date") {
+                finalData[col] = claim[mappedField] ? new Date(claim[mappedField]).toLocaleDateString() : "";
+            } else {
+                finalData[col] = claim[mappedField] || "";
+            }
+        } else if (header.mappingType === "order_field" && mappedField) {
+            if (["createdAt", "date", "placedAt", "updatedAt"].includes(mappedField)) {
+                finalData[col] = order[mappedField] ? new Date(order[mappedField]).toLocaleDateString() : "";
+            } else {
+                finalData[col] = order[mappedField] || "";
+            }
+        } else if (header.mappingType === "product_field" && mappedField) {
+            if (mappedField === "categoryId" && product.categoryId) {
+                 finalData[col] = product.categoryId.name || product.categoryId.toString();
+            } else {
+                 finalData[col] = product[mappedField] || "";
+            }
+        } else if (header.mappingType === "vendor_field" && mappedField) {
+            finalData[col] = vendor[mappedField] || "";
+        } else if (header.mappingType === "customer_field" && mappedField) {
+            finalData[col] = customer[mappedField] || "";
+        } else if (header.mappingType === "default") {
+            finalData[col] = header.defaultValue || "";
         } else {
-          finalData[field] = ""; // Fallback
+            // blank or legacy fallback for unmapped
+            finalData[col] = "";
         }
+      });
+    } else if (template && template.fields && template.fields.length > 0) {
+      // Legacy support for older templates
+      template.fields.forEach(field => {
+        finalData[field] = ""; 
       });
     } else {
       // Fallback to default set if no template or fields
       finalData = {
         "Claim ID": claim.claimId,
-        "Date": dataMap["Date"],
-        "Vendor": vendor.businessName,
-        "Product": product.name,
-        "SKU": product.sku,
-        "Loss Amount": claim.lossAmount,
-        "Status": claim.status
+        "Date": new Date().toLocaleDateString(),
+        "Vendor": vendor.businessName || "",
+        "Product": product.name || "",
+        "SKU": product.sku || "",
+        "Loss Amount": claim.lossAmount || 0,
+        "Status": claim.status || ""
       };
     }
 
