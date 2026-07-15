@@ -87,6 +87,11 @@ export async function GET(request) {
           if (header.mappingType === "claim_field" && mappedField) {
               if (mappedField === "createdAt" || mappedField === "date") {
                   row[col] = claim[mappedField] ? new Date(claim[mappedField]).toLocaleDateString() : "";
+              } else if (mappedField === "lossAmount") {
+                  const expected = claim.expectedSellingPrice || 0;
+                  const base = product.basePrice || 0;
+                  const qty = claim.quantity || 1;
+                  row[col] = Math.abs(expected - base) * qty;
               } else {
                   row[col] = claim[mappedField] || "";
               }
