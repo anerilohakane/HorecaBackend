@@ -3717,7 +3717,8 @@ export async function POST(request) {
     }
 
     // Sync to Tally Prime 9 as a Sales Voucher if created from ODT Dashboard
-    // NOTE: Tally order creation for ODT has been removed as requested.
+    // NOTE: Tally order creation for ODT and Customers has been removed.
+    // ALL orders now wait for strict ART Approval in the PATCH route.
     // if (body.orderSource === "ODT") { ... }
 
     return json({
