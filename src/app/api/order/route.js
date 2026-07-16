@@ -4773,6 +4773,20 @@ export async function PATCH(request) {
       body.departmentNotes.includes("Order approved by ART")
     );
 
+    // DEBUG LOGGING
+    try {
+      const fs = require('fs');
+      const debugLog = `[${new Date().toISOString()}] PATCH /api/order?id=${idParam}
+OrderSource: ${finalState.orderSource}
+Body Status: ${body.status}
+Order Status: ${order.status}
+DeptNotes: ${body.departmentNotes}
+isArtApproval: ${isArtApproval}
+tallySynced: ${finalState.tallySynced}
+TallyConditionMet: ${body.status === "Packaging" && isArtApproval && finalState.tallySynced !== true}\n\n`;
+      fs.appendFileSync('D:\\SCM\\tally_debug.log', debugLog);
+    } catch (e) {}
+
     if (body.status === "Packaging" && isArtApproval && finalState.tallySynced !== true) {
       try {
         const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
