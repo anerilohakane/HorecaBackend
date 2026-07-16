@@ -42,6 +42,7 @@ export async function GET(request) {
     })
     .populate("productId", "name sku basePrice assuredMargin categoryId unit")
     .populate("claimTemplateId")
+    .populate({ path: "orderId", populate: { path: "user" }})
     .lean();
 
     if (!claims || claims.length === 0) {
@@ -61,6 +62,8 @@ export async function GET(request) {
     claims.forEach(claim => {
       const product = claim.productId || {};
       const vendor = claim.vendorId || {};
+      const order = claim.orderId || {};
+      const customer = (order.userModel === "Customer" && order.user) ? order.user : {};
 
       const approvalPerson = claim.salesRepresentativeName 
           ? claim.salesRepresentativeName 
@@ -68,34 +71,83 @@ export async function GET(request) {
               ? claim.approvedBy 
               : (vendor.salesPersons && vendor.salesPersons.length > 0 ? vendor.salesPersons[0].name : "N/A"));
 
-      // Create data map for this specific claim
-      const dataMap = {
-        "Order ID": claim.orderId?.orderNumber || claim.orderId || "N/A",
-        "Vendor Name": vendor.businessName || "N/A",
-        "Product Name": product.name || "N/A",
-        "Product Code": product.sku || "N/A",
-        "SKU": product.sku || "N/A",
-        "Base Price": product.basePrice || 0,
-        "Assured Margin": product.assuredMargin || 0,
-        "Actual Selling Price": claim.actualPrice || claim.actualSellingPrice || 0,
-        "Expected Selling Price": claim.expectedSellingPrice || 0,
-        "Approved Selling Price": claim.actualSellingPrice || 0,
-        "Loss Amount": claim.lossAmount || 0,
-        "Claim Status": claim.status || "APPROVED",
-        "Approved Date": claim.approvalDate 
-          ? new Date(claim.approvalDate).toLocaleDateString() 
-          : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
-        "Approved by(Sales Representative)": approvalPerson,
-        "Claim Approval Person": approvalPerson,
-        "Approved By": approvalPerson,
-        "Sales Representative": approvalPerson
-      };
-
       // If 'All Vendors' is selected, ignore templates to ensure a uniform table structure.
       // Otherwise, always strictly use the vendor's currently mapped template for full dynamic updates.
       const template = vendorId === "ALL" ? null : vendor.claimTemplateId;
-      if (template && template.fields && template.fields.length > 0) {
-        const row = {};
+      
+      let row = {};
+
+      if (template && template.headers && template.headers.length > 0) {
+        template.headers.forEach(header => {
+          const col = header.columnName;
+          const mappedField = header.mappedField;
+          
+          if (!col) return;
+
+          if (header.mappingType === "claim_field" && mappedField) {
+              if (mappedField === "createdAt" || mappedField === "date") {
+                  row[col] = claim[mappedField] ? new Date(claim[mappedField]).toLocaleDateString() : "";
+              } else if (mappedField === "lossAmount") {
+                  const expected = claim.expectedSellingPrice || 0;
+                  
+                  // Check if the user mapped a specific field for Rate (e.g., requestedPrice)
+                  let base = product.basePrice || 0;
+                  if (template.headers.some(h => h.mappedField === "requestedPrice")) {
+                      base = claim.requestedPrice || 0;
+                  } else if (template.headers.some(h => h.mappedField === "actualSellingPrice")) {
+                      base = claim.actualSellingPrice || 0;
+                  }
+
+                  const qty = claim.quantity || 1;
+                  row[col] = Math.abs(expected - base) * qty;
+              } else {
+                  row[col] = claim[mappedField] || "";
+              }
+          } else if (header.mappingType === "order_field" && mappedField) {
+              if (["createdAt", "date", "placedAt", "updatedAt"].includes(mappedField)) {
+                  row[col] = order[mappedField] ? new Date(order[mappedField]).toLocaleDateString() : "";
+              } else {
+                  row[col] = order[mappedField] || "";
+              }
+          } else if (header.mappingType === "product_field" && mappedField) {
+              if (mappedField === "categoryId" && product.categoryId) {
+                   row[col] = product.categoryId.name || product.categoryId.toString();
+              } else {
+                   row[col] = product[mappedField] || "";
+              }
+          } else if (header.mappingType === "vendor_field" && mappedField) {
+              row[col] = vendor[mappedField] || "";
+          } else if (header.mappingType === "customer_field" && mappedField) {
+              row[col] = customer[mappedField] || "";
+          } else if (header.mappingType === "default") {
+              row[col] = header.defaultValue || "";
+          } else {
+              row[col] = "";
+          }
+        });
+      } else if (template && template.fields && template.fields.length > 0) {
+        // Legacy string matching map
+        const dataMap = {
+          "Order ID": order.orderNumber || order._id || "N/A",
+          "Vendor Name": vendor.businessName || "N/A",
+          "Product Name": product.name || "N/A",
+          "Product Code": product.sku || "N/A",
+          "SKU": product.sku || "N/A",
+          "Base Price": product.basePrice || 0,
+          "Assured Margin": product.assuredMargin || 0,
+          "Actual Selling Price": claim.actualPrice || claim.actualSellingPrice || 0,
+          "Expected Selling Price": claim.expectedSellingPrice || 0,
+          "Approved Selling Price": claim.actualSellingPrice || 0,
+          "Loss Amount": claim.lossAmount || 0,
+          "Claim Status": claim.status || "APPROVED",
+          "Approved Date": claim.approvalDate 
+            ? new Date(claim.approvalDate).toLocaleDateString() 
+            : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
+          "Approved by(Sales Representative)": approvalPerson,
+          "Claim Approval Person": approvalPerson,
+          "Approved By": approvalPerson,
+          "Sales Representative": approvalPerson
+        };
         const normalizedMap = {};
         Object.keys(dataMap).forEach(key => normalizedMap[normalize(key)] = dataMap[key]);
         
@@ -105,11 +157,28 @@ export async function GET(request) {
           else if (normalizedMap[normField] !== undefined) row[field] = normalizedMap[normField];
           else row[field] = "";
         });
-        reportData.push(row);
       } else {
-        // Fallback if the vendor has no template mapped
-        reportData.push(dataMap);
+        // Fallback
+        row = {
+          "Order ID": order.orderNumber || order._id || "N/A",
+          "Vendor Name": vendor.businessName || "N/A",
+          "Product Name": product.name || "N/A",
+          "Product Code": product.sku || "N/A",
+          "SKU": product.sku || "N/A",
+          "Base Price": product.basePrice || 0,
+          "Assured Margin": product.assuredMargin || 0,
+          "Actual Selling Price": claim.actualPrice || claim.actualSellingPrice || 0,
+          "Expected Selling Price": claim.expectedSellingPrice || 0,
+          "Approved Selling Price": claim.actualSellingPrice || 0,
+          "Loss Amount": claim.lossAmount || 0,
+          "Claim Status": claim.status || "APPROVED",
+          "Approved Date": claim.approvalDate 
+            ? new Date(claim.approvalDate).toLocaleDateString() 
+            : (claim.updatedAt ? new Date(claim.updatedAt).toLocaleDateString() : "N/A"),
+          "Approved by(Sales Representative)": approvalPerson
+        };
       }
+      reportData.push(row);
     });
 
     if (searchParams.get("format") === "json") {

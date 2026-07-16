@@ -109,6 +109,32 @@ export async function PUT(request, { params }) {
                   const rProductId = rItem.product?._id || rItem.product?.id || rItem.product;
                   return String(iProductId) === String(rProductId);
                 });
+                
+                // Send Product to Open Storage
+                try {
+                  const mongoose = require("mongoose");
+                  const db = mongoose.connection.db;
+                  if (db) {
+                    await db.collection("openstorages").insertOne({
+                      productId: String(oItem.product?._id || oItem.product?.id || oItem.productId || oItem.product),
+                      productName: oItem.name || "Unknown Product",
+                      sku: oItem.sku || "",
+                      quantity: finalQty,
+                      unit: oItem.unit || "pcs",
+                      unitPrice: oItem.unitPrice || 0,
+                      totalPrice: finalQty * (oItem.unitPrice || 0),
+                      grnNumber: returnReq.rrn,
+                      status: "Available",
+                      receivedDate: new Date(),
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                      __v: 0
+                    });
+                  }
+                } catch(storageErr) {
+                  console.error("Failed to send product to open storage:", storageErr);
+                }
+
                 if (oItem) {
                   const amount = finalQty * oItem.unitPrice;
                   const gstAmount = amount * ((oItem.gst || 0) / 100);

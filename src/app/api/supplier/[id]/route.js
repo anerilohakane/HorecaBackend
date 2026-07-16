@@ -4,6 +4,7 @@ import dbConnect from "@/lib/db/connect";
 import Supplier from "@/lib/db/models/supplier";
 import Product from "@/lib/db/models/product";
 import Brand from "@/lib/db/models/brand";
+import Category from "@/lib/db/models/category";
 import mongoose from "mongoose";
 
 // cloudinary setup (server-side)
@@ -35,6 +36,96 @@ cloudinary.v2.config({
   }
 })();
 
+// Helper to escape XML entities
+const escapeXML = (str) => {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Helper to map mongoose unit to Tally active unit name
+const mapMongooseUnitToTally = (mongooseUnit) => {
+  if (!mongooseUnit) return "Nos";
+  const normalized = String(mongooseUnit).trim().toLowerCase();
+  switch (normalized) {
+    case "kg": case "kilogram": return "Kg";
+    case "g": case "gram": return "Kg";
+    case "liters": case "liter": case "ml": case "milliliter": return "Ltr";
+    case "pcs": case "box": case "dozen": case "pack": case "ton":
+    default: return "Nos";
+  }
+};
+
+// Helper to build Product XML for Tally
+function buildProductXML(product, parentCategoryName, action = "Create") {
+  const name = escapeXML(product.name);
+  const mongoId = escapeXML(product._id.toString());
+  const parent = escapeXML(parentCategoryName || "Primary");
+  const unit = escapeXML(mapMongooseUnitToTally(product.unit));
+
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKITEM NAME="${name}" ACTION="${escapeXML(action)}">
+            <NAME>${name}</NAME>
+            <LANGUAGENAME.LIST>
+              <NAME.LIST TYPE="String">
+                <NAME>${name}</NAME>
+                <NAME>${mongoId}</NAME>
+              </NAME.LIST>
+            </LANGUAGENAME.LIST>
+            <PARENT>${parent}</PARENT>
+            <BASEUNITS>${unit}</BASEUNITS>
+            <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
+            <GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>
+            <HSNCODE>0401</HSNCODE>
+            <OPENINGBALANCE>0 ${unit}</OPENINGBALANCE>
+            <OPENINGVALUE>0</OPENINGVALUE>
+          </STOCKITEM>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Helper to parse Tally responses
+function parseTallyResponse(xmlString) {
+  if (!xmlString) return { success: false, error: "Empty response from Tally" };
+
+  const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
+  const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+
+  const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
+  const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+
+  if (createdCount > 0 || alteredCount > 0) {
+    return { success: true };
+  }
+
+  const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+  if (errorMatch && errorMatch[1]) {
+    return { success: false, error: errorMatch[1].trim() };
+  }
+
+  return { success: false, error: "Failed to parse Tally response", raw: xmlString };
+}
+
 function isValidObjectIdString(id) {
   return typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
 }
@@ -48,7 +139,7 @@ export async function GET(request, { params }) {
 
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
-    const sup = await Supplier.findById(id).populate("brandIds", "name slug").select("-password").lean();
+    const sup = await Supplier.findById(id).populate({ path: "brandIds", select: "name slug", strictPopulate: false }).select("-password").lean();
     if (!sup) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 
     return NextResponse.json({ success: true, data: sup });
@@ -82,8 +173,8 @@ export async function PATCH(request, { params }) {
     // Handle multiple brands
     if (body.brandNames !== undefined || body.brandName !== undefined) {
       const resolvedBrandIds = [];
-      const brandsToProcess = body.brandNames && body.brandNames.length > 0 
-        ? body.brandNames 
+      const brandsToProcess = body.brandNames && body.brandNames.length > 0
+        ? body.brandNames
         : (body.brandName ? [body.brandName] : []);
 
       for (const bName of brandsToProcess) {
@@ -100,21 +191,24 @@ export async function PATCH(request, { params }) {
     const updated = await Supplier.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true, context: "query" }).select("-password");
     if (!updated) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
 
-    // Update or Create products in the global Product collection
+    // Update or Create products in the global Product collection + Tally Sync
+    const tallyProductSyncResults = [];
     if (body.products && Array.isArray(body.products) && body.products.length > 0) {
+      const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+
       for (const p of body.products) {
         if (!p.productName || !p.productCode) continue;
 
         let finalBrandId = undefined;
         if (p.brand) {
           if (mongoose.Types.ObjectId.isValid(p.brand)) {
-             finalBrandId = p.brand;
+            finalBrandId = p.brand;
           } else {
-             let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
-             if (!brnd) {
-                 brnd = await Brand.create({ name: p.brand });
-             }
-             finalBrandId = brnd._id;
+            let brnd = await Brand.findOne({ name: new RegExp(`^${p.brand}$`, "i") });
+            if (!brnd) {
+              brnd = await Brand.create({ name: p.brand });
+            }
+            finalBrandId = brnd._id;
           }
         }
 
@@ -137,18 +231,82 @@ export async function PATCH(request, { params }) {
           productData.images = [{ url: p.image, publicId: `sup_${id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, isMain: true }];
         }
 
-        await Product.findOneAndUpdate(
+        const savedProduct = await Product.findOneAndUpdate(
           { sku: p.productCode },
           { $set: productData },
           { upsert: true, new: true, runValidators: true }
         );
+
+        // Sync product to Tally Prime 9
+        let prodSynced = false;
+        let prodError = null;
+
+        try {
+          // Find category name to pass to Tally as <PARENT>
+          let categoryName = "Primary";
+          if (p.category) {
+            const categoryDoc = await Category.findById(p.category).lean();
+            if (categoryDoc) categoryName = categoryDoc.name;
+          }
+
+          const prodXml = buildProductXML(savedProduct, categoryName, "Create");
+          const prodResponse = await fetch(tallyUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'text/xml',
+              'ngrok-skip-browser-warning': 'true'
+            },
+            body: prodXml
+          });
+
+          if (prodResponse.ok) {
+            const responseText = await prodResponse.text();
+            const parsed = parseTallyResponse(responseText);
+            if (parsed.success) {
+              prodSynced = true;
+            } else {
+              // If Create failed because item already exists, auto-retry with Alter
+              if (parsed.error && (parsed.error.includes('already exists') || parsed.error.includes('Duplicate'))) {
+                console.log(`[Tally Sync] Create failed for "${savedProduct.name}" (item exists), retrying with Alter...`);
+                const alterXml = buildProductXML(savedProduct, categoryName, "Alter");
+                const alterResponse = await fetch(tallyUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'text/xml', 'ngrok-skip-browser-warning': 'true' },
+                  body: alterXml
+                });
+                if (alterResponse.ok) {
+                  const alterText = await alterResponse.text();
+                  const alterResult = parseTallyResponse(alterText);
+                  if (alterResult.success) {
+                    prodSynced = true;
+                  } else {
+                    prodError = alterResult.error;
+                  }
+                }
+              } else {
+                prodError = parsed.error;
+              }
+            }
+          } else {
+            prodError = `Tally server responded with status ${prodResponse.status}`;
+          }
+        } catch (err) {
+          prodError = err.message || String(err);
+        }
+
+        tallyProductSyncResults.push({
+          productId: savedProduct._id,
+          name: savedProduct.name,
+          tallySynced: prodSynced,
+          tallyError: prodError
+        });
       }
     }
 
     console.log("Updated supplier data:", updated);
 
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: updated, tallyProductSyncResults });
   } catch (err) {
     console.error("PATCH /api/suppliers/[id] error", err);
     if (err.name === "ValidationError") {

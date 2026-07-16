@@ -3717,63 +3717,8 @@ export async function POST(request) {
     }
 
     // Sync to Tally Prime 9 as a Sales Voucher if created from ODT Dashboard
-    if (body.orderSource === "ODT") {
-      try {
-        const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
-        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
-
-        // Dynamic Customer matching
-        let partyLedgerName = null;
-        try {
-          const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany);
-          partyLedgerName = findMatchingTallyLedger(tallyDebtors, identifiedUser, orderDoc);
-          console.log(`[Tally Sync] Resolved Customer party ledger: "${partyLedgerName}"`);
-        } catch (matchErr) {
-          console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
-        }
-
-        // Fetch product documents to resolve units
-        const productIds = orderDoc.items.map(it => it.product);
-        const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
-        const productMap = {};
-        productDocs.forEach(p => { productMap[p._id.toString()] = p; });
-
-        const xmlPayload = buildTallySalesVoucherXML(orderDoc, productMap, tallyCompany, identifiedUser, partyLedgerName);
-        console.log(`[Tally Sync] Syncing Sales Voucher for Order "${orderDoc.orderNumber}" to Tally at ${tallyUrl}`);
-        console.log("PRANALAIIIIIIIIIIIIIIIIIII - ", xmlPayload)
-        const tallyResponse = await fetch(tallyUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'text/xml',
-            'ngrok-skip-browser-warning': 'true'
-          },
-          body: xmlPayload
-        });
-
-        if (tallyResponse.ok) {
-          const responseText = await tallyResponse.text();
-          const parsed = parseTallyResponse(responseText);
-          if (parsed.success) {
-            console.log(`[Tally Sync] Sales Voucher "${orderDoc.orderNumber}" synced successfully to Tally.`);
-            await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: true, tallyError: null } });
-          } else {
-            console.error(`[Tally Sync] Tally error syncing Sales Voucher "${orderDoc.orderNumber}":`, parsed.error);
-            await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError: parsed.error } });
-          }
-        } else {
-          const tallyError = `Tally server responded with status ${tallyResponse.status}`;
-          console.error(`[Tally Sync] HTTP error syncing Sales Voucher "${orderDoc.orderNumber}":`, tallyError);
-          await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError } });
-        }
-      } catch (tallyErr) {
-        console.error(`[Tally Sync] Exception during Sales Voucher sync for Order "${orderDoc.orderNumber}":`, tallyErr.message);
-        try {
-          await Order.updateOne({ _id: orderDoc._id }, { $set: { tallySynced: false, tallyError: tallyErr.message } });
-        } catch (dbErr) {
-          console.error("[Tally Sync] Failed to update Tally error on Order document:", dbErr);
-        }
-      }
-    }
+    // NOTE: Tally order creation for ODT has been removed as requested.
+    // if (body.orderSource === "ODT") { ... }
 
     return json({
       success: true,
@@ -3829,7 +3774,7 @@ export async function GET(request) {
       let order = await Order.findOne({ orderNumber: orderNumberParam })
         .populate("user", "name email phone")
         .populate("supplier", "name")
-        .populate("items.product", "name price sku")
+        .populate("items.product", "name price sku isColdStorage")
         .lean();
         
       if (!order) {
@@ -3838,7 +3783,7 @@ export async function GET(request) {
         order = await VendorOrder.findOne({ orderNumber: orderNumberParam })
           .populate("user", "name email phone")
           .populate("supplier", "name")
-          .populate("items.product", "name price sku")
+          .populate("items.product", "name price sku isColdStorage")
           .lean();
           
         if (order) {
@@ -3864,7 +3809,7 @@ export async function GET(request) {
 
       query = safePopulateQuery(query, "user", "name email phone");
       query = safePopulateQuery(query, "supplier", "name");
-      query = safePopulateQuery(query, "items.product", "name price sku");
+      query = safePopulateQuery(query, "items.product", "name price sku isColdStorage");
       // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
       // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
       // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
@@ -3880,7 +3825,7 @@ export async function GET(request) {
         let voQuery = VendorOrder.findById(idParam);
         voQuery = safePopulateQuery(voQuery, "user", "name email phone");
         voQuery = safePopulateQuery(voQuery, "supplier", "name");
-        voQuery = safePopulateQuery(voQuery, "items.product", "name price sku");
+        voQuery = safePopulateQuery(voQuery, "items.product", "name price sku isColdStorage");
         
         order = await voQuery.lean();
         if (order) {
@@ -3974,7 +3919,7 @@ export async function GET(request) {
 
     query = safePopulateQuery(query, "user", "name email phone");
     query = safePopulateQuery(query, "supplier", "name");
-    query = safePopulateQuery(query, "items.product", "name price sku");
+    query = safePopulateQuery(query, "items.product", "name price sku isColdStorage");
     // query = safePopulateQuery(query, "department", "departmentName"); // Manual instead
     // query = safePopulateQuery(query, "departmentHistory.from", "departmentName"); // Manual instead
     // query = safePopulateQuery(query, "departmentHistory.to", "departmentName"); // Manual instead
@@ -4818,6 +4763,71 @@ export async function PATCH(request) {
     // 🔥 THE MARKETPLACE SETTLEMENT ENGINE: Settle for EVERY Supplier in the order
     const finalState = await Order.findById(idParam).lean();
     if (!finalState) return json({ success: false, error: "Order lost" }, 404);
+
+    // --- TALLY INTEGRATION FOR ART APPROVAL ---
+    // Trigger Tally sync only when ART approves the order (status transitions to "Packaging")
+    // and only if it hasn't been successfully synced already.
+    if (body.status === "Packaging" && order.status !== "Packaging" && finalState.tallySynced !== true) {
+      try {
+        const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
+
+        const CustomerModel = (await import("@/lib/db/models/customer")).default;
+        const identifiedUser = await CustomerModel.findById(finalState.user).lean();
+
+        let partyLedgerName = null;
+        if (identifiedUser) {
+          try {
+            const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany);
+            partyLedgerName = findMatchingTallyLedger(tallyDebtors, identifiedUser, finalState);
+            console.log(`[Tally Sync] Resolved Customer party ledger: "${partyLedgerName}"`);
+          } catch (matchErr) {
+            console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
+          }
+        }
+
+        const productIds = finalState.items.map(it => it.product);
+        const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
+        const productMap = {};
+        productDocs.forEach(p => { productMap[p._id.toString()] = p; });
+
+        const xmlPayload = buildTallySalesVoucherXML(finalState, productMap, tallyCompany, identifiedUser || {}, partyLedgerName);
+        console.log(`[Tally Sync - ART] Syncing Sales Voucher for Order "${finalState.orderNumber}" to Tally`);
+        
+        const tallyResponse = await fetch(tallyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: xmlPayload
+        });
+
+        if (tallyResponse.ok) {
+          const responseText = await tallyResponse.text();
+          const parsed = parseTallyResponse(responseText);
+          if (parsed.success) {
+            console.log(`[Tally Sync - ART] Sales Voucher "${finalState.orderNumber}" synced successfully to Tally.`);
+            await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: true, tallyError: null } });
+            finalState.tallySynced = true; // update memory state
+          } else {
+            console.error(`[Tally Sync - ART] Tally error:`, parsed.error);
+            await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: false, tallyError: parsed.error } });
+          }
+        } else {
+          const tallyError = `Tally server responded with status ${tallyResponse.status}`;
+          console.error(`[Tally Sync - ART] HTTP error:`, tallyError);
+          await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: false, tallyError } });
+        }
+      } catch (tallyErr) {
+        console.error(`[Tally Sync - ART] Exception:`, tallyErr.message);
+        try {
+          await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: false, tallyError: tallyErr.message } });
+        } catch (dbErr) {
+          console.error("[Tally Sync - ART] Failed to update Tally error:", dbErr);
+        }
+      }
+    }
 
     const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
     const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";

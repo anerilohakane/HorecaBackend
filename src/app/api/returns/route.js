@@ -35,7 +35,7 @@ export async function GET(request) {
       .populate("order", "orderId orderNumber totalAmount shippingAddress")
       .populate("requester", "name email address phone lat lng")
       .populate("supplier", "brand businessName")
-      .populate("items.product", "name sku")
+      .populate("items.product", "name sku price basePrice")
       .sort({ createdAt: -1 });
 
     return NextResponse.json({ data: returns }, { headers: corsHeaders });

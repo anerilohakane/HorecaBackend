@@ -195,6 +195,7 @@ export async function GET(request) {
     const q = url.searchParams.get("q");
     const brandId = url.searchParams.get("brandId");
     const branchId = url.searchParams.get("branchId");
+    const categoryId = url.searchParams.get("categoryId") || url.searchParams.get("category");
     const supplierId = url.searchParams.get("supplierId");
     const supplierBrand = url.searchParams.get("supplierBrand");
     const isActive = url.searchParams.get("isActive");
@@ -208,20 +209,27 @@ export async function GET(request) {
     if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
       const userId = user.id;
       if (userId) {
-        // 1. Get mapped products
-        const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
-        const mappedProductIds = mapping ? (mapping.products || []) : [];
+        // Fetch customer category dynamically (Default to C for safety)
+        const CustomerModel = mongoose.models.Customer || mongoose.model('Customer', new mongoose.Schema({}, {strict:false}));
+        const customerDoc = await CustomerModel.findById(userId).lean();
+        const customerCategory = customerDoc?.category || "C";
+
+        // ONLY enforce mapping restrictions for Category C customers
+        if (customerCategory === "C") {
+          // 1. Get mapped products
+          const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
+          const mappedProductIds = mapping ? (mapping.products || []) : [];
 
         // 2. Get frequently bought products from order history
         let frequentProductIds = [];
         try {
           const userObjectId = new mongoose.Types.ObjectId(userId);
           const frequentItems = await Order.aggregate([
-            { 
-              $match: { 
+            {
+              $match: {
                 user: userObjectId,
-                status: { $nin: ['cancelled', 'failed', 'returned'] } 
-              } 
+                status: { $nin: ['cancelled', 'failed', 'returned'] }
+              }
             },
             { $unwind: '$items' },
             {
@@ -236,14 +244,15 @@ export async function GET(request) {
           console.error("Failed to fetch frequent items for user:", e);
         }
 
-        if (mappedProductIds.length > 0) {
-          // Combine both (unique list)
-          const combinedIds = Array.from(new Set([
-            ...mappedProductIds.map(id => String(id)),
-            ...frequentProductIds.map(id => String(id))
-          ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
+          if (mappedProductIds.length > 0) {
+            // Combine both (unique list)
+            const combinedIds = Array.from(new Set([
+              ...mappedProductIds.map(id => String(id)),
+              ...frequentProductIds.map(id => String(id))
+            ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
 
-          filter._id = { $in: combinedIds };
+            filter._id = { $in: combinedIds };
+          }
         }
       }
     }
@@ -293,7 +302,7 @@ export async function GET(request) {
     if (supplierId) filter.supplierId = supplierId;
 
     if (supplierBrand) {
-      const matchingSuppliers = await Supplier.find({ 
+      const matchingSuppliers = await Supplier.find({
         $or: [
           { brand: supplierBrand },
           { businessName: supplierBrand },
@@ -320,6 +329,7 @@ export async function GET(request) {
     if (isActive === "true") filter.isActive = true;
     if (isActive === "false") filter.isActive = false;
     if (branchId) filter.branchId = branchId;
+    if (categoryId) filter.categoryId = categoryId;
 
     if (sku) {
       filter.$or = [{ sku }, { "variations.sku": sku }];
