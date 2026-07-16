@@ -4767,7 +4767,12 @@ export async function PATCH(request) {
     // --- TALLY INTEGRATION FOR ART APPROVAL ---
     // Trigger Tally sync only when ART approves the order (status transitions to "Packaging")
     // and only if it hasn't been successfully synced already.
-    if (body.status === "Packaging" && order.status !== "Packaging" && finalState.tallySynced !== true) {
+    const isArtApproval = body.departmentNotes && (
+      body.departmentNotes.includes("Order moved to SCM for Packaging") || 
+      body.departmentNotes.includes("Order approved by ART")
+    );
+
+    if (body.status === "Packaging" && order.status !== "Packaging" && isArtApproval && finalState.tallySynced !== true) {
       try {
         const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
         const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
