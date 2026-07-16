@@ -4773,7 +4773,7 @@ export async function PATCH(request) {
       body.departmentNotes.includes("Order approved by ART")
     );
 
-    if (body.status === "Packaging" && order.status !== "Packaging" && isArtApproval && finalState.tallySynced !== true) {
+    if (body.status === "Packaging" && isArtApproval && finalState.tallySynced !== true) {
       try {
         const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
         const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
