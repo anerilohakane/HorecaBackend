@@ -220,6 +220,14 @@ const OrderSchema = new Schema(
       enum: ["none", "pending_review", "merged", "cancelled", "ignored", "separate_valid"], 
       default: "none"
     },
+    tallySynced: {
+      type: Boolean,
+      default: false
+    },
+    tallyError: {
+      type: String,
+      default: null
+    },
     masterOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
     orderSource: { type: String, enum: ["Customer", "Vendor", "ODT", "Sales"], default: "Customer" },
     
