@@ -229,7 +229,7 @@ const OrderSchema = new Schema(
       default: null
     },
     masterOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
-    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT", "Sales"], default: "Customer" },
+    orderSource: { type: String, enum: ["Customer", "Vendor", "ODT", "Sales", "SCM"], default: "Customer" },
     
     // Links order to an approved price negotiation
     priceNegotiationId: { type: Schema.Types.ObjectId, ref: "PriceNegotiation" }
