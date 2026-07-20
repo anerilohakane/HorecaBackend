@@ -205,10 +205,17 @@ export async function GET(request) {
     const filter = {};
 
     const user = await getUserFromRequest(request);
+    const explicitCustomerId = url.searchParams.get("customerId");
     const showAll = url.searchParams.get("showAll") === "true";
-    if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
-      const userId = user.id;
-      if (userId) {
+
+    let userId = null;
+    if (explicitCustomerId) {
+      userId = explicitCustomerId;
+    } else if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
+      userId = user.id;
+    }
+
+    if (userId) {
         // Fetch customer category dynamically (Default to C for safety)
         const CustomerModel = mongoose.models.Customer || mongoose.model('Customer', new mongoose.Schema({}, {strict:false}));
         const customerDoc = await CustomerModel.findById(userId).lean();
