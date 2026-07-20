@@ -330,23 +330,39 @@ export async function POST(request) {
         try {
           // Find category name to pass to Tally as <PARENT>
           let categoryName = "Primary";
+          let categoryObjectId = null;
+
           if (prodData.category) {
-            const categoryDoc = await Category.findById(prodData.category).lean();
-            if (categoryDoc) categoryName = categoryDoc.name;
+            // Check if it's a valid MongoDB ObjectId
+            if (mongoose.Types.ObjectId.isValid(prodData.category) && String(new mongoose.Types.ObjectId(prodData.category)) === String(prodData.category)) {
+              // It's an ObjectId — look up the category doc
+              const categoryDoc = await Category.findById(prodData.category).lean();
+              if (categoryDoc) {
+                categoryName = categoryDoc.name;
+                categoryObjectId = categoryDoc._id;
+              }
+            } else {
+              // It's a Tally stock group name string (e.g., "Dairy Products")
+              categoryName = prodData.category;
+            }
           }
 
           // Map and save to MongoDB
           const productPayload = {
             supplierId: supplier._id,
-            categoryId: prodData.category,
+            categoryId: categoryObjectId || undefined,
+            categoryName: categoryName,
             name: prodData.productName,
             sku: prodData.productCode,
             unit: mapUOM(prodData.uom),
             price: Number(prodData.basePrice) || 0,
-            stockQuantity: 0,
+            basePrice: Number(prodData.basePrice) || 0,
+            assuredMargin: Number(prodData.assuredMargin) || 0,
             images: prodData.image
               ? [{ url: prodData.image, publicId: `prod_${Date.now()}` }]
               : [{ url: "https://res.cloudinary.com/dqfum2awz/image/upload/v1717900000/placeholder.png", publicId: "placeholder" }],
+            isColdStorage: prodData.isColdStorage === true || prodData.isColdStorage === 'Yes',
+            temperature: prodData.temperature || null,
             isActive: true
           };
 

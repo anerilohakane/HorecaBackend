@@ -14,9 +14,7 @@ const claimTemplateSchema = new Schema(
       enum: ["PLUS_MINUS", "PRIMARY", "SECONDARY", "REVERSE"],
       required: [true, "Claim Type is required"]
     },
-    fields: [
-      { type: String, required: true }
-    ],
+    headers: { type: mongoose.Schema.Types.Mixed },
     fileUrl: {
       type: String
     },
@@ -29,5 +27,10 @@ const claimTemplateSchema = new Schema(
   { timestamps: true }
 );
 
-const ClaimTemplate = mongoose.models.ClaimTemplate || mongoose.model("ClaimTemplate", claimTemplateSchema);
+// Force reload of schema in Next.js hot-reloading
+if (mongoose.models.ClaimTemplate) {
+  delete mongoose.models.ClaimTemplate;
+}
+
+const ClaimTemplate = mongoose.model("ClaimTemplate", claimTemplateSchema);
 export default ClaimTemplate;

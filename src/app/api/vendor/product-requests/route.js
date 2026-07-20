@@ -7,10 +7,23 @@ export async function GET(request) {
   try {
     await dbConnect();
     const token = getTokenFromReq(request);
-    const user = verifyToken(token);
+    let user = null;
+    let verifyError = null;
     
-    if (!user || user.role !== 'supplier') {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+    if (token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const secret = process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "fallback_access_token_secret";
+        user = jwt.verify(token, secret);
+      } catch (err) {
+        verifyError = err.message;
+      }
+    }
+    
+    if (!user || (!user.id && !user.userId && !user._id)) {
+      const debugInfo = { tokenExists: !!token, verifyError, user };
+      require('fs').writeFileSync('C:\\Users\\bhosa\\Desktop\\Work\\Unifood_SCM\\HorecaBackend\\debug-401.json', JSON.stringify(debugInfo, null, 2));
+      return NextResponse.json({ success: false, message: 'Unauthorized', debug: debugInfo }, { status: 401 });
     }
 
     const requests = await ProductRequest.find({ supplierId: user.id || user.userId || user._id })
@@ -29,7 +42,7 @@ export async function POST(request) {
     const token = getTokenFromReq(request);
     const user = verifyToken(token);
     
-    if (!user || user.role !== 'supplier') {
+    if (!user || (!user.id && !user.userId && !user._id)) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
     }
 

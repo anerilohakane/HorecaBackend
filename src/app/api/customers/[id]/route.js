@@ -34,11 +34,24 @@ export async function PATCH(req, { params }) {
     }
 
     if (mappedProducts !== undefined) {
-      await CustomerProductMapping.findOneAndUpdate(
-        { customer: id },
-        { products: mappedProducts },
-        { upsert: true, new: true }
-      );
+      let currentCategory = updates.category;
+      if (!currentCategory) {
+        const existingCustomer = await Customer.findById(id).lean();
+        if (!existingCustomer) {
+          return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 });
+        }
+        currentCategory = existingCustomer.category || "C";
+      }
+
+      if (currentCategory === "C") {
+        await CustomerProductMapping.findOneAndUpdate(
+          { customer: id },
+          { products: mappedProducts },
+          { upsert: true, new: true }
+        );
+      } else {
+        await CustomerProductMapping.findOneAndDelete({ customer: id });
+      }
     }
 
     let customer;

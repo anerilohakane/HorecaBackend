@@ -15,7 +15,7 @@ const poTemplateSchema = new Schema(
       required: [true, "Supplier is required"] 
     },
     headers: [
-      { type: String, required: true }
+      { type: Schema.Types.Mixed, required: true }
     ],
     status: {
       type: String,

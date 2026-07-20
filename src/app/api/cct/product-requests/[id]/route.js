@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/db/connect';
 import ProductRequest from '@/lib/db/models/ProductRequest';
 import Product from '@/lib/db/models/product';
+import Supplier from '@/lib/db/models/supplier';
 
 export async function PUT(request, context) {
   try {
@@ -29,6 +30,7 @@ export async function PUT(request, context) {
       const newProduct = new Product({
         supplierId: productReq.supplierId,
         name: productReq.name,
+        sku: productReq.sku, // Keep vendor's SKU if provided
         description: productReq.description,
         basePrice: productReq.price,
         price: finalPrice,
@@ -42,15 +44,35 @@ export async function PUT(request, context) {
           isMain: img.isMain || false
         })),
         categoryId: productReq.categoryId || "000000000000000000000000", // Fallback if missing
+        categoryName: productReq.categoryName,
         isActive: true,
       });
 
       await newProduct.save();
 
-      return NextResponse.json({ 
-        success: true, 
+      // Ensure the generated SKU and product details are mapped back to the supplier's products array
+      await Supplier.findByIdAndUpdate(
+        productReq.supplierId,
+        {
+          $push: {
+            products: {
+              productName: newProduct.name,
+              productCode: newProduct.sku,
+              uom: newProduct.unit,
+              basePrice: newProduct.basePrice || productReq.price,
+              assuredMargin: newProduct.assuredMargin || margin,
+              category: productReq.categoryName || "", // UI expects String Name for Tally stock groups
+              isColdStorage: isColdStorage,
+              image: (newProduct.images && newProduct.images.length > 0) ? newProduct.images[0].url : ""
+            }
+          }
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
         message: 'Product request approved and product created successfully',
-        data: productReq 
+        data: productReq
       });
 
     } else if (action === 'reject') {
@@ -58,10 +80,10 @@ export async function PUT(request, context) {
       productReq.cctRemarks = cctRemarks || 'Rejected by CCT';
       await productReq.save();
 
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: 'Product request rejected',
-        data: productReq 
+        data: productReq
       });
     } else {
       return NextResponse.json({ success: false, message: 'Invalid action' }, { status: 400 });

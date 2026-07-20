@@ -31,6 +31,15 @@ const ReturnItemSchema = new Schema(
     receivedQuantity: { type: Number, default: 0 },
     acceptedQuantity: { type: Number, default: 0 },
     rejectedQuantity: { type: Number, default: 0 },
+    
+    godownChecklist: {
+      qtyMatch: { type: Boolean, default: false },
+      actualReceivedQty: { type: Number },
+      packagingIntact: { type: Boolean, default: false },
+      expiryValid: { type: Boolean, default: false },
+      skuMatch: { type: Boolean, default: false },
+      temperatureOK: { type: Boolean, default: false }
+    },
 
     // Customer Verification fields
     images: { type: [String], default: [] },
