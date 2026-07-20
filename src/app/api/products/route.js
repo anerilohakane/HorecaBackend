@@ -234,7 +234,6 @@ export async function GET(request) {
           filter._id = { $in: combinedIds };
         }
       }
-    }
 
     if (q) {
       // Log search activity
