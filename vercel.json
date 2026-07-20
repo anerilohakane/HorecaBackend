@@ -1,8 +1,1 @@
-{
-    "crons": [
-        {
-            "path": "/api/cron/dispatch-art-to-scm",
-            "schedule": "30 13 * * *"
-        }
-    ]
-}
+{}
