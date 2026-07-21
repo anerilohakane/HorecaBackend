@@ -205,10 +205,17 @@ export async function GET(request) {
     const filter = {};
 
     const user = await getUserFromRequest(request);
+    const explicitCustomerId = url.searchParams.get("customerId");
     const showAll = url.searchParams.get("showAll") === "true";
-    if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
-      const userId = user.id;
-      if (userId) {
+
+    let userId = null;
+    if (explicitCustomerId) {
+      userId = explicitCustomerId;
+    } else if (!showAll && user && (!user.role || user.role === "customer" || user.role === "user")) {
+      userId = user.id;
+    }
+
+    if (userId) {
         // Fetch customer category dynamically (Default to C for safety)
         const CustomerModel = mongoose.models.Customer || mongoose.model('Customer', new mongoose.Schema({}, {strict:false}));
         const customerDoc = await CustomerModel.findById(userId).lean();
@@ -220,42 +227,13 @@ export async function GET(request) {
           const mapping = await CustomerProductMapping.findOne({ customer: userId }).lean();
           const mappedProductIds = mapping ? (mapping.products || []) : [];
 
-        // 2. Get frequently bought products from order history
-        let frequentProductIds = [];
-        try {
-          const userObjectId = new mongoose.Types.ObjectId(userId);
-          const frequentItems = await Order.aggregate([
-            {
-              $match: {
-                user: userObjectId,
-                status: { $nin: ['cancelled', 'failed', 'returned'] }
-              }
-            },
-            { $unwind: '$items' },
-            {
-              $group: {
-                _id: '$items.product',
-                count: { $sum: 1 }
-              }
-            }
-          ]);
-          frequentProductIds = frequentItems.map(item => item._id);
-        } catch (e) {
-          console.error("Failed to fetch frequent items for user:", e);
-        }
+          const combinedIds = Array.from(new Set([
+            ...mappedProductIds.map(id => String(id))
+          ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
 
-          if (mappedProductIds.length > 0) {
-            // Combine both (unique list)
-            const combinedIds = Array.from(new Set([
-              ...mappedProductIds.map(id => String(id)),
-              ...frequentProductIds.map(id => String(id))
-            ])).filter(isValidObjectIdString).map(id => new mongoose.Types.ObjectId(id));
-
-            filter._id = { $in: combinedIds };
-          }
+          filter._id = { $in: combinedIds };
         }
       }
-    }
 
     if (q) {
       // Log search activity

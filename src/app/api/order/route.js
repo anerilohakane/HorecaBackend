@@ -3717,7 +3717,8 @@ export async function POST(request) {
     }
 
     // Sync to Tally Prime 9 as a Sales Voucher if created from ODT Dashboard
-    // NOTE: Tally order creation for ODT has been removed as requested.
+    // NOTE: Tally order creation for ODT and Customers has been removed.
+    // ALL orders now wait for strict ART Approval in the PATCH route.
     // if (body.orderSource === "ODT") { ... }
 
     return json({
@@ -4660,6 +4661,14 @@ export async function PATCH(request) {
     }
 
     // Support saving items, subtotal, tax, total, department, departmentNotes, and departmentHistory in fallback path
+    if ("artApproved" in body) {
+      setData.artApproved = body.artApproved;
+      if (body.artApproved === true) {
+        setData.artApprovedAt = new Date();
+      } else {
+        setData.artApprovedAt = null;
+      }
+    }
     if ("items" in body && Array.isArray(body.items)) {
       setData.items = body.items;
     }
@@ -4767,7 +4776,12 @@ export async function PATCH(request) {
     // --- TALLY INTEGRATION FOR ART APPROVAL ---
     // Trigger Tally sync only when ART approves the order (status transitions to "Packaging")
     // and only if it hasn't been successfully synced already.
-    if (body.status === "Packaging" && order.status !== "Packaging" && finalState.tallySynced !== true) {
+    const isArtApproval = body.departmentNotes && (
+      body.departmentNotes.includes("Order moved to SCM for Packaging") || 
+      body.departmentNotes.includes("Order approved by ART")
+    );
+
+    if (body.status === "Packaging" && isArtApproval && finalState.tallySynced !== true) {
       try {
         const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
         const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';

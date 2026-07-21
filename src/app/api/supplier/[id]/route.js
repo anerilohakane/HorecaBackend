@@ -110,11 +110,13 @@ function parseTallyResponse(xmlString) {
 
   const createdMatch = xmlString.match(/<CREATED>(\d+)<\/CREATED>/);
   const alteredMatch = xmlString.match(/<ALTERED>(\d+)<\/ALTERED>/);
+  const deletedMatch = xmlString.match(/<DELETED>(\d+)<\/DELETED>/);
 
   const createdCount = createdMatch ? parseInt(createdMatch[1], 10) : 0;
   const alteredCount = alteredMatch ? parseInt(alteredMatch[1], 10) : 0;
+  const deletedCount = deletedMatch ? parseInt(deletedMatch[1], 10) : 0;
 
-  if (createdCount > 0 || alteredCount > 0) {
+  if (createdCount > 0 || alteredCount > 0 || deletedCount > 0) {
     return { success: true };
   }
 
@@ -128,6 +130,60 @@ function parseTallyResponse(xmlString) {
 
 function isValidObjectIdString(id) {
   return typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id);
+}
+
+// Build Tally XML to DELETE a Ledger (Supplier) by name
+function buildDeleteLedgerXML(ledgerName) {
+  const name = escapeXML(ledgerName);
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="${name}" ACTION="Delete">
+            <NAME>${name}</NAME>
+          </LEDGER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Build Tally XML to DELETE a Stock Item (Product) by name
+function buildDeleteStockItemXML(stockItemName) {
+  const name = escapeXML(stockItemName);
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKITEM NAME="${name}" ACTION="Delete">
+            <NAME>${name}</NAME>
+          </STOCKITEM>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
 }
 
 export async function GET(request, { params }) {
@@ -325,33 +381,108 @@ export async function DELETE(request, { params }) {
 
     if (!isValidObjectIdString(id)) return NextResponse.json({ success: false, error: "Invalid supplier id" }, { status: 400 });
 
-    // Try to find the supplier first to collect any document public_ids for deletion
-    const supplier = await Supplier.findById(id).select("-password").lean();
-    if (!supplier) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
+    const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+    let tallyLedgerDeleted = false;
+    let tallyLedgerError = null;
+    const tallyProductDeleteResults = [];
 
-    // If supplier has documents with cloudinary public ids, attempt to delete them
-    if (Array.isArray(supplier.documents) && supplier.documents.length > 0) {
-      console.log(`[DELETE] supplier has ${supplier.documents.length} document(s) — attempting cloudinary cleanup (if configured)`);
-      for (const doc of supplier.documents) {
-        const publicId = doc.publicId || doc.cloudinaryId || doc.id;
-        if (publicId && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-          try {
-            await cloudinary.v2.uploader.destroy(publicId, { resource_type: 'auto' });
-            console.log(`Deleted cloudinary asset ${publicId}`);
-          } catch (err) {
-            console.warn(`Failed to delete cloudinary asset ${publicId}:`, err?.message || err);
-            // don't fail supplier deletion if cloudinary deletion fails
+    // Try to find the supplier first
+    const supplier = await Supplier.findById(id).select("-password").lean();
+
+    // Delete supplier ledger from Tally (even if not in MongoDB, try by name from request)
+    if (supplier) {
+      const ledgerName = supplier.businessName || supplier.shopName || supplier.ownerName;
+      if (ledgerName) {
+        try {
+          const deleteXml = buildDeleteLedgerXML(ledgerName);
+          console.log(`[Tally DELETE] Deleting ledger "${ledgerName}" from Tally...`);
+          const tallyRes = await fetch(tallyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/xml', 'ngrok-skip-browser-warning': 'true' },
+            body: deleteXml
+          });
+          if (tallyRes.ok) {
+            const responseText = await tallyRes.text();
+            const parsed = parseTallyResponse(responseText);
+            if (parsed.success) {
+              tallyLedgerDeleted = true;
+              console.log(`[Tally DELETE] Ledger "${ledgerName}" deleted successfully`);
+            } else {
+              tallyLedgerError = parsed.error;
+              console.warn(`[Tally DELETE] Ledger "${ledgerName}" delete failed:`, parsed.error);
+            }
+          } else {
+            tallyLedgerError = `Tally server responded with status ${tallyRes.status}`;
           }
-        } else if (publicId) {
-          console.log(`Cloudinary publicId present (${publicId}) but CLOUDINARY_API_KEY/SECRET not configured — skipping delete`);
+        } catch (err) {
+          tallyLedgerError = err.message || String(err);
+          console.warn("[Tally DELETE] Ledger delete error:", tallyLedgerError);
         }
       }
+
+      // Delete associated products from Tally + MongoDB
+      const products = await Product.find({ supplierId: id }).lean();
+      if (products.length > 0) {
+        console.log(`[DELETE] Found ${products.length} products for supplier — deleting from Tally & MongoDB`);
+        for (const product of products) {
+          // Delete stock item from Tally
+          try {
+            const productDeleteXml = buildDeleteStockItemXML(product.name);
+            const prodRes = await fetch(tallyUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/xml', 'ngrok-skip-browser-warning': 'true' },
+              body: productDeleteXml
+            });
+            if (prodRes.ok) {
+              const responseText = await prodRes.text();
+              const parsed = parseTallyResponse(responseText);
+              tallyProductDeleteResults.push({
+                name: product.name,
+                deleted: parsed.success,
+                error: parsed.success ? null : parsed.error
+              });
+            } else {
+              tallyProductDeleteResults.push({ name: product.name, deleted: false, error: `HTTP ${prodRes.status}` });
+            }
+          } catch (err) {
+            tallyProductDeleteResults.push({ name: product.name, deleted: false, error: err.message });
+          }
+        }
+        // Delete all products from MongoDB
+        await Product.deleteMany({ supplierId: id });
+      }
+
+      // If supplier has documents with cloudinary public ids, attempt to delete them
+      if (Array.isArray(supplier.documents) && supplier.documents.length > 0) {
+        console.log(`[DELETE] supplier has ${supplier.documents.length} document(s) — attempting cloudinary cleanup (if configured)`);
+        for (const doc of supplier.documents) {
+          const publicId = doc.publicId || doc.cloudinaryId || doc.id;
+          if (publicId && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+            try {
+              await cloudinary.v2.uploader.destroy(publicId, { resource_type: 'auto' });
+              console.log(`Deleted cloudinary asset ${publicId}`);
+            } catch (err) {
+              console.warn(`Failed to delete cloudinary asset ${publicId}:`, err?.message || err);
+            }
+          }
+        }
+      }
+
+      // Delete supplier from MongoDB
+      const deleted = await Supplier.findByIdAndDelete(id).select("-password");
+      if (!deleted) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
+
+      return NextResponse.json({
+        success: true,
+        data: deleted,
+        tallyLedgerDeleted,
+        tallyLedgerError,
+        tallyProductDeleteResults
+      });
+    } else {
+      // Supplier not in MongoDB — still return success (may be Tally-only)
+      return NextResponse.json({ success: true, message: "Supplier not found in database (may be Tally-only)" });
     }
-
-    const deleted = await Supplier.findByIdAndDelete(id).select("-password");
-    if (!deleted) return NextResponse.json({ success: false, error: "Supplier not found" }, { status: 404 });
-
-    return NextResponse.json({ success: true, data: deleted });
   } catch (err) {
     console.error("DELETE /api/suppliers/[id] error", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

@@ -136,7 +136,8 @@ const variationSubSchema = new Schema({
 
 const productSchema = new Schema({
   supplierId: { type: Schema.Types.ObjectId, required: [true, "Supplier ID is required"], ref: "Supplier" },
-  categoryId: { type: Schema.Types.ObjectId, ref: "Brand", required: [true, "Category ID is required"] },
+  categoryId: { type: Schema.Types.ObjectId, ref: "Brand" },
+  categoryName: { type: String, trim: true },
   subcategoryId: { type: Schema.Types.ObjectId, ref: "Brand" },
   name: { type: String, required: [true, "Product name is required"], trim: true, index: true },
   description: { type: String, trim: true },
@@ -145,7 +146,7 @@ const productSchema = new Schema({
   price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
   stockQuantity: { type: Number, default: 0, min: [0, "Stock quantity cannot be negative"] },
-  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "Kg", "Gram", "Liter", "Ml", "Piece", "Box", "Dozen", "Pack", "Ton"], default: "Kg" },
+  unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "pack", "ton", "Kg", "Gram", "Liter", "Ml", "Piece", "Box", "Dozen", "Pack", "Ton", "Nos", "Ltr"], default: "Kg" },
   images: {
     type: [imageSubSchema],
     default: []
