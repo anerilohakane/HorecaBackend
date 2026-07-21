@@ -4661,6 +4661,14 @@ export async function PATCH(request) {
     }
 
     // Support saving items, subtotal, tax, total, department, departmentNotes, and departmentHistory in fallback path
+    if ("artApproved" in body) {
+      setData.artApproved = body.artApproved;
+      if (body.artApproved === true) {
+        setData.artApprovedAt = new Date();
+      } else {
+        setData.artApprovedAt = null;
+      }
+    }
     if ("items" in body && Array.isArray(body.items)) {
       setData.items = body.items;
     }

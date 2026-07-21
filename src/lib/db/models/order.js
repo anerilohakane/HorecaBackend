@@ -184,6 +184,8 @@ const OrderSchema = new Schema(
     // lifecycle
     status: { type: String, enum: ORDER_STATUSES, default: "pending" },
     department: { type: Schema.Types.ObjectId, ref: "Department" },
+    artApproved: { type: Boolean, default: false },
+    artApprovedAt: { type: Date },
 
 
 
