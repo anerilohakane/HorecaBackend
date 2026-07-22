@@ -113,6 +113,24 @@ export async function PATCH(request, { params }) {
     if (body.delivery) order.delivery = body.delivery;
     if (body.notes) order.notes = body.notes;
 
+    // Update items if provided
+    if (body.items !== undefined) {
+      if (Array.isArray(body.items) && body.items.length === 0) {
+        order.items = [];
+        order.totalAmount = 0;
+        order.status = 'cancelled';
+      } else if (Array.isArray(body.items)) {
+        order.items = body.items;
+        if (body.totalAmount !== undefined) {
+          order.totalAmount = body.totalAmount;
+        } else {
+          // Fallback calculation
+          order.totalAmount = body.items.reduce((sum, item) => sum + (item.quantity * (item.unitPrice || item.price || 0)), 0);
+        }
+      }
+      order.markModified("items");
+    }
+
     // Use markModified if needed for mixed types
     if (body.invoice) order.markModified("invoice");
     if (body.payment) order.markModified("payment");
