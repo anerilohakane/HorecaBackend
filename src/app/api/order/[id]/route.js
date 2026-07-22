@@ -107,6 +107,9 @@ export async function PATCH(request, { params }) {
     if (body.status) order.status = body.status;
     if (body.invoice) order.invoice = body.invoice;
     if (body.payment) order.payment = body.payment;
+    if (body.cancellationReason !== undefined) order.cancellationReason = body.cancellationReason;
+    if (body.cancelledBy !== undefined) order.cancelledBy = body.cancelledBy;
+    if (body.departmentNotes !== undefined) order.departmentNotes = body.departmentNotes;
     
     // We can also allow dynamic updates of arbitrary fields if sent
     if (body.shippingAddress) order.shippingAddress = body.shippingAddress;
