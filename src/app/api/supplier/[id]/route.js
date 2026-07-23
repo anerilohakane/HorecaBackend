@@ -242,6 +242,14 @@ export async function PATCH(request, { params }) {
         resolvedBrandIds.push(brnd._id);
       }
       body.brandIds = resolvedBrandIds;
+    // Sanitize ObjectId fields to null if empty or invalid to prevent BSONError / CastError
+    const objectIdFields = ["claimTemplateId", "poTemplateId", "godownIncharge", "verifiedBy"];
+    for (const field of objectIdFields) {
+      if (field in body) {
+        if (!body[field] || !mongoose.Types.ObjectId.isValid(body[field])) {
+          body[field] = null;
+        }
+      }
     }
 
     const updated = await Supplier.findByIdAndUpdate(id, { $set: body }, { new: true, runValidators: true, context: "query" }).select("-password");

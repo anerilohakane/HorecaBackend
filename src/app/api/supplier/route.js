@@ -268,8 +268,14 @@ export async function POST(request) {
     }
 
     const supplierPayload = { ...body };
-    if (!supplierPayload.poTemplateId) delete supplierPayload.poTemplateId;
-    if (!supplierPayload.claimTemplateId) delete supplierPayload.claimTemplateId;
+    const objectIdFields = ["poTemplateId", "claimTemplateId", "godownIncharge", "verifiedBy"];
+    for (const field of objectIdFields) {
+      if (field in supplierPayload) {
+        if (!supplierPayload[field] || !mongoose.Types.ObjectId.isValid(supplierPayload[field])) {
+          delete supplierPayload[field];
+        }
+      }
+    }
 
     // Handle multiple brands
     const resolvedBrandIds = [];
