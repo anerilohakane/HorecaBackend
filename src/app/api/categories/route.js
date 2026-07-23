@@ -58,13 +58,13 @@ function buildTallyXML(name, parentName) {
   const safeParent = parentName ? escapeXML(parentName) : null;
 
   const tallyMessage = safeParent
-    ? `<STOCKGROUP NAME="${safeName}" ACTION="Create">
+    ? `<STOCKCATEGORY NAME="${safeName}" ACTION="Create">
         <NAME>${safeName}</NAME>
         <PARENT>${safeParent}</PARENT>
-      </STOCKGROUP>`
-    : `<STOCKGROUP NAME="${safeName}" ACTION="Create">
+      </STOCKCATEGORY>`
+    : `<STOCKCATEGORY NAME="${safeName}" ACTION="Create">
         <NAME>${safeName}</NAME>
-      </STOCKGROUP>`;
+      </STOCKCATEGORY>`;
 
   return `<ENVELOPE>
   <HEADER>
