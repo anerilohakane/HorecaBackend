@@ -66,8 +66,11 @@ const supplierSchema = new Schema(
     }],
 
     termsAndConditions: [{
-      category: { type: String, required: true },
-      terms: { type: String, required: true }
+      category: { type: String, default: "General" },
+      terms: { type: String },
+      expiryDate: { type: Date },
+      documentUrl: { type: String },
+      documentName: { type: String }
     }],
 
 

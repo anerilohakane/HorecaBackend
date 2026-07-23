@@ -107,11 +107,35 @@ export async function PATCH(request, { params }) {
     if (body.status) order.status = body.status;
     if (body.invoice) order.invoice = body.invoice;
     if (body.payment) order.payment = body.payment;
+    if (body.cancellationReason !== undefined) order.cancellationReason = body.cancellationReason;
+    if (body.cancelledBy !== undefined) order.cancelledBy = body.cancelledBy;
+    if (body.departmentNotes !== undefined) order.departmentNotes = body.departmentNotes;
     
     // We can also allow dynamic updates of arbitrary fields if sent
     if (body.shippingAddress) order.shippingAddress = body.shippingAddress;
     if (body.delivery) order.delivery = body.delivery;
     if (body.notes) order.notes = body.notes;
+
+    // Update items if provided
+    if (body.items !== undefined) {
+      if (Array.isArray(body.items) && body.items.length === 0) {
+        order.items = [];
+        order.totalAmount = 0;
+        order.subtotal = 0;
+        order.gstAmount = 0;
+        order.total = 0;
+        order.status = 'cancelled';
+      } else if (Array.isArray(body.items)) {
+        order.items = body.items;
+        if (body.totalAmount !== undefined) order.totalAmount = body.totalAmount;
+        if (body.subtotal !== undefined) order.subtotal = body.subtotal;
+        if (body.gstAmount !== undefined) order.gstAmount = body.gstAmount;
+        if (body.total !== undefined) order.total = body.total;
+        if (body.movDeliveryCharge !== undefined) order.movDeliveryCharge = body.movDeliveryCharge;
+        if (body.shippingCharges !== undefined) order.shippingCharges = body.shippingCharges;
+      }
+      order.markModified("items");
+    }
 
     // Use markModified if needed for mixed types
     if (body.invoice) order.markModified("invoice");
