@@ -242,6 +242,8 @@ export async function PATCH(request, { params }) {
         resolvedBrandIds.push(brnd._id);
       }
       body.brandIds = resolvedBrandIds;
+    }
+
     // Sanitize ObjectId fields to null if empty or invalid to prevent BSONError / CastError
     const objectIdFields = ["claimTemplateId", "poTemplateId", "godownIncharge", "verifiedBy"];
     for (const field of objectIdFields) {
