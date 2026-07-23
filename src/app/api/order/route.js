@@ -3370,12 +3370,27 @@ export async function POST(request) {
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
 
-    } else if (paymentMethod === "wallet") {
-      // 🔹 Wallet/Points payment
-      // DO NOT DEDUCT HERE. The 'Final Debit' at the end of the function handles it securely.
+    } else if (paymentMethod === "advance" || paymentMethod === "advance_payment" || paymentMethod === "wallet") {
+      // 🔹 Advance Payment / Wallet logic
+      const availableAdvance = Number(identifiedUser.advanceBalance || 0);
+      if (availableAdvance < total) {
+        return json({
+          success: false,
+          error: "INSUFFICIENT_ADVANCE_BALANCE",
+          message: `Insufficient Advance Payment Balance. Available: ₹${availableAdvance.toLocaleString('en-IN')}, Required: ₹${total.toLocaleString('en-IN')}. Please choose another payment method or top up advance balance.`,
+          availableBalance: availableAdvance,
+          requiredTotal: total
+        }, 400);
+      }
+
+      // Deduct advance balance
+      identifiedUser.advanceBalance = Math.max(0, availableAdvance - total);
+      await identifiedUser.save();
+
+      paymentMethod = "advance";
       paymentStatus = "paid";
       paidAt = new Date();
-      // transactionId will be set after debit is confirmed at the finish line
+      transactionId = `ADV-${Date.now()}`;
     } else {
       // 🔹 Online payment (UPI, card, netbanking, etc.)
       //  - transactionId is required

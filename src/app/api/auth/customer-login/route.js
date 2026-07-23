@@ -73,7 +73,8 @@ export async function POST(req) {
           email: user.email,
           name: user.name,
           businessName: user.businessName,
-          category: user.category
+          category: user.category,
+          advanceBalance: user.advanceBalance || 0
         },
       },
     });
