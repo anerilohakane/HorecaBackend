@@ -3265,6 +3265,8 @@ export async function POST(request) {
         supplier: product.supplierId || product.supplier || null,
         image: it.image || product.image || null, // ✅ Added image persistence
         attributes: it.attributes || null,
+        isColdStorageRequired: Boolean(it.isColdStorageRequired ?? product.isColdStorage),
+        requestedTemperature: it.requestedTemperature || product.temperature || null,
       });
     }
 
@@ -3485,6 +3487,13 @@ export async function POST(request) {
       // MOV tracking fields
       movApplied,
       movDeliveryCharge,
+
+      // Cold storage requirement for logistics fleet assignment
+      coldStorageRequirement: {
+        isRequired: Boolean(body.coldStorageRequirement?.isRequired ?? builtItems.some(i => i.isColdStorageRequired)),
+        requestedTemperature: body.coldStorageRequirement?.requestedTemperature || builtItems.find(i => i.requestedTemperature)?.requestedTemperature || null,
+        details: body.coldStorageRequirement?.details || null,
+      },
 
       status: body.status || "pending",
       placedAt: new Date(),
