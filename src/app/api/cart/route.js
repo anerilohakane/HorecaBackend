@@ -126,6 +126,8 @@ export async function GET(req) {
             "/images/placeholder-product.png",
           stockQuantity: p?.stockQuantity,
           categoryPrices: p?.categoryPrices,
+          isColdStorage: Boolean(p?.isColdStorage),
+          temperature: p?.temperature || null,
         },
       };
     });
