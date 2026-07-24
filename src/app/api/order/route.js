@@ -4122,19 +4122,25 @@ export async function PATCH(request) {
       // Allowed statuses for cancellation
       const allowedAutoCancel = [
         "pending",
-        "pending",
         "confirmed",
+        "confirm",
+        "in progress",
+        "in_progress",
         "processing",
         "packed",
+        "packaging",
+        "flagged",
+        "art",
+        "odt"
       ];
 
-      if (!allowedAutoCancel.includes(curStatus)) {
+      const curStatusNormalized = (curStatus || "").toLowerCase();
+      if (!allowedAutoCancel.includes(curStatusNormalized)) {
         // Disallow cancellation from out_for_delivery, shipped, delivered, etc.
         return json(
           {
             success: false,
-            error: `Order cannot be cancelled from status "${order.status
-              }". Allowed statuses: ${allowedAutoCancel.join(", ")}.`,
+            error: `Order cannot be cancelled from status "${order.status}". Allowed statuses: ${allowedAutoCancel.join(", ")}.`,
           },
           400
         );
@@ -4267,6 +4273,14 @@ export async function PATCH(request) {
           })
           .filter(Boolean);
         if (restockPromises.length) await Promise.all(restockPromises);
+      }
+
+      // 🔄 AUTOMATIC ACCOUNT BALANCE REFUND FOR CN OR ADVANCE PAYMENT
+      try {
+        const { refundOrderPaymentIfCancelled } = await import("@/lib/services/duplicateOrderService");
+        await refundOrderPaymentIfCancelled(order._id);
+      } catch (refundErr) {
+        console.error("Failed to auto-refund cancelled order in cancellation flow:", refundErr);
       }
 
       // trigger refund worker / gateway asynchronously if needed
@@ -4534,8 +4548,6 @@ export async function PATCH(request) {
     // Prevent direct setting of cancellation/return statuses via fallback path
     if ("status" in body) {
       const prohibitedDirect = [
-        "cancelled",
-        "canceled",
         "returned",
         "return_requested",
       ];
@@ -4543,7 +4555,7 @@ export async function PATCH(request) {
         return json(
           {
             success: false,
-            error: `Please use the designated cancellation/return flow to set status "${body.status}".`,
+            error: `Please use the designated return flow to set status "${body.status}".`,
           },
           400
         );
