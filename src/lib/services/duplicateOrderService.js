@@ -401,7 +401,7 @@ export async function refundOrderPaymentIfCancelled(orderOrId) {
       return { success: true, message: "Order payment was already refunded" };
     }
 
-    const pMethod = (order.payment?.method || "").toString().toLowerCase();
+    const pMethod = (order.payment?.method || "").toString().toLowerCase().trim();
     const refundAmount = Number(order.total || order.totalAmount || 0);
     const custId = order.user?._id || order.user || order.customer;
 
@@ -410,11 +410,13 @@ export async function refundOrderPaymentIfCancelled(orderOrId) {
     }
 
     let refundType = null;
+    const cnMethods = ["cn", "credit_note", "credit note", "cn_payment", "cn payment"];
+    const advanceMethods = ["advance", "advance_payment", "advance payment", "wallet", "advance_wallet"];
 
-    if (pMethod === "cn" || pMethod === "credit_note") {
+    if (cnMethods.includes(pMethod)) {
       refundType = "CN Balance";
       await Customer.findByIdAndUpdate(custId, { $inc: { cnBalance: refundAmount } });
-    } else if (pMethod === "advance" || pMethod === "advance_payment" || pMethod === "wallet") {
+    } else if (advanceMethods.includes(pMethod)) {
       refundType = "Advance Balance";
       await Customer.findByIdAndUpdate(custId, { $inc: { advanceBalance: refundAmount } });
     }

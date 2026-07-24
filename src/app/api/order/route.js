@@ -4902,6 +4902,17 @@ export async function PATCH(request) {
     const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
     const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
 
+    // 🔄 AUTOMATIC ACCOUNT BALANCE REFUND IF ORDER IS CANCELLED OR REJECTED
+    const finalStatusLower = (finalState.status || "").toLowerCase();
+    if (finalStatusLower === "cancelled" || finalStatusLower === "canceled" || finalStatusLower === "rejected") {
+      try {
+        const { refundOrderPaymentIfCancelled } = await import("@/lib/services/duplicateOrderService");
+        await refundOrderPaymentIfCancelled(finalState._id);
+      } catch (refundErr) {
+        console.error("Failed to auto-refund cancelled/rejected order in PATCH /api/order:", refundErr);
+      }
+    }
+
     console.log(`[PATCH SETTLEMENT] Flow: Update Trigger | Del: ${isDelivered} | Paid: ${isPaid}`);
 
     await logger({
