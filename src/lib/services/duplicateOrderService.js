@@ -391,8 +391,9 @@ export async function refundOrderPaymentIfCancelled(orderOrId) {
     if (!order) return { success: false, error: "Order not found" };
 
     const status = (order.status || "").toString().toLowerCase();
-    if (status !== "cancelled" && status !== "canceled") {
-      return { success: false, message: "Order is not cancelled" };
+    const isCancelledOrRejected = ["cancelled", "canceled", "rejected"].includes(status);
+    if (!isCancelledOrRejected) {
+      return { success: false, message: "Order is not cancelled or rejected" };
     }
 
     // Guard against double refunding

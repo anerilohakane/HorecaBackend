@@ -143,13 +143,14 @@ export async function PATCH(request, { params }) {
 
     await order.save();
 
-    // 🔄 AUTOMATIC ACCCOUNT BALANCE REFUND IF ORDER IS CANCELLED
-    if ((order.status || "").toLowerCase() === "cancelled" || (order.status || "").toLowerCase() === "canceled") {
+    // 🔄 AUTOMATIC ACCCOUNT BALANCE REFUND IF ORDER IS CANCELLED OR REJECTED
+    const orderStatusLower = (order.status || "").toLowerCase();
+    if (orderStatusLower === "cancelled" || orderStatusLower === "canceled" || orderStatusLower === "rejected") {
       try {
         const { refundOrderPaymentIfCancelled } = await import("@/lib/services/duplicateOrderService");
         await refundOrderPaymentIfCancelled(order._id);
       } catch (refundErr) {
-        console.error("Failed to auto-refund cancelled order in PATCH handler:", refundErr);
+        console.error("Failed to auto-refund cancelled/rejected order in PATCH handler:", refundErr);
       }
     }
 
