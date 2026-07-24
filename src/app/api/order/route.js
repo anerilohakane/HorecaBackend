@@ -3364,15 +3364,17 @@ export async function POST(request) {
       // no transactionId required, no paidAt at creation
     } else if (isCN) {
       // 🔹 Credit Note (CN) rules: Check customer's available CN Balance
-      let availableCN = Number(identifiedUser.cnBalance || 0);
-      if (availableCN === 0 && userModel === "Customer") {
+      let customerDoc = await Customer.findById(identifiedUser._id);
+      let availableCN = Number(customerDoc?.cnBalance || identifiedUser.cnBalance || 0);
+
+      if (availableCN === 0) {
         try {
           const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
           const custCNs = await CustomerCreditNote.find({ customer: identifiedUser._id });
           const sumCNs = custCNs.reduce((s, c) => s + (c.amount || 0), 0);
           if (sumCNs > 0) {
             availableCN = sumCNs;
-            identifiedUser.cnBalance = sumCNs;
+            await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { cnBalance: sumCNs } });
           }
         } catch (e) {
           console.error("CN balance auto-reconciliation error during order creation:", e);
@@ -3389,9 +3391,10 @@ export async function POST(request) {
         }, 400);
       }
 
-      // Deduct CN balance
-      identifiedUser.cnBalance = Math.max(0, availableCN - total);
-      await identifiedUser.save();
+      // Deduct CN balance directly in MongoDB
+      const newCnBalance = Math.max(0, availableCN - total);
+      await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { cnBalance: newCnBalance } });
+      identifiedUser.cnBalance = newCnBalance;
 
       paymentMethod = "cn";
       paymentStatus = "paid";
@@ -3399,7 +3402,9 @@ export async function POST(request) {
       transactionId = `CN-${Date.now()}`;
     } else if (paymentMethod === "advance" || paymentMethod === "advance_payment" || paymentMethod === "wallet") {
       // 🔹 Advance Payment / Wallet logic
-      const availableAdvance = Number(identifiedUser.advanceBalance || 0);
+      let customerDoc = await Customer.findById(identifiedUser._id);
+      const availableAdvance = Number(customerDoc?.advanceBalance || identifiedUser.advanceBalance || 0);
+
       if (availableAdvance < total) {
         return json({
           success: false,
@@ -3410,9 +3415,10 @@ export async function POST(request) {
         }, 400);
       }
 
-      // Deduct advance balance
-      identifiedUser.advanceBalance = Math.max(0, availableAdvance - total);
-      await identifiedUser.save();
+      // Deduct advance balance directly in MongoDB
+      const newAdvanceBalance = Math.max(0, availableAdvance - total);
+      await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { advanceBalance: newAdvanceBalance } });
+      identifiedUser.advanceBalance = newAdvanceBalance;
 
       paymentMethod = "advance";
       paymentStatus = "paid";
