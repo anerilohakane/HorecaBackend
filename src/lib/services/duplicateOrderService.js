@@ -268,13 +268,16 @@ export async function resolveDuplicateGroup(groupId, action, targetOrderId = nul
         { $set: { duplicateStatus: "merged" } }
       );
 
-      // Cancel duplicate shadow orders and trigger restocking
+      // Cancel duplicate shadow orders, refund CN/Advance balance, and trigger restocking
       const shadowOrders = orders.filter(o => o.isDuplicateOrder === true);
       for (const shadow of shadowOrders) {
         await Order.updateOne(
           { _id: shadow._id },
           { $set: { status: "cancelled", cancellationReason: "Merged as duplicate order" } }
         );
+
+        // Refund CN or Advance Payment if customer paid using account balance
+        await refundOrderPaymentIfCancelled(shadow._id);
 
         // Restock items of cancelled shadow order
         const restockPromises = (shadow.items || [])
@@ -292,7 +295,7 @@ export async function resolveDuplicateGroup(groupId, action, targetOrderId = nul
         if (restockPromises.length) await Promise.all(restockPromises);
       }
 
-      return { success: true, message: "Duplicates merged successfully. Shadow orders cancelled and inventory restocked." };
+      return { success: true, message: "Duplicates merged successfully. Shadow orders cancelled, payment refunded if applicable, and inventory restocked." };
     } 
     
     if (action === "ignore" || action === "mark_separate") {
@@ -333,6 +336,9 @@ export async function resolveDuplicateGroup(groupId, action, targetOrderId = nul
         }
       );
 
+      // Refund CN or Advance Payment if customer paid using account balance
+      await refundOrderPaymentIfCancelled(parsedOrderId);
+
       // Restock items
       const restockPromises = (orderToCancel.items || [])
         .map((it) => {
@@ -361,12 +367,77 @@ export async function resolveDuplicateGroup(groupId, action, targetOrderId = nul
         );
       }
 
-      return { success: true, message: "Shadow duplicate cancelled successfully and inventory restocked." };
+      return { success: true, message: "Shadow duplicate cancelled successfully, payment refunded if applicable, and inventory restocked." };
     }
 
     return { success: false, error: "Invalid action type" };
   } catch (err) {
     console.error("[RESOLVE ERROR]", err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Refunds order payment to customer's CN Balance or Advance Balance if order is cancelled.
+ */
+export async function refundOrderPaymentIfCancelled(orderOrId) {
+  try {
+    const Customer = (await import("@/lib/db/models/customer")).default;
+
+    let order = orderOrId;
+    if (typeof order === "string" || order instanceof mongoose.Types.ObjectId) {
+      order = await Order.findById(order);
+    }
+    if (!order) return { success: false, error: "Order not found" };
+
+    const status = (order.status || "").toString().toLowerCase();
+    if (status !== "cancelled" && status !== "canceled") {
+      return { success: false, message: "Order is not cancelled" };
+    }
+
+    // Guard against double refunding
+    if (order.metadata?.refundedForCancellation || order.payment?.status === "refunded") {
+      return { success: true, message: "Order payment was already refunded" };
+    }
+
+    const pMethod = (order.payment?.method || "").toString().toLowerCase();
+    const refundAmount = Number(order.total || order.totalAmount || 0);
+    const custId = order.user?._id || order.user || order.customer;
+
+    if (!custId || refundAmount <= 0) {
+      return { success: true, message: "No refundable amount or customer ID found" };
+    }
+
+    let refundType = null;
+
+    if (pMethod === "cn" || pMethod === "credit_note") {
+      refundType = "CN Balance";
+      await Customer.findByIdAndUpdate(custId, { $inc: { cnBalance: refundAmount } });
+    } else if (pMethod === "advance" || pMethod === "advance_payment" || pMethod === "wallet") {
+      refundType = "Advance Balance";
+      await Customer.findByIdAndUpdate(custId, { $inc: { advanceBalance: refundAmount } });
+    }
+
+    if (refundType) {
+      await Order.updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            "payment.status": "refunded",
+            "payment.refundedAt": new Date(),
+            "metadata.refundedForCancellation": true,
+            "metadata.refundedAmount": refundAmount,
+            "metadata.refundType": refundType
+          }
+        }
+      );
+      console.log(`✅ [REFUND SUCCESS] ₹${refundAmount} refunded to ${refundType} for cancelled order ${order._id}`);
+      return { success: true, refunded: true, refundType, amount: refundAmount };
+    }
+
+    return { success: true, refunded: false, message: "Payment method not subject to automatic account balance refund" };
+  } catch (err) {
+    console.error("🔥 [REFUND ERROR]", err);
     return { success: false, error: err.message };
   }
 }

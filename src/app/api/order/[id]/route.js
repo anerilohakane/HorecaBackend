@@ -143,6 +143,16 @@ export async function PATCH(request, { params }) {
 
     await order.save();
 
+    // 🔄 AUTOMATIC ACCCOUNT BALANCE REFUND IF ORDER IS CANCELLED
+    if ((order.status || "").toLowerCase() === "cancelled" || (order.status || "").toLowerCase() === "canceled") {
+      try {
+        const { refundOrderPaymentIfCancelled } = await import("@/lib/services/duplicateOrderService");
+        await refundOrderPaymentIfCancelled(order._id);
+      } catch (refundErr) {
+        console.error("Failed to auto-refund cancelled order in PATCH handler:", refundErr);
+      }
+    }
+
     // INTERCEPT VENDOR INVOICE SUBMISSION: Update PO timeline only (do not complete yet)
     // Only intercept if it has an orderNumber (which POs have)
     if (body.invoice && body.invoice.invoiceNumber && order.orderNumber) {
