@@ -22,8 +22,7 @@ export async function GET(request) {
       .populate("assignedArtMember", "name email")
       .sort({ createdAt: -1 });
 
-    // 🔄 Auto-correct CN amounts to exact product prices and reconcile customer cnBalance
-    const custIdSet = new Set();
+    // 🔄 Auto-correct CN amounts to exact product prices if needed
     for (const note of notes) {
       if (note.items && note.items.length > 0) {
         const itemSum = note.items.reduce((sum, item) => sum + (Number(item.amount) || (Number(item.quantity || 0) * Number(item.rate || 0))), 0);
@@ -31,16 +30,6 @@ export async function GET(request) {
           note.amount = itemSum;
           await CustomerCreditNote.findByIdAndUpdate(note._id, { $set: { amount: itemSum } });
         }
-      }
-
-      if (note.customer && note.customer._id && !custIdSet.has(note.customer._id.toString())) {
-        const custId = note.customer._id;
-        custIdSet.add(custId.toString());
-        const allCustCNs = await CustomerCreditNote.find({ customer: custId });
-        const totalCnSum = allCustCNs.reduce((s, c) => s + (c.amount || 0), 0);
-
-        await Customer.findByIdAndUpdate(custId, { $set: { cnBalance: totalCnSum } });
-        note.customer.cnBalance = totalCnSum;
       }
     }
 

@@ -119,59 +119,28 @@ export async function GET(req, { params }) {
     const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
     customer.mappedProducts = mapping ? (mapping.products || []) : [];
 
-    // 🔄 Auto-reconcile & correct CN amounts to exact product prices, then sync customer cnBalance
-    try {
-      const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
-      const ReturnRequest = (await import("@/lib/db/models/returnRequest")).default || (await import("@/lib/db/models/returnRequest"));
-      const Order = (await import("@/lib/db/models/order")).default || (await import("@/lib/db/models/order"));
-      
-      const custCNs = await CustomerCreditNote.find({ customer: id });
-      let realTotalCnSum = 0;
+    // Ensure customer.cnBalance is initialized if it's undefined or null
+    if (typeof customer.cnBalance !== 'number') {
+      try {
+        const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+        const Order = (await import("@/lib/db/models/order")).default || (await import("@/lib/db/models/order"));
+        
+        const custCNs = await CustomerCreditNote.find({ customer: id });
+        const totalCnSum = custCNs.reduce((sum, cn) => sum + Number(cn.amount || 0), 0);
 
-      for (const cn of custCNs) {
-        let currentCnAmount = cn.amount || 0;
+        const cnOrders = await Order.find({ 
+          $or: [{ user: id }, { customer: id }], 
+          "payment.method": { $in: ["cn", "credit_note"] },
+          status: { $ne: "cancelled" }
+        });
+        const totalUsedCN = cnOrders.reduce((sum, ord) => sum + Number(ord.total || 0), 0);
 
-        if (cn.items && cn.items.length > 0) {
-          const itemSum = cn.items.reduce((s, i) => s + (Number(i.amount) || (Number(i.quantity || 0) * Number(i.rate || 0))), 0);
-          if (itemSum > 0 && Math.abs(currentCnAmount - itemSum) > 0.01) {
-            currentCnAmount = itemSum;
-            await CustomerCreditNote.findByIdAndUpdate(cn._id, { $set: { amount: itemSum } });
-          }
-        } else if (cn.returnRequest) {
-          const retReq = await ReturnRequest.findById(cn.returnRequest).populate("order");
-          if (retReq && retReq.order && retReq.items) {
-            const ord = retReq.order;
-            let exactSum = 0;
-            const freshItems = [];
-            for (const rItem of retReq.items) {
-              const finalQty = rItem.approvedQuantity || rItem.requestedReturnQty || rItem.quantity || 0;
-              const oItem = ord.items?.find(i => String(i.product?._id || i.product) === String(rItem.product?._id || rItem.product));
-              if (oItem && finalQty > 0) {
-                const uPrice = Number(oItem.unitPrice || oItem.price || oItem.basePrice || 0);
-                const itemTotal = finalQty * uPrice;
-                exactSum += itemTotal;
-                freshItems.push({
-                  description: oItem.name,
-                  hsnSac: oItem.sku || "",
-                  quantity: finalQty,
-                  rate: uPrice,
-                  amount: itemTotal
-                });
-              }
-            }
-            if (exactSum > 0) {
-              currentCnAmount = exactSum;
-              await CustomerCreditNote.findByIdAndUpdate(cn._id, { $set: { amount: exactSum, items: freshItems } });
-            }
-          }
-        }
-        realTotalCnSum += currentCnAmount;
+        const netCnBalance = Math.max(0, totalCnSum - totalUsedCN);
+        customer.cnBalance = netCnBalance;
+        await Customer.findByIdAndUpdate(id, { $set: { cnBalance: netCnBalance } });
+      } catch (reconcileErr) {
+        console.error("Failed to initialize cnBalance in customer profile GET:", reconcileErr);
       }
-
-      customer.cnBalance = realTotalCnSum;
-      await Customer.findByIdAndUpdate(id, { $set: { cnBalance: realTotalCnSum } });
-    } catch (reconcileErr) {
-      console.error("Failed to auto-reconcile cnBalance in customer profile GET:", reconcileErr);
     }
 
     return NextResponse.json({

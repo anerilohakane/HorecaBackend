@@ -3367,17 +3367,25 @@ export async function POST(request) {
       let customerDoc = await Customer.findById(identifiedUser._id);
       let availableCN = Number(customerDoc?.cnBalance || identifiedUser.cnBalance || 0);
 
-      if (availableCN === 0) {
+      if (typeof customerDoc?.cnBalance !== 'number') {
         try {
           const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+          const Order = (await import("@/lib/db/models/order")).default || (await import("@/lib/db/models/order"));
+          
           const custCNs = await CustomerCreditNote.find({ customer: identifiedUser._id });
-          const sumCNs = custCNs.reduce((s, c) => s + (c.amount || 0), 0);
-          if (sumCNs > 0) {
-            availableCN = sumCNs;
-            await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { cnBalance: sumCNs } });
-          }
+          const totalCnSum = custCNs.reduce((s, c) => s + (c.amount || 0), 0);
+
+          const cnOrders = await Order.find({ 
+            $or: [{ user: identifiedUser._id }, { customer: identifiedUser._id }], 
+            "payment.method": { $in: ["cn", "credit_note"] },
+            status: { $ne: "cancelled" }
+          });
+          const totalUsedCN = cnOrders.reduce((s, o) => s + (o.total || 0), 0);
+
+          availableCN = Math.max(0, totalCnSum - totalUsedCN);
+          await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { cnBalance: availableCN } });
         } catch (e) {
-          console.error("CN balance auto-reconciliation error during order creation:", e);
+          console.error("CN balance initialization error during order creation:", e);
         }
       }
 
