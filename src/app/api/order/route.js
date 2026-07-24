@@ -3363,13 +3363,40 @@ export async function POST(request) {
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
     } else if (isCN) {
-      // 🔹 CN rules:
-      //  - method normalized to "cn"
-      //  - status = "pending" at order creation
-      paymentMethod = "cn";
-      if (!paymentStatus) paymentStatus = "pending";
-      // no transactionId required, no paidAt at creation
+      // 🔹 Credit Note (CN) rules: Check customer's available CN Balance
+      let availableCN = Number(identifiedUser.cnBalance || 0);
+      if (availableCN === 0 && userModel === "Customer") {
+        try {
+          const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+          const custCNs = await CustomerCreditNote.find({ customer: identifiedUser._id });
+          const sumCNs = custCNs.reduce((s, c) => s + (c.amount || 0), 0);
+          if (sumCNs > 0) {
+            availableCN = sumCNs;
+            identifiedUser.cnBalance = sumCNs;
+          }
+        } catch (e) {
+          console.error("CN balance auto-reconciliation error during order creation:", e);
+        }
+      }
 
+      if (availableCN < total) {
+        return json({
+          success: false,
+          error: "INSUFFICIENT_CN_BALANCE",
+          message: `Insufficient Credit Note (CN) Balance. Available: ₹${availableCN.toLocaleString('en-IN')}, Required: ₹${total.toLocaleString('en-IN')}. Please choose another payment method or contact support.`,
+          availableBalance: availableCN,
+          requiredTotal: total
+        }, 400);
+      }
+
+      // Deduct CN balance
+      identifiedUser.cnBalance = Math.max(0, availableCN - total);
+      await identifiedUser.save();
+
+      paymentMethod = "cn";
+      paymentStatus = "paid";
+      paidAt = new Date();
+      transactionId = `CN-${Date.now()}`;
     } else if (paymentMethod === "advance" || paymentMethod === "advance_payment" || paymentMethod === "wallet") {
       // 🔹 Advance Payment / Wallet logic
       const availableAdvance = Number(identifiedUser.advanceBalance || 0);

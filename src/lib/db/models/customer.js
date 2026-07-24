@@ -113,6 +113,11 @@ const CustomerSchema = new mongoose.Schema(
       default: 0
     },
 
+    cnBalance: {
+      type: Number,
+      default: 0
+    },
+
 
 
     lastLoginAt: {

@@ -74,7 +74,8 @@ export async function POST(req) {
           name: user.name,
           businessName: user.businessName,
           category: user.category,
-          advanceBalance: user.advanceBalance || 0
+          advanceBalance: user.advanceBalance || 0,
+          cnBalance: user.cnBalance || 0
         },
       },
     });
