@@ -119,6 +119,21 @@ export async function GET(req, { params }) {
     const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
     customer.mappedProducts = mapping ? (mapping.products || []) : [];
 
+    // 🔄 Auto-reconcile cnBalance if missing or 0 but issued Credit Notes exist
+    if (!customer.cnBalance || customer.cnBalance === 0) {
+      try {
+        const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+        const custCNs = await CustomerCreditNote.find({ customer: id });
+        const totalCnSum = custCNs.reduce((sum, cn) => sum + Number(cn.amount || 0), 0);
+        if (totalCnSum > 0) {
+          customer.cnBalance = totalCnSum;
+          await Customer.findByIdAndUpdate(id, { $set: { cnBalance: totalCnSum } });
+        }
+      } catch (reconcileErr) {
+        console.error("Failed to auto-reconcile cnBalance in customer profile GET:", reconcileErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: customer,

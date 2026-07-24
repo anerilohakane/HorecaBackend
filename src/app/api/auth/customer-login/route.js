@@ -62,6 +62,22 @@ export async function POST(req) {
       { expiresIn: "7d" }
     );
 
+    // 🔄 Auto-reconcile cnBalance if 0 or missing but issued Credit Notes exist
+    let activeCnBalance = user.cnBalance || 0;
+    if (activeCnBalance === 0) {
+      try {
+        const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+        const custCNs = await CustomerCreditNote.find({ customer: user._id });
+        const totalCnSum = custCNs.reduce((sum, cn) => sum + Number(cn.amount || 0), 0);
+        if (totalCnSum > 0) {
+          activeCnBalance = totalCnSum;
+          await Customer.findByIdAndUpdate(user._id, { $set: { cnBalance: totalCnSum } });
+        }
+      } catch (e) {
+        console.error("Failed to auto-reconcile cnBalance on customer login:", e);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -75,7 +91,7 @@ export async function POST(req) {
           businessName: user.businessName,
           category: user.category,
           advanceBalance: user.advanceBalance || 0,
-          cnBalance: user.cnBalance || 0
+          cnBalance: activeCnBalance
         },
       },
     });
