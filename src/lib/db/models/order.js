@@ -57,6 +57,8 @@ const OrderItemSchema = new Schema(
     image: { type: String }, // Store product image URL (http or relative)
     gst: { type: Number, default: 0 }, // Store the GST percentage applied at time of order
     attributes: { type: Schema.Types.Mixed }, // e.g., color/size selected
+    isColdStorageRequired: { type: Boolean, default: false },
+    requestedTemperature: { type: String, default: null },
   },
   { _id: false }
 );
@@ -178,6 +180,13 @@ const OrderSchema = new Schema(
     // MOV (Minimum Order Value) fields — for audit/tracking
     movApplied: { type: Boolean, default: false },         // true if order was placed below MOV with delivery charge consent
     movDeliveryCharge: { type: Number, default: 0 },       // ₹250 delivery charge for below-MOV orders (0 if MOV met)
+
+    // Cold Storage Requirements for Logistics
+    coldStorageRequirement: {
+      isRequired: { type: Boolean, default: false },
+      requestedTemperature: { type: String, default: null },
+      details: { type: String, default: null }
+    },
 
     currency: { type: String, default: "INR" },
 
