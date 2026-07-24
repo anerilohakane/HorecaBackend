@@ -119,6 +119,30 @@ export async function GET(req, { params }) {
     const mapping = await CustomerProductMapping.findOne({ customer: id }).lean();
     customer.mappedProducts = mapping ? (mapping.products || []) : [];
 
+    // Ensure customer.cnBalance is initialized if it's undefined or null
+    if (typeof customer.cnBalance !== 'number') {
+      try {
+        const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+        const Order = (await import("@/lib/db/models/order")).default || (await import("@/lib/db/models/order"));
+        
+        const custCNs = await CustomerCreditNote.find({ customer: id });
+        const totalCnSum = custCNs.reduce((sum, cn) => sum + Number(cn.amount || 0), 0);
+
+        const cnOrders = await Order.find({ 
+          $or: [{ user: id }, { customer: id }], 
+          "payment.method": { $in: ["cn", "credit_note"] },
+          status: { $ne: "cancelled" }
+        });
+        const totalUsedCN = cnOrders.reduce((sum, ord) => sum + Number(ord.total || 0), 0);
+
+        const netCnBalance = Math.max(0, totalCnSum - totalUsedCN);
+        customer.cnBalance = netCnBalance;
+        await Customer.findByIdAndUpdate(id, { $set: { cnBalance: netCnBalance } });
+      } catch (reconcileErr) {
+        console.error("Failed to initialize cnBalance in customer profile GET:", reconcileErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: customer,

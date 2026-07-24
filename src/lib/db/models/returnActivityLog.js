@@ -9,7 +9,7 @@ const ReturnActivityLogSchema = new Schema(
     newStatus: { type: String },
     remarks: { type: String },
     performedBy: { type: Schema.Types.ObjectId }, // User, Vendor, or System
-    userType: { type: String, enum: ["Customer", "Vendor", "CCT", "SCM", "RoutePlanner", "Godown", "ART", "Management", "System"] }
+    userType: { type: String, enum: ["Customer", "Vendor", "CCT", "SCM", "RoutePlanner", "Godown", "ART", "Management", "System", "Logistics Manager", "Driver"] }
   },
   {
     timestamps: true,
