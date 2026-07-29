@@ -7,7 +7,7 @@ export async function PUT(req) {
 
   try {
     const body = await req.json();
-    const { id, name, email, address, city, state, pincode, lat, lng, advanceBalance, addAdvanceBalance, cnBalance, addCnBalance } = body;
+    const { id, name, email, address, city, state, pincode, lat, lng, advanceBalance, addAdvanceBalance, cnBalance, addCnBalance, isContractBased, contract } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -27,6 +27,8 @@ export async function PUT(req) {
     if (lng !== undefined) updateFields.lng = lng;
     if (typeof advanceBalance === 'number') updateFields.advanceBalance = advanceBalance;
     if (typeof cnBalance === 'number') updateFields.cnBalance = cnBalance;
+    if (isContractBased !== undefined) updateFields.isContractBased = Boolean(isContractBased);
+    if (contract !== undefined) updateFields.contract = contract;
 
     if (typeof addAdvanceBalance === 'number' && addAdvanceBalance > 0) {
       const customer = await Customer.findById(id);

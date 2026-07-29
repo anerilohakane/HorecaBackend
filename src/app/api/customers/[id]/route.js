@@ -17,7 +17,7 @@ export async function PATCH(req, { params }) {
 
     const { mappedProducts, ...customerUpdates } = body;
 
-    const allowedUpdates = ["isVerified", "category"];
+    const allowedUpdates = ["isVerified", "category", "isContractBased", "contract"];
     const updates = {};
 
     Object.keys(customerUpdates).forEach((key) => {
