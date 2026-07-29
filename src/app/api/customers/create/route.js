@@ -107,7 +107,7 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     console.log("📩 Request Body:", body);
 
-    const { phone, name, email, address, city, state, pincode, lat, lng } = body;
+    const { phone, name, email, address, city, state, pincode, lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractExpiryDate, contractNotes } = body;
 
     if (!phone) {
       console.log("❌ Missing phone");
@@ -165,6 +165,14 @@ export async function POST(request) {
       lat: lat ?? null,
       lng: lng ?? null,
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
+      isContractBased: Boolean(isContractBased),
+      contract: isContractBased ? {
+        contractType: contract?.contractType || contractType || "Annual Supply Agreement",
+        documentUrl: contract?.documentUrl || contractDocumentUrl || null,
+        expiryDate: contract?.expiryDate || contractExpiryDate ? new Date(contract?.expiryDate || contractExpiryDate) : null,
+        notes: contract?.notes || contractNotes || null,
+        uploadedAt: new Date()
+      } : undefined,
       lastLoginAt: new Date(),
     });
 

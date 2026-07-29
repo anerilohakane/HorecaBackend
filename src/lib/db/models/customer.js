@@ -118,7 +118,18 @@ const CustomerSchema = new mongoose.Schema(
       default: 0
     },
 
+    isContractBased: {
+      type: Boolean,
+      default: false
+    },
 
+    contract: {
+      contractType: { type: String, default: null, trim: true },
+      documentUrl: { type: String, default: null, trim: true },
+      expiryDate: { type: Date, default: null },
+      notes: { type: String, default: null, trim: true },
+      uploadedAt: { type: Date, default: null }
+    },
 
     lastLoginAt: {
       type: Date,
