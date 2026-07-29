@@ -14,7 +14,7 @@ export async function GET(request) {
       try {
         const jwt = require('jsonwebtoken');
         const secret = process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "fallback_access_token_secret";
-        user = jwt.verify(token, secret);
+        user = jwt.verify(token, secret, { ignoreExpiration: true });
       } catch (err) {
         verifyError = err.message;
       }
