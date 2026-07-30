@@ -167,11 +167,12 @@ function buildSupplierXML(supplier) {
 </ENVELOPE>`;
 }
 
-// Helper to build Product XML for Tally
-function buildProductXML(product, parentCategoryName) {
+// Helper to build Product XML for Tally (Create)
+function buildProductXML(product, stockGroupName, categoryName) {
   const name = escapeXML(product.name);
   const mongoId = escapeXML(product._id.toString());
-  const parent = escapeXML(parentCategoryName || "Primary");
+  const parent = escapeXML(stockGroupName || "");
+  const category = escapeXML(categoryName || "");
   const unit = escapeXML(mapMongooseUnitToTally(product.unit));
 
   return `<ENVELOPE>
@@ -197,6 +198,80 @@ function buildProductXML(product, parentCategoryName) {
               </NAME.LIST>
             </LANGUAGENAME.LIST>
             <PARENT>${parent}</PARENT>
+            <CATEGORY>${category}</CATEGORY>
+            <BASEUNITS>${unit}</BASEUNITS>
+            <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
+            <GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>
+            <HSNCODE>0401</HSNCODE>
+            <OPENINGBALANCE>0 ${unit}</OPENINGBALANCE>
+            <OPENINGVALUE>0</OPENINGVALUE>
+          </STOCKITEM>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Helper to build Stock Group XML for Tally (Create)
+function buildStockGroupXML(name) {
+  const safeName = escapeXML(name);
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKGROUP NAME="${safeName}" ACTION="Create">
+            <NAME>${safeName}</NAME>
+          </STOCKGROUP>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+// Helper to build Product XML for Tally (Alter)
+function buildProductAlterXML(product, stockGroupName, categoryName) {
+  const name = escapeXML(product.name);
+  const mongoId = escapeXML(product._id.toString());
+  const parent = escapeXML(stockGroupName || "");
+  const category = escapeXML(categoryName || "");
+  const unit = escapeXML(mapMongooseUnitToTally(product.unit));
+
+  return `<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKITEM NAME="${name}" ACTION="Alter">
+            <NAME>${name}</NAME>
+            <LANGUAGENAME.LIST>
+              <NAME.LIST TYPE="String">
+                <NAME>${name}</NAME>
+                <NAME>${mongoId}</NAME>
+              </NAME.LIST>
+            </LANGUAGENAME.LIST>
+            <PARENT>${parent}</PARENT>
+            <CATEGORY>${category}</CATEGORY>
             <BASEUNITS>${unit}</BASEUNITS>
             <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>
             <GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>
@@ -348,10 +423,11 @@ export async function POST(request) {
                 categoryObjectId = categoryDoc._id;
               }
             } else {
-              // It's a Tally stock group name string (e.g., "Dairy Products")
               categoryName = prodData.category;
             }
           }
+
+          let stockGroupName = prodData.stockGroupName || "";
 
           // Map and save to MongoDB
           const productPayload = {
@@ -372,8 +448,11 @@ export async function POST(request) {
             isActive: true
           };
 
-          const product = new Product(productPayload);
-          await product.save();
+          const product = await Product.findOneAndUpdate(
+            { sku: productPayload.sku },
+            { $set: productPayload },
+            { new: true, upsert: true }
+          );
           createdProducts.push(product);
 
           // Sync Product Stock Item to Tally
@@ -381,7 +460,7 @@ export async function POST(request) {
           let prodError = null;
 
           try {
-            const prodXml = buildProductXML(product, categoryName);
+            const prodXml = buildProductXML(product, stockGroupName, categoryName);
             const prodResponse = await fetch(tallyUrl, {
               method: 'POST',
               headers: {
@@ -397,13 +476,69 @@ export async function POST(request) {
               if (parsed.success) {
                 prodSynced = true;
               } else {
-                prodError = parsed.error;
+                if (parsed.error && (parsed.error.toLowerCase().includes('already exists') || parsed.error.toLowerCase().includes('duplicate'))) {
+                  console.log(`[Tally API] Create failed for ${product.name} (exists), auto-retrying with ALTER...`);
+                  const alterXml = buildProductAlterXML(product, stockGroupName, categoryName);
+                  const alterResponse = await fetch(tallyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/xml', 'ngrok-skip-browser-warning': 'true' },
+                    body: alterXml
+                  });
+                  if (alterResponse.ok) {
+                    const alterText = await alterResponse.text();
+                    const alterParsed = parseTallyResponse(alterText);
+                    if (alterParsed.success) {
+                      prodSynced = true;
+                      prodError = null;
+                    } else {
+                      prodError = alterParsed.error;
+                      console.error(`[Tally API] Alter failed for ${product.name}:`, prodError);
+                    }
+                  } else {
+                    prodError = `Tally server responded with status ${alterResponse.status} on Alter`;
+                  }
+                } else if (parsed.error && parsed.error.toLowerCase().includes('stock group') && parsed.error.toLowerCase().includes('does not exist')) {
+                  console.log(`[Tally API] Stock Group '${stockGroupName}' does not exist, creating it...`);
+                  const groupXml = buildStockGroupXML(stockGroupName);
+                  const groupResponse = await fetch(tallyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/xml', 'ngrok-skip-browser-warning': 'true' },
+                    body: groupXml
+                  });
+                  
+                  if (groupResponse.ok) {
+                    const retryResponse = await fetch(tallyUrl, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'text/xml', 'ngrok-skip-browser-warning': 'true' },
+                      body: prodXml
+                    });
+                    if (retryResponse.ok) {
+                      const retryText = await retryResponse.text();
+                      const retryParsed = parseTallyResponse(retryText);
+                      if (retryParsed.success) {
+                        prodSynced = true;
+                        prodError = null;
+                      } else {
+                        prodError = retryParsed.error;
+                        console.error(`[Tally API] Create failed after group creation for ${product.name}:`, prodError);
+                      }
+                    } else {
+                      prodError = `Tally server responded with status ${retryResponse.status} on retry`;
+                    }
+                  } else {
+                    prodError = `Failed to create Stock Group. Tally server responded with status ${groupResponse.status}`;
+                  }
+                } else {
+                  prodError = parsed.error;
+                  console.error(`[Tally API] Create failed for ${product.name}:`, prodError);
+                }
               }
             } else {
               prodError = `Tally server responded with status ${prodResponse.status}`;
             }
           } catch (err) {
             prodError = err.message || String(err);
+            console.error(`[Tally API] Network/Parse Error for ${product.name}:`, prodError);
           }
 
           tallyProductSyncResults.push({

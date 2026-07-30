@@ -136,18 +136,18 @@ export async function PUT(request, { params }) {
                 }
 
                 if (oItem) {
-                  const amount = finalQty * oItem.unitPrice;
-                  const gstAmount = amount * ((oItem.gst || 0) / 100);
-                  totalRefund += (amount + gstAmount);
+                  const itemUnitPrice = Number(oItem.unitPrice || oItem.price || oItem.basePrice || 0);
+                  const amount = finalQty * itemUnitPrice;
+                  totalRefund += amount;
                   
                   cnItems.push({
                     description: oItem.name,
                     hsnSac: oItem.sku || "",
                     quantity: finalQty,
-                    rate: oItem.unitPrice,
+                    rate: itemUnitPrice,
                     amount: amount,
-                    cgstPercent: (oItem.gst || 0) / 2,
-                    sgstPercent: (oItem.gst || 0) / 2
+                    cgstPercent: 0,
+                    sgstPercent: 0
                   });
                 }
               }
@@ -191,6 +191,13 @@ export async function PUT(request, { params }) {
               assignedArtMember,
               communicationStatus: "Pending"
             });
+
+            // 💳 Auto-increment customer's CN balance
+            if (returnReq.requester) {
+              await Customer.findByIdAndUpdate(returnReq.requester, {
+                $inc: { cnBalance: totalRefund }
+              });
+            }
             
             returnReq.provisionalCreditNote = cnNumber;
             returnReq.status = "Credit Note Generated";

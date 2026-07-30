@@ -3265,6 +3265,8 @@ export async function POST(request) {
         supplier: product.supplierId || product.supplier || null,
         image: it.image || product.image || null, // ✅ Added image persistence
         attributes: it.attributes || null,
+        isColdStorageRequired: Boolean(it.isColdStorageRequired ?? product.isColdStorage),
+        requestedTemperature: it.requestedTemperature || product.temperature || null,
       });
     }
 
@@ -3363,19 +3365,75 @@ export async function POST(request) {
       if (!paymentStatus) paymentStatus = "pending";
       // no transactionId required, no paidAt at creation
     } else if (isCN) {
-      // 🔹 CN rules:
-      //  - method normalized to "cn"
-      //  - status = "pending" at order creation
-      paymentMethod = "cn";
-      if (!paymentStatus) paymentStatus = "pending";
-      // no transactionId required, no paidAt at creation
+      // 🔹 Credit Note (CN) rules: Check customer's available CN Balance
+      let customerDoc = await Customer.findById(identifiedUser._id);
+      let availableCN = Number(customerDoc?.cnBalance || identifiedUser.cnBalance || 0);
 
-    } else if (paymentMethod === "wallet") {
-      // 🔹 Wallet/Points payment
-      // DO NOT DEDUCT HERE. The 'Final Debit' at the end of the function handles it securely.
+      if (typeof customerDoc?.cnBalance !== 'number') {
+        try {
+          const CustomerCreditNote = (await import("@/lib/db/models/art/CustomerCreditNote")).default || (await import("@/lib/db/models/art/CustomerCreditNote"));
+          const Order = (await import("@/lib/db/models/order")).default || (await import("@/lib/db/models/order"));
+          
+          const custCNs = await CustomerCreditNote.find({ customer: identifiedUser._id });
+          const totalCnSum = custCNs.reduce((s, c) => s + (c.amount || 0), 0);
+
+          const cnOrders = await Order.find({ 
+            $or: [{ user: identifiedUser._id }, { customer: identifiedUser._id }], 
+            "payment.method": { $in: ["cn", "credit_note"] },
+            status: { $ne: "cancelled" }
+          });
+          const totalUsedCN = cnOrders.reduce((s, o) => s + (o.total || 0), 0);
+
+          availableCN = Math.max(0, totalCnSum - totalUsedCN);
+          await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { cnBalance: availableCN } });
+        } catch (e) {
+          console.error("CN balance initialization error during order creation:", e);
+        }
+      }
+
+      if (availableCN < total) {
+        return json({
+          success: false,
+          error: "INSUFFICIENT_CN_BALANCE",
+          message: `Insufficient Credit Note (CN) Balance. Available: ₹${availableCN.toLocaleString('en-IN')}, Required: ₹${total.toLocaleString('en-IN')}. Please choose another payment method or contact support.`,
+          availableBalance: availableCN,
+          requiredTotal: total
+        }, 400);
+      }
+
+      // Deduct CN balance directly in MongoDB
+      const newCnBalance = Math.max(0, availableCN - total);
+      await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { cnBalance: newCnBalance } });
+      identifiedUser.cnBalance = newCnBalance;
+
+      paymentMethod = "cn";
       paymentStatus = "paid";
       paidAt = new Date();
-      // transactionId will be set after debit is confirmed at the finish line
+      transactionId = `CN-${Date.now()}`;
+    } else if (paymentMethod === "advance" || paymentMethod === "advance_payment" || paymentMethod === "wallet") {
+      // 🔹 Advance Payment / Wallet logic
+      let customerDoc = await Customer.findById(identifiedUser._id);
+      const availableAdvance = Number(customerDoc?.advanceBalance || identifiedUser.advanceBalance || 0);
+
+      if (availableAdvance < total) {
+        return json({
+          success: false,
+          error: "INSUFFICIENT_ADVANCE_BALANCE",
+          message: `Insufficient Advance Payment Balance. Available: ₹${availableAdvance.toLocaleString('en-IN')}, Required: ₹${total.toLocaleString('en-IN')}. Please choose another payment method or top up advance balance.`,
+          availableBalance: availableAdvance,
+          requiredTotal: total
+        }, 400);
+      }
+
+      // Deduct advance balance directly in MongoDB
+      const newAdvanceBalance = Math.max(0, availableAdvance - total);
+      await Customer.findByIdAndUpdate(identifiedUser._id, { $set: { advanceBalance: newAdvanceBalance } });
+      identifiedUser.advanceBalance = newAdvanceBalance;
+
+      paymentMethod = "advance";
+      paymentStatus = "paid";
+      paidAt = new Date();
+      transactionId = `ADV-${Date.now()}`;
     } else {
       // 🔹 Online payment (UPI, card, netbanking, etc.)
       //  - transactionId is required
@@ -3429,6 +3487,13 @@ export async function POST(request) {
       // MOV tracking fields
       movApplied,
       movDeliveryCharge,
+
+      // Cold storage requirement for logistics fleet assignment
+      coldStorageRequirement: {
+        isRequired: Boolean(body.coldStorageRequirement?.isRequired ?? builtItems.some(i => i.isColdStorageRequired)),
+        requestedTemperature: body.coldStorageRequirement?.requestedTemperature || builtItems.find(i => i.requestedTemperature)?.requestedTemperature || null,
+        details: body.coldStorageRequirement?.details || null,
+      },
 
       status: body.status || "pending",
       placedAt: new Date(),
@@ -4066,19 +4131,25 @@ export async function PATCH(request) {
       // Allowed statuses for cancellation
       const allowedAutoCancel = [
         "pending",
-        "pending",
         "confirmed",
+        "confirm",
+        "in progress",
+        "in_progress",
         "processing",
         "packed",
+        "packaging",
+        "flagged",
+        "art",
+        "odt"
       ];
 
-      if (!allowedAutoCancel.includes(curStatus)) {
+      const curStatusNormalized = (curStatus || "").toLowerCase();
+      if (!allowedAutoCancel.includes(curStatusNormalized)) {
         // Disallow cancellation from out_for_delivery, shipped, delivered, etc.
         return json(
           {
             success: false,
-            error: `Order cannot be cancelled from status "${order.status
-              }". Allowed statuses: ${allowedAutoCancel.join(", ")}.`,
+            error: `Order cannot be cancelled from status "${order.status}". Allowed statuses: ${allowedAutoCancel.join(", ")}.`,
           },
           400
         );
@@ -4211,6 +4282,14 @@ export async function PATCH(request) {
           })
           .filter(Boolean);
         if (restockPromises.length) await Promise.all(restockPromises);
+      }
+
+      // 🔄 AUTOMATIC ACCOUNT BALANCE REFUND FOR CN OR ADVANCE PAYMENT
+      try {
+        const { refundOrderPaymentIfCancelled } = await import("@/lib/services/duplicateOrderService");
+        await refundOrderPaymentIfCancelled(order._id);
+      } catch (refundErr) {
+        console.error("Failed to auto-refund cancelled order in cancellation flow:", refundErr);
       }
 
       // trigger refund worker / gateway asynchronously if needed
@@ -4478,8 +4557,6 @@ export async function PATCH(request) {
     // Prevent direct setting of cancellation/return statuses via fallback path
     if ("status" in body) {
       const prohibitedDirect = [
-        "cancelled",
-        "canceled",
         "returned",
         "return_requested",
       ];
@@ -4487,7 +4564,7 @@ export async function PATCH(request) {
         return json(
           {
             success: false,
-            error: `Please use the designated cancellation/return flow to set status "${body.status}".`,
+            error: `Please use the designated return flow to set status "${body.status}".`,
           },
           400
         );
@@ -4845,6 +4922,17 @@ export async function PATCH(request) {
 
     const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
     const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
+
+    // 🔄 AUTOMATIC ACCOUNT BALANCE REFUND IF ORDER IS CANCELLED OR REJECTED
+    const finalStatusLower = (finalState.status || "").toLowerCase();
+    if (finalStatusLower === "cancelled" || finalStatusLower === "canceled" || finalStatusLower === "rejected") {
+      try {
+        const { refundOrderPaymentIfCancelled } = await import("@/lib/services/duplicateOrderService");
+        await refundOrderPaymentIfCancelled(finalState._id);
+      } catch (refundErr) {
+        console.error("Failed to auto-refund cancelled/rejected order in PATCH /api/order:", refundErr);
+      }
+    }
 
     console.log(`[PATCH SETTLEMENT] Flow: Update Trigger | Del: ${isDelivered} | Paid: ${isPaid}`);
 

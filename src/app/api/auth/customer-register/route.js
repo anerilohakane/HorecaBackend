@@ -108,7 +108,7 @@ export async function POST(req) {
     const {
       username, password, email, phone, businessName, gstNumber,
       licenseImage, name, locations, supplierId, category, poMandatory,
-      lat, lng
+      lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractExpiryDate, contractNotes
     } = body;
 
     if (!username || username.length < 3) {
@@ -227,6 +227,14 @@ export async function POST(req) {
       category,
       poMandatory: poMandatory || false,
       supplierId: supplierId || null,
+      isContractBased: Boolean(isContractBased),
+      contract: isContractBased ? {
+        contractType: contract?.contractType || contractType || "Annual Supply Agreement",
+        documentUrl: contract?.documentUrl || contractDocumentUrl || null,
+        expiryDate: contract?.expiryDate || contractExpiryDate ? new Date(contract?.expiryDate || contractExpiryDate) : null,
+        notes: contract?.notes || contractNotes || null,
+        uploadedAt: new Date()
+      } : undefined,
       lastLoginAt: new Date()
     });
 
