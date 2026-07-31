@@ -107,7 +107,7 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId, category, customerType, department, poMandatory,
+      licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
@@ -221,6 +221,8 @@ export async function POST(req) {
       lng: finalLng,
       location: finalLat != null && finalLng != null ? { type: "Point", coordinates: [finalLng, finalLat] } : undefined,
       locations: formattedLocations,
+      hasMultipleOutlets: Boolean(hasMultipleOutlets),
+      outlets: Array.isArray(outlets) ? outlets : [],
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       licenseImage,

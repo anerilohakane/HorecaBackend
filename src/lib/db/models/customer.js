@@ -63,11 +63,31 @@ const CustomerSchema = new mongoose.Schema(
     state: { type: String, default: null },
     pincode: { type: String, default: null },
 
-    locations: [{
+    hasMultipleOutlets: {
+      type: Boolean,
+      default: false
+    },
+
+    outlets: [{
+      outletName: { type: String, trim: true },
       address: { type: String, trim: true },
       city: { type: String, trim: true },
       state: { type: String, trim: true },
       pincode: { type: String, trim: true },
+      contactPerson: { type: String, trim: true, default: null },
+      contactPhone: { type: String, trim: true, default: null },
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null }
+    }],
+
+    locations: [{
+      outletName: { type: String, trim: true, default: null },
+      address: { type: String, trim: true },
+      city: { type: String, trim: true },
+      state: { type: String, trim: true },
+      pincode: { type: String, trim: true },
+      contactPerson: { type: String, trim: true, default: null },
+      contactPhone: { type: String, trim: true, default: null },
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
       isPrimary: { type: Boolean, default: false }
