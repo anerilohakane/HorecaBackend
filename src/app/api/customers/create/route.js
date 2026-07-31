@@ -168,7 +168,7 @@ export async function POST(request) {
       customerType: customerType ?? null,
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
-        contractType: contract?.contractType || contractType || "Annual Supply Agreement",
+        contractType: contract?.contractType || contractType || null,
         documentUrl: contract?.documentUrl || contractDocumentUrl || null,
         startDate: contract?.startDate || contractStartDate ? new Date(contract?.startDate || contractStartDate) : null,
         expiryDate: contract?.expiryDate || contractExpiryDate ? new Date(contract?.expiryDate || contractExpiryDate) : null,
