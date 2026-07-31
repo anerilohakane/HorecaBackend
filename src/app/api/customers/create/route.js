@@ -107,7 +107,7 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     console.log("📩 Request Body:", body);
 
-    const { phone, name, email, address, city, state, pincode, lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractExpiryDate, contractNotes } = body;
+    const { phone, name, email, address, city, state, pincode, lat, lng, customerType, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes } = body;
 
     if (!phone) {
       console.log("❌ Missing phone");

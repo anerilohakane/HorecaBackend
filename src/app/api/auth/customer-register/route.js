@@ -107,8 +107,8 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId, category, poMandatory,
-      lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractExpiryDate, contractNotes
+      licenseImage, name, locations, supplierId, category, customerType, poMandatory,
+      lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
     if (!username || username.length < 3) {
