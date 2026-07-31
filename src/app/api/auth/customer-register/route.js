@@ -107,7 +107,7 @@ export async function POST(req) {
     const body = await req.json();
     const {
       username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId, category, customerType, poMandatory,
+      licenseImage, name, locations, supplierId, category, customerType, department, poMandatory,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
@@ -226,6 +226,7 @@ export async function POST(req) {
       licenseImage,
       category,
       customerType: customerType || null,
+      department: department || null,
       poMandatory: poMandatory || false,
       supplierId: supplierId || null,
       isContractBased: Boolean(isContractBased),

@@ -114,6 +114,12 @@ const CustomerSchema = new mongoose.Schema(
       trim: true
     },
 
+    department: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
     advanceBalance: {
       type: Number,
       default: 0
