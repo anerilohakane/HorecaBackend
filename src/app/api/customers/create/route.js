@@ -165,6 +165,7 @@ export async function POST(request) {
       lat: lat ?? null,
       lng: lng ?? null,
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
+      customerType: customerType ?? null,
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
         contractType: contract?.contractType || contractType || "Annual Supply Agreement",

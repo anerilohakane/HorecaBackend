@@ -225,6 +225,7 @@ export async function POST(req) {
       gstNumber: gstNumber || null,
       licenseImage,
       category,
+      customerType: customerType || null,
       poMandatory: poMandatory || false,
       supplierId: supplierId || null,
       isContractBased: Boolean(isContractBased),

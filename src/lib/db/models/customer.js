@@ -108,6 +108,12 @@ const CustomerSchema = new mongoose.Schema(
       default: false
     },
 
+    customerType: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
     advanceBalance: {
       type: Number,
       default: 0
