@@ -132,6 +132,7 @@ const CustomerSchema = new mongoose.Schema(
     contract: {
       contractType: { type: String, default: null, trim: true },
       documentUrl: { type: String, default: null, trim: true },
+      startDate: { type: Date, default: null },
       expiryDate: { type: Date, default: null },
       notes: { type: String, default: null, trim: true },
       uploadedAt: { type: Date, default: null }
