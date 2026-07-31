@@ -168,7 +168,39 @@ export async function POST(request) {
       customerType: customerType ?? null,
       department: department ?? null,
       hasMultipleOutlets: Boolean(hasMultipleOutlets),
-      outlets: Array.isArray(outlets) ? outlets : [],
+      outlets: Array.isArray(outlets) ? outlets.map(o => ({
+        outletName: o.outletName?.trim() || "",
+        address: o.address?.trim() || "",
+        city: o.city?.trim() || "",
+        state: o.state?.trim() || "",
+        pincode: o.pincode?.trim() || "",
+        contactPerson: o.contactPerson?.trim() || null,
+        contactPhone: o.contactPhone?.trim() || null,
+        lat: o.lat != null ? o.lat : null,
+        lng: o.lng != null ? o.lng : null
+      })) : [],
+      locations: [
+        {
+          outletName: "Main Branch",
+          address: address?.trim() || "",
+          city: city?.trim() || "",
+          state: state?.trim() || "",
+          pincode: pincode?.trim() || "",
+          lat: lat ?? null,
+          lng: lng ?? null,
+          isPrimary: true
+        },
+        ...(Array.isArray(outlets) ? outlets.map(o => ({
+          outletName: o.outletName?.trim() || "",
+          address: o.address?.trim() || "",
+          city: o.city?.trim() || "",
+          state: o.state?.trim() || "",
+          pincode: o.pincode?.trim() || "",
+          contactPerson: o.contactPerson?.trim() || null,
+          contactPhone: o.contactPhone?.trim() || null,
+          isPrimary: false
+        })) : [])
+      ],
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
         contractType: contract?.contractType || contractType || null,

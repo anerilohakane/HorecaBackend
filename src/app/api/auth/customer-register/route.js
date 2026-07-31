@@ -141,8 +141,9 @@ export async function POST(req) {
     }
 
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!gstNumber || !gstRegex.test(gstNumber.toUpperCase())) {
-      return NextResponse.json({ success: false, error: "Valid GST number is required" }, { status: 400 });
+    const isUrg = gstNumber === "URG" || gstNumber === "Unregistered" || body.isUrg === true;
+    if (!isUrg && (!gstNumber || !gstRegex.test(gstNumber.trim().toUpperCase()))) {
+      return NextResponse.json({ success: false, error: "Either a valid GST number or URG (Unregistered) selection is required" }, { status: 400 });
     }
 
     if (!locations || !Array.isArray(locations) || locations.length === 0) {
@@ -167,10 +168,13 @@ export async function POST(req) {
 
     // Ensure all locations are valid and structured
     const formattedLocations = locations.map((loc, index) => ({
+      outletName: loc.outletName?.trim() || (index === 0 ? "Main Branch" : null),
       address: loc.address?.trim() || "",
       city: loc.city?.trim() || "",
       state: loc.state?.trim() || "",
       pincode: loc.pincode?.trim() || "",
+      contactPerson: loc.contactPerson?.trim() || null,
+      contactPhone: loc.contactPhone?.trim() || null,
       lat: loc.lat != null ? loc.lat : (index === 0 && lat != null ? lat : null),
       lng: loc.lng != null ? loc.lng : (index === 0 && lng != null ? lng : null),
       isPrimary: index === 0
@@ -222,7 +226,17 @@ export async function POST(req) {
       location: finalLat != null && finalLng != null ? { type: "Point", coordinates: [finalLng, finalLat] } : undefined,
       locations: formattedLocations,
       hasMultipleOutlets: Boolean(hasMultipleOutlets),
-      outlets: Array.isArray(outlets) ? outlets : [],
+      outlets: Array.isArray(outlets) ? outlets.map(o => ({
+        outletName: o.outletName?.trim() || "",
+        address: o.address?.trim() || "",
+        city: o.city?.trim() || "",
+        state: o.state?.trim() || "",
+        pincode: o.pincode?.trim() || "",
+        contactPerson: o.contactPerson?.trim() || null,
+        contactPhone: o.contactPhone?.trim() || null,
+        lat: o.lat != null ? o.lat : null,
+        lng: o.lng != null ? o.lng : null
+      })) : [],
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       licenseImage,
