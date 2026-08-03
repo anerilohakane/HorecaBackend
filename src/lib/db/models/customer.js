@@ -39,6 +39,13 @@ const CustomerSchema = new mongoose.Schema(
       default: null
     },
 
+    panNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null
+    },
+
     licenseImage: {
       type: String,
       trim: true,

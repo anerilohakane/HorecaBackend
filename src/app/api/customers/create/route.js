@@ -186,6 +186,7 @@ export async function POST(request) {
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
       customerType: customerType ?? null,
       department: department ?? null,
+      panNumber: body.panNumber ? body.panNumber.trim().toUpperCase() : null,
       creditTerm: Number(body.creditTerm || 0),
       creditLimit: Number(body.creditLimit || 0),
       hasMultipleOutlets: Boolean(hasMultipleOutlets),

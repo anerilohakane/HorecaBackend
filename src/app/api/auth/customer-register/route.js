@@ -107,7 +107,7 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const {
-      username, password, email, phone, businessName, gstNumber,
+      username, password, email, phone, businessName, gstNumber, panNumber,
       licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
       creditTerm, creditLimit, urcDocUrl,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
@@ -257,6 +257,7 @@ export async function POST(req) {
       })) : [],
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
+      panNumber: panNumber ? panNumber.trim().toUpperCase() : null,
       licenseImage,
       category,
       customerType: customerType || null,
