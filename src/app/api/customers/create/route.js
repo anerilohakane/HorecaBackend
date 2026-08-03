@@ -155,7 +155,21 @@ export async function POST(request) {
     // Create new customer
     console.log("🆕 Creating new customer…");
 
+    const generateSystemPassword = () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      let randomStr = "";
+      for (let i = 0; i < 6; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `Unifoods@${randomStr}`;
+    };
+
+    const rawPassword = body.password ? body.password.trim() : generateSystemPassword();
+    const generatedUsername = body.username ? body.username.trim() : (name ? name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) : numericPhone);
+
     const newCustomer = await Customer.create({
+      username: generatedUsername,
+      password: rawPassword,
       phone: standardizedPhone,
       name: name ?? null,
       email: email ?? null,
@@ -227,7 +241,7 @@ export async function POST(request) {
           name: newCustomer.name || newCustomer.businessName,
           businessName: newCustomer.businessName || newCustomer.name || "Valued Business",
           username: newCustomer.username || newCustomer.phone,
-          password: body.password ? body.password : undefined,
+          password: rawPassword,
           gstNumber: isUrgCustomer ? "URG" : (newCustomer.gstNumber || "URG"),
           creditTerm: newCustomer.creditTerm || 0,
           creditLimit: newCustomer.creditLimit || 0

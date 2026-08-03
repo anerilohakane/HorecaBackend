@@ -121,8 +121,24 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Valid customer tier (A, B, C) is required" }, { status: 400 });
     }
 
-    if (!password || password.length < 8) {
-      return NextResponse.json({ success: false, error: "Password must be at least 8 characters" }, { status: 400 });
+    const generateSystemPassword = () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      let randomStr = "";
+      for (let i = 0; i < 6; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `Unifoods@${randomStr}`;
+    };
+
+    let finalPassword = password ? password.trim() : "";
+    let isSystemGenerated = false;
+
+    if (!finalPassword) {
+      finalPassword = generateSystemPassword();
+      isSystemGenerated = true;
+      console.log(`[Auto Password] System generated password for ${username}: ${finalPassword}`);
+    } else if (finalPassword.length < 8) {
+      return NextResponse.json({ success: false, error: "Password must be at least 8 characters if entered manually" }, { status: 400 });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -204,7 +220,7 @@ export async function POST(req) {
 
     // Hash password
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(finalPassword, salt);
 
     // Normalize Phone
     const numericPhone = phone.replace(/\D/g, "");
@@ -284,7 +300,7 @@ export async function POST(req) {
           name: name ? name.trim() : businessName.trim(),
           businessName: businessName.trim(),
           username: username.trim(),
-          password: password ? password : undefined,
+          password: finalPassword,
           gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
           creditTerm: Number(creditTerm || 0),
           creditLimit: Number(creditLimit || 0)
