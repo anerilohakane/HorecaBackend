@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
 import { sendCustomerWelcomeEmail } from "@/lib/mail";
@@ -167,9 +168,12 @@ export async function POST(request) {
     const rawPassword = body.password ? body.password.trim() : generateSystemPassword();
     const generatedUsername = body.username ? body.username.trim() : (name ? name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) : numericPhone);
 
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(rawPassword, salt);
+
     const newCustomer = await Customer.create({
       username: generatedUsername,
-      password: rawPassword,
+      password: hashedPassword,
       phone: standardizedPhone,
       name: name ?? null,
       email: email ?? null,
