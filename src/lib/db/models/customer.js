@@ -39,6 +39,13 @@ const CustomerSchema = new mongoose.Schema(
       default: null
     },
 
+    panNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null
+    },
+
     licenseImage: {
       type: String,
       trim: true,
@@ -62,6 +69,14 @@ const CustomerSchema = new mongoose.Schema(
     city: { type: String, default: null },
     state: { type: String, default: null },
     pincode: { type: String, default: null },
+
+    assignedRoute: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RouteMaster",
+      default: null
+    },
+    routeName: { type: String, default: null, trim: true },
+    routeCode: { type: String, default: null, trim: true },
 
     hasMultipleOutlets: {
       type: Boolean,
@@ -171,6 +186,39 @@ const CustomerSchema = new mongoose.Schema(
       type: String,
       default: null,
       trim: true
+    },
+
+    hasFssai: {
+      type: Boolean,
+      default: true
+    },
+
+    fssaiNumber: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    fssaiExpiryDate: {
+      type: Date,
+      default: null
+    },
+
+    fssaiDocUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    fssaiUndertakingDocUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    licenseExpiryDate: {
+      type: Date,
+      default: null
     },
 
     contract: {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import { sendCustomerWelcomeEmail } from "@/lib/mail";
 
 // Helper to escape XML entities
 const escapeXML = (str) => {
@@ -154,7 +156,24 @@ export async function POST(request) {
     // Create new customer
     console.log("🆕 Creating new customer…");
 
+    const generateSystemPassword = () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      let randomStr = "";
+      for (let i = 0; i < 6; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `Unifoods@${randomStr}`;
+    };
+
+    const rawPassword = body.password ? body.password.trim() : generateSystemPassword();
+    const generatedUsername = body.username ? body.username.trim() : (name ? name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) : numericPhone);
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(rawPassword, salt);
+
     const newCustomer = await Customer.create({
+      username: generatedUsername,
+      password: hashedPassword,
       phone: standardizedPhone,
       name: name ?? null,
       email: email ?? null,
@@ -165,8 +184,17 @@ export async function POST(request) {
       lat: lat ?? null,
       lng: lng ?? null,
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
+      businessName: body.businessName?.trim() || name?.trim() || null,
+      gstNumber: body.gstNumber?.trim() || null,
+      category: body.category || "C",
+      poMandatory: Boolean(body.poMandatory),
+      licenseImage: body.licenseImage || null,
       customerType: customerType ?? null,
       department: department ?? null,
+      panNumber: body.panNumber ? body.panNumber.trim().toUpperCase() : null,
+      assignedRoute: body.assignedRoute || null,
+      routeName: body.routeName || null,
+      routeCode: body.routeCode || null,
       creditTerm: Number(body.creditTerm || 0),
       creditLimit: Number(body.creditLimit || 0),
       hasMultipleOutlets: Boolean(hasMultipleOutlets),
@@ -203,6 +231,13 @@ export async function POST(request) {
           isPrimary: false
         })) : [])
       ],
+      urcDocUrl: body.urcDocUrl || null,
+      hasFssai: body.hasFssai !== undefined ? Boolean(body.hasFssai) : true,
+      fssaiNumber: body.fssaiNumber ? body.fssaiNumber.trim() : null,
+      fssaiExpiryDate: body.fssaiExpiryDate ? new Date(body.fssaiExpiryDate) : null,
+      fssaiDocUrl: body.fssaiDocUrl || null,
+      fssaiUndertakingDocUrl: body.fssaiUndertakingDocUrl || null,
+      licenseExpiryDate: body.licenseExpiryDate ? new Date(body.licenseExpiryDate) : null,
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
         contractType: contract?.contractType || contractType || null,
@@ -216,6 +251,26 @@ export async function POST(request) {
     });
 
     console.log("🟢 Customer Created:", newCustomer._id);
+
+    // 📧 Send Automated Welcome Email to Customer
+    try {
+      if (newCustomer.email) {
+        const isUrgCustomer = body.isUrg || body.gstNumber === "URG" || newCustomer.gstNumber === "URG";
+        await sendCustomerWelcomeEmail({
+          email: newCustomer.email,
+          name: newCustomer.name || newCustomer.businessName,
+          businessName: newCustomer.businessName || newCustomer.name || "Valued Business",
+          username: newCustomer.username || newCustomer.phone,
+          password: rawPassword,
+          gstNumber: isUrgCustomer ? "URG" : (newCustomer.gstNumber || "URG"),
+          creditTerm: newCustomer.creditTerm || 0,
+          creditLimit: newCustomer.creditLimit || 0
+        });
+        console.log(`[Email Notification] Welcome email sent to ${newCustomer.email}`);
+      }
+    } catch (mailErr) {
+      console.error("[Email Notification Error] Failed to send email:", mailErr);
+    }
 
     // Sync Customer Ledger to Tally Prime 9
     const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';

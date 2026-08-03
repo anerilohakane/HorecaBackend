@@ -3135,6 +3135,42 @@ export async function POST(request) {
       }, 404);
     }
 
+    // 1.5) License & FSSAI Expiry Validation Check for Customer Orders
+    if (userModel === "Customer" || identifiedUser?.fssaiExpiryDate || identifiedUser?.licenseExpiryDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Check FSSAI License Expiry
+      if (identifiedUser.hasFssai !== false && identifiedUser.fssaiExpiryDate) {
+        const fssaiExp = new Date(identifiedUser.fssaiExpiryDate);
+        fssaiExp.setHours(23, 59, 59, 999);
+        if (fssaiExp < today) {
+          const expDateStr = new Date(identifiedUser.fssaiExpiryDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          console.warn(`[ORDER BLOCKED] Customer ${identifiedUser._id} FSSAI License expired on ${expDateStr}`);
+          return json({
+            success: false,
+            code: "FSSAI_EXPIRED",
+            error: `Your FSSAI License expired on ${expDateStr}. Order creation and billing are suspended until updated FSSAI license details are provided.`
+          }, 400);
+        }
+      }
+
+      // Check Business / Trade License Expiry
+      if (identifiedUser.licenseExpiryDate) {
+        const tradeExp = new Date(identifiedUser.licenseExpiryDate);
+        tradeExp.setHours(23, 59, 59, 999);
+        if (tradeExp < today) {
+          const expDateStr = new Date(identifiedUser.licenseExpiryDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          console.warn(`[ORDER BLOCKED] Customer ${identifiedUser._id} Business License expired on ${expDateStr}`);
+          return json({
+            success: false,
+            code: "LICENSE_EXPIRED",
+            error: `Your Business License expired on ${expDateStr}. Order creation and billing are suspended until updated Business License details are provided.`
+          }, 400);
+        }
+      }
+    }
+
     // 2) items array or single-item shortcut
     let itemsInput = body.items;
     if (
