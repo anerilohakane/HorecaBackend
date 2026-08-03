@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import { sendCustomerWelcomeEmail } from "@/lib/mail";
 
 // Helper to escape XML entities
 const escapeXML = (str) => {
@@ -216,6 +217,26 @@ export async function POST(request) {
     });
 
     console.log("🟢 Customer Created:", newCustomer._id);
+
+    // 📧 Send Automated Welcome Email to Customer
+    try {
+      if (newCustomer.email) {
+        const isUrgCustomer = body.isUrg || body.gstNumber === "URG" || newCustomer.gstNumber === "URG";
+        await sendCustomerWelcomeEmail({
+          email: newCustomer.email,
+          name: newCustomer.name || newCustomer.businessName,
+          businessName: newCustomer.businessName || newCustomer.name || "Valued Business",
+          username: newCustomer.username || newCustomer.phone,
+          password: body.password ? body.password : undefined,
+          gstNumber: isUrgCustomer ? "URG" : (newCustomer.gstNumber || "URG"),
+          creditTerm: newCustomer.creditTerm || 0,
+          creditLimit: newCustomer.creditLimit || 0
+        });
+        console.log(`[Email Notification] Welcome email sent to ${newCustomer.email}`);
+      }
+    } catch (mailErr) {
+      console.error("[Email Notification Error] Failed to send email:", mailErr);
+    }
 
     // Sync Customer Ledger to Tally Prime 9
     const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';

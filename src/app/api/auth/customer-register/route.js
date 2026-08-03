@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
 import { logger } from "@/lib/logger";
+import { sendCustomerWelcomeEmail } from "@/lib/mail";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -270,6 +271,25 @@ export async function POST(req) {
       metadata: { username, email },
       req
     });
+
+    // 📧 Send Automated Welcome Email to Customer (Credentials, URG/GST Notice & Credit Terms)
+    try {
+      if (email) {
+        await sendCustomerWelcomeEmail({
+          email: email.trim(),
+          name: name ? name.trim() : businessName.trim(),
+          businessName: businessName.trim(),
+          username: username.trim(),
+          password: password ? password : undefined,
+          gstNumber: isUrg ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
+          creditTerm: Number(creditTerm || 0),
+          creditLimit: Number(creditLimit || 0)
+        });
+        console.log(`[Email Notification] Welcome email sent successfully to ${email}`);
+      }
+    } catch (mailErr) {
+      console.error("[Email Notification Error] Failed to send welcome email:", mailErr);
+    }
 
     // Create JWT
     const token = jwt.sign(
