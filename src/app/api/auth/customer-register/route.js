@@ -109,7 +109,7 @@ export async function POST(req) {
     const {
       username, password, email, phone, businessName, gstNumber, panNumber,
       licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
-      creditTerm, creditLimit, urcDocUrl,
+      creditTerm, creditLimit, urcDocUrl, assignedRoute, routeName, routeCode,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
@@ -258,6 +258,9 @@ export async function POST(req) {
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
       panNumber: panNumber ? panNumber.trim().toUpperCase() : null,
+      assignedRoute: assignedRoute || null,
+      routeName: routeName || null,
+      routeCode: routeCode || null,
       licenseImage,
       category,
       customerType: customerType || null,

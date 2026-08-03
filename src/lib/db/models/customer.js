@@ -70,6 +70,14 @@ const CustomerSchema = new mongoose.Schema(
     state: { type: String, default: null },
     pincode: { type: String, default: null },
 
+    assignedRoute: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RouteMaster",
+      default: null
+    },
+    routeName: { type: String, default: null, trim: true },
+    routeCode: { type: String, default: null, trim: true },
+
     hasMultipleOutlets: {
       type: Boolean,
       default: false
