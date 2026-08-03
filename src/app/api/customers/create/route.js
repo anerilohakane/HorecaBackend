@@ -107,7 +107,7 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     console.log("📩 Request Body:", body);
 
-    const { phone, name, email, address, city, state, pincode, lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractExpiryDate, contractNotes } = body;
+    const { phone, name, email, address, city, state, pincode, lat, lng, customerType, department, hasMultipleOutlets, outlets, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes } = body;
 
     if (!phone) {
       console.log("❌ Missing phone");
@@ -165,10 +165,49 @@ export async function POST(request) {
       lat: lat ?? null,
       lng: lng ?? null,
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
+      customerType: customerType ?? null,
+      department: department ?? null,
+      creditTerm: Number(body.creditTerm || 0),
+      creditLimit: Number(body.creditLimit || 0),
+      hasMultipleOutlets: Boolean(hasMultipleOutlets),
+      outlets: Array.isArray(outlets) ? outlets.map(o => ({
+        outletName: o.outletName?.trim() || "",
+        address: o.address?.trim() || "",
+        city: o.city?.trim() || "",
+        state: o.state?.trim() || "",
+        pincode: o.pincode?.trim() || "",
+        contactPerson: o.contactPerson?.trim() || null,
+        contactPhone: o.contactPhone?.trim() || null,
+        lat: o.lat != null ? o.lat : null,
+        lng: o.lng != null ? o.lng : null
+      })) : [],
+      locations: [
+        {
+          outletName: "Main Branch",
+          address: address?.trim() || "",
+          city: city?.trim() || "",
+          state: state?.trim() || "",
+          pincode: pincode?.trim() || "",
+          lat: lat ?? null,
+          lng: lng ?? null,
+          isPrimary: true
+        },
+        ...(Array.isArray(outlets) ? outlets.map(o => ({
+          outletName: o.outletName?.trim() || "",
+          address: o.address?.trim() || "",
+          city: o.city?.trim() || "",
+          state: o.state?.trim() || "",
+          pincode: o.pincode?.trim() || "",
+          contactPerson: o.contactPerson?.trim() || null,
+          contactPhone: o.contactPhone?.trim() || null,
+          isPrimary: false
+        })) : [])
+      ],
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
-        contractType: contract?.contractType || contractType || "Annual Supply Agreement",
+        contractType: contract?.contractType || contractType || null,
         documentUrl: contract?.documentUrl || contractDocumentUrl || null,
+        startDate: contract?.startDate || contractStartDate ? new Date(contract?.startDate || contractStartDate) : null,
         expiryDate: contract?.expiryDate || contractExpiryDate ? new Date(contract?.expiryDate || contractExpiryDate) : null,
         notes: contract?.notes || contractNotes || null,
         uploadedAt: new Date()
