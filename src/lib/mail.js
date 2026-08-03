@@ -1,25 +1,36 @@
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER || "gaikwadsameer422@gmail.com",
-    pass: process.env.EMAIL_PASSWORD || "lkdj kbtb fysl gwzi",
-  },
-});
+const getTransporter = () => {
+  const user = process.env.EMAIL_USER || process.env.SMTP_USER || "gaikwadsameer422@gmail.com";
+  const rawPass = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || "lkdj kbtb fysl gwzi";
+  const pass = rawPass ? rawPass.replace(/\s+/g, "") : "";
+
+  console.log(`[Mail Config] Initializing SMTP Transporter for user: ${user}`);
+
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: { user, pass },
+  });
+};
 
 export const sendEmail = async ({ to, subject, html }) => {
   try {
+    console.log(`📧 [Email Service] Starting mail dispatch to: "${to}" | Subject: "${subject}"`);
+    const sender = process.env.EMAIL_USER || process.env.SMTP_USER || "gaikwadsameer422@gmail.com";
+    const transporter = getTransporter();
+
     const info = await transporter.sendMail({
-      from: `"Unifoods Security" <${process.env.EMAIL_USER || "gaikwadsameer422@gmail.com"}>`,
-      to,
-      subject,
-      html,
+      from: `"Unifoods" <${sender}>`,
+      to: to.trim(),
+      subject: subject,
+      html: html,
     });
-    console.log("Email Dispatched: %s", info.messageId);
+
+    console.log(`✅ [Email Service Success] Email Dispatched Successfully to ${to} | MessageId: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("Email Transmission Failed (Full Error):", JSON.stringify(error, null, 2));
+    console.error(`❌ [Email Service Error] Email Transmission Failed to recipient: ${to}`);
+    console.error("Full Error Stack:", error);
     console.error("Error Name:", error.name);
     console.error("Error Message:", error.message);
     return { success: false, error: error.message };
@@ -36,9 +47,15 @@ export const sendCustomerWelcomeEmail = async ({
   creditTerm,
   creditLimit,
 }) => {
-  if (!email) return;
+  console.log(`📩 [Welcome Email Request] Received welcome email request for:`, { email, name, businessName, username, gstNumber });
+
+  if (!email || !email.trim()) {
+    console.warn("⚠️ [Welcome Email Skipped] No valid email address provided.");
+    return { success: false, error: "No email address provided" };
+  }
 
   const isUrg = gstNumber === "URG" || gstNumber === "Unregistered" || !gstNumber;
+  console.log(`📋 [Welcome Email Details] Customer URG Status: ${isUrg ? "Unregistered (URG)" : "GST Registered (" + gstNumber + ")"}`);
 
   const gstSectionHtml = isUrg
     ? `<div style="background-color: #fff8e1; border-left: 4px solid #ffa000; padding: 14px 18px; margin: 20px 0; border-radius: 6px;">

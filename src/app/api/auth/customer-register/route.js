@@ -275,13 +275,14 @@ export async function POST(req) {
     // 📧 Send Automated Welcome Email to Customer (Credentials, URG/GST Notice & Credit Terms)
     try {
       if (email) {
+        const isUrgCustomer = body.isUrg || gstNumber === "URG" || gstNumber === "Unregistered" || !gstNumber;
         await sendCustomerWelcomeEmail({
           email: email.trim(),
           name: name ? name.trim() : businessName.trim(),
           businessName: businessName.trim(),
           username: username.trim(),
           password: password ? password : undefined,
-          gstNumber: isUrg ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
+          gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
           creditTerm: Number(creditTerm || 0),
           creditLimit: Number(creditLimit || 0)
         });
