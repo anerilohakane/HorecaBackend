@@ -145,6 +145,18 @@ const CustomerSchema = new mongoose.Schema(
       default: 0
     },
 
+    creditTerm: {
+      type: Number,
+      enum: [0, 7, 15, 30, 45, 60],
+      default: 0
+    },
+
+    creditLimit: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
     cnBalance: {
       type: Number,
       default: 0

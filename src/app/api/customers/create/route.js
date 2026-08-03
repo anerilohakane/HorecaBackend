@@ -167,6 +167,8 @@ export async function POST(request) {
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
       customerType: customerType ?? null,
       department: department ?? null,
+      creditTerm: Number(body.creditTerm || 0),
+      creditLimit: Number(body.creditLimit || 0),
       hasMultipleOutlets: Boolean(hasMultipleOutlets),
       outlets: Array.isArray(outlets) ? outlets.map(o => ({
         outletName: o.outletName?.trim() || "",
