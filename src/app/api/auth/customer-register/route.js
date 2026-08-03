@@ -273,10 +273,13 @@ export async function POST(req) {
     });
 
     // 📧 Send Automated Welcome Email to Customer (Credentials, URG/GST Notice & Credit Terms)
+    let mailResult = null;
     try {
       if (email) {
         const isUrgCustomer = body.isUrg || gstNumber === "URG" || gstNumber === "Unregistered" || !gstNumber;
-        await sendCustomerWelcomeEmail({
+        console.log(`[Email Dispatcher] Attempting welcome email for ${email} (URG: ${isUrgCustomer})`);
+        
+        mailResult = await sendCustomerWelcomeEmail({
           email: email.trim(),
           name: name ? name.trim() : businessName.trim(),
           businessName: businessName.trim(),
@@ -286,10 +289,22 @@ export async function POST(req) {
           creditTerm: Number(creditTerm || 0),
           creditLimit: Number(creditLimit || 0)
         });
-        console.log(`[Email Notification] Welcome email sent successfully to ${email}`);
+
+        console.log(`[Email Notification Result] Success: ${mailResult?.success} | MessageId: ${mailResult?.messageId} | Error: ${mailResult?.error}`);
+        
+        await logger({
+          level: mailResult?.success ? 'info' : 'error',
+          message: mailResult?.success ? `Welcome email sent to ${email}` : `Failed to send welcome email to ${email}: ${mailResult?.error}`,
+          action: 'CUSTOMER_WELCOME_EMAIL',
+          userId: newUser._id,
+          userModel: 'Customer',
+          metadata: { email, mailResult },
+          req
+        });
       }
     } catch (mailErr) {
       console.error("[Email Notification Error] Failed to send welcome email:", mailErr);
+      mailResult = { success: false, error: mailErr.message || String(mailErr) };
     }
 
     // Create JWT
@@ -390,6 +405,9 @@ export async function POST(req) {
         accessToken: token,
         tallyCustomerSynced,
         tallyCustomerError,
+        emailSent: mailResult?.success || false,
+        emailError: mailResult?.error || null,
+        emailMessageId: mailResult?.messageId || null,
         user: {
           id: newUser._id,
           username: newUser.username,
