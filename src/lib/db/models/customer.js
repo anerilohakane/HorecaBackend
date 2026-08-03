@@ -173,6 +173,39 @@ const CustomerSchema = new mongoose.Schema(
       trim: true
     },
 
+    hasFssai: {
+      type: Boolean,
+      default: true
+    },
+
+    fssaiNumber: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    fssaiExpiryDate: {
+      type: Date,
+      default: null
+    },
+
+    fssaiDocUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    fssaiUndertakingDocUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    licenseExpiryDate: {
+      type: Date,
+      default: null
+    },
+
     contract: {
       contractType: { type: String, default: null, trim: true },
       documentUrl: { type: String, default: null, trim: true },

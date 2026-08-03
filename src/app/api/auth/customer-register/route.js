@@ -265,6 +265,12 @@ export async function POST(req) {
       creditTerm: Number(creditTerm || 0),
       creditLimit: Number(creditLimit || 0),
       urcDocUrl: urcDocUrl || null,
+      hasFssai: body.hasFssai !== undefined ? Boolean(body.hasFssai) : true,
+      fssaiNumber: body.fssaiNumber ? body.fssaiNumber.trim() : null,
+      fssaiExpiryDate: body.fssaiExpiryDate ? new Date(body.fssaiExpiryDate) : null,
+      fssaiDocUrl: body.fssaiDocUrl || null,
+      fssaiUndertakingDocUrl: body.fssaiUndertakingDocUrl || null,
+      licenseExpiryDate: body.licenseExpiryDate ? new Date(body.licenseExpiryDate) : null,
       supplierId: supplierId || null,
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
