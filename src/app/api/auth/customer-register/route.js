@@ -108,7 +108,7 @@ export async function POST(req) {
     const {
       username, password, email, phone, businessName, gstNumber,
       licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
-      creditTerm, creditLimit,
+      creditTerm, creditLimit, urcDocUrl,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
@@ -247,6 +247,7 @@ export async function POST(req) {
       poMandatory: poMandatory || false,
       creditTerm: Number(creditTerm || 0),
       creditLimit: Number(creditLimit || 0),
+      urcDocUrl: urcDocUrl || null,
       supplierId: supplierId || null,
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {

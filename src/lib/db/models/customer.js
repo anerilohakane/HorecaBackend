@@ -167,6 +167,12 @@ const CustomerSchema = new mongoose.Schema(
       default: false
     },
 
+    urcDocUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
     contract: {
       contractType: { type: String, default: null, trim: true },
       documentUrl: { type: String, default: null, trim: true },
