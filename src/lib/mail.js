@@ -13,7 +13,7 @@ const getTransporter = () => {
   });
 };
 
-export const sendEmail = async ({ to, subject, html }) => {
+export const sendEmail = async ({ to, subject, html, text }) => {
   try {
     console.log(`📧 [Email Service] Starting mail dispatch to: "${to}" | Subject: "${subject}"`);
     const sender = process.env.EMAIL_USER || process.env.SMTP_USER || "gaikwadsameer422@gmail.com";
@@ -22,7 +22,9 @@ export const sendEmail = async ({ to, subject, html }) => {
     const info = await transporter.sendMail({
       from: `"Unifoods" <${sender}>`,
       to: to.trim(),
+      replyTo: sender,
       subject: subject,
+      text: text || html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
       html: html,
     });
 
@@ -144,9 +146,35 @@ export const sendCustomerWelcomeEmail = async ({
     </html>
   `;
 
+  const text = `
+Welcome to Unifoods!
+
+Dear ${name || businessName || "Valued Customer"},
+
+Thank you for registering with Unifoods (${businessName || name}). Your account has been successfully created.
+
+YOUR ACCOUNT LOGIN CREDENTIALS:
+- Username: ${username}
+${password ? `- Password: ${password}` : ''}
+- Business Name: ${businessName}
+
+${isUrg ? "GST NOTICE: You are an unregistered customer (URG) and GST is not applicable for you." : `GSTIN: ${gstNumber}`}
+
+${creditTerm > 0 || creditLimit > 0 ? `APPROVED B2B CREDIT TERMS:
+- Credit Term: ${creditTerm > 0 ? `${creditTerm} Days` : 'Immediate (COD)'}
+- Credit Limit: ₹${Number(creditLimit || 0).toLocaleString('en-IN')}` : ''}
+
+Login to your account: https://horeca-user-end.vercel.app/login
+
+If you have any questions or need assistance, please feel free to reply to this email.
+
+© ${new Date().getFullYear()} Unifoods Supply Chain. All rights reserved.
+  `.trim();
+
   return await sendEmail({
     to: email,
     subject: `Welcome to Unifoods - Your Account Credentials & Registration Details`,
+    text,
     html,
   });
 };
