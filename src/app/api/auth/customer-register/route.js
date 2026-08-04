@@ -61,7 +61,7 @@ function buildCustomerXML(customer) {
               </NAME.LIST>
               <LANGUAGECODE> 1033</LANGUAGECODE>
             </LANGUAGENAME.LIST>
-            <PARENT>Sundry Debtors</PARENT>
+            <PARENT>${escapeXML(customer.tallyGroup || "Sundry Debtors")}</PARENT>
             <ISBILLWISEON>Yes</ISBILLWISEON>
             <MAILINGNAME>${mailingName}</MAILINGNAME>
             ${addressXml}
@@ -263,6 +263,7 @@ export async function POST(req) {
       routeCode: routeCode || null,
       licenseImage,
       category,
+      tallyGroup: body.tallyGroup || "Sundry Debtors",
       customerType: customerType || null,
       department: department || null,
       poMandatory: poMandatory || false,

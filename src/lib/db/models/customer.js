@@ -117,6 +117,11 @@ const CustomerSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    tallyGroup: {
+      type: String,
+      default: "Sundry Debtors",
+      trim: true
+    },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
 
