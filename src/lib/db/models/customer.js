@@ -39,6 +39,17 @@ const CustomerSchema = new mongoose.Schema(
       default: null
     },
 
+    gstEffectiveDate: {
+      type: Date,
+      default: null
+    },
+
+    gstDocUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
     panNumber: {
       type: String,
       trim: true,

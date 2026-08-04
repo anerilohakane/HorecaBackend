@@ -15,6 +15,17 @@ const escapeXML = (str) => {
     .replace(/'/g, "&apos;");
 };
 
+// Helper to format Date for Tally (YYYYMMDD)
+const formatTallyDate = (dateVal) => {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}`;
+};
+
 // Helper to build Customer XML for Tally
 function buildCustomerXML(customer) {
   const name = escapeXML(customer.name || customer.businessName || customer.phone || "Unknown Customer");
@@ -68,6 +79,7 @@ function buildCustomerXML(customer) {
             ${email ? `<EMAIL>${email}</EMAIL>` : ''}
             <GSTREGISTRATIONTYPE>${gstNumber ? 'Regular' : 'Unregistered'}</GSTREGISTRATIONTYPE>
             ${gstNumber ? `<PARTYGSTIN>${gstNumber}</PARTYGSTIN>` : ''}
+            ${customer.gstEffectiveDate ? `<GSTAPPLICABLEDATE>${formatTallyDate(customer.gstEffectiveDate)}</GSTAPPLICABLEDATE>` : ''}
           </LEDGER>
         </TALLYMESSAGE>
       </REQUESTDATA>
@@ -186,6 +198,8 @@ export async function POST(request) {
       location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
       businessName: body.businessName?.trim() || name?.trim() || null,
       gstNumber: body.gstNumber?.trim() || null,
+      gstEffectiveDate: body.gstEffectiveDate || null,
+      gstDocUrl: body.gstDocUrl || null,
       category: body.category || "C",
       customerGroup: body.customerGroup || body.tallyGroup || "Sundry Debtors",
       poMandatory: Boolean(body.poMandatory),
