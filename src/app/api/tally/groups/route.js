@@ -46,18 +46,22 @@ export async function GET(req) {
       const groupBlocks = xmlText.match(/<GROUP[\s\S]*?<\/GROUP>/g) || [];
       console.log(`[Tally Groups API Backend] Found ${groupBlocks.length} total group blocks in Tally response.`);
 
-      const debtorGroups = ["Sundry Debtors"]; // Default/parent group is always available
+      const debtorGroups = [];
 
       groupBlocks.forEach(block => {
         const nameMatch = block.match(/<GROUP[^>]*\sNAME="([^"]+)"/);
-        const parentMatch = block.match(/<PARENT[^>]*>([^<]+)<\/PARENT>/);
         const name = nameMatch ? nameMatch[1]?.trim() : null;
-        const parent = parentMatch ? parentMatch[1]?.trim() : null;
 
-        // Only include groups that are directly child sub-groups of Sundry Debtors
-        if (name && parent === "Sundry Debtors" && name !== "Sundry Debtors") {
+        if (name && !debtorGroups.includes(name)) {
           debtorGroups.push(name);
         }
+      });
+
+      // Sort alphabetically for clean display, prioritizing Sundry Debtors if present
+      debtorGroups.sort((a, b) => {
+        if (a === "Sundry Debtors") return -1;
+        if (b === "Sundry Debtors") return 1;
+        return a.localeCompare(b);
       });
 
       console.log("[Tally Groups API Backend] Filtered Debtor Groups for UI dropdown:", debtorGroups);
