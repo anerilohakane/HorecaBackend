@@ -57,7 +57,7 @@ function buildCustomerXML(customer) {
               </NAME.LIST>
               <LANGUAGECODE> 1033</LANGUAGECODE>
             </LANGUAGENAME.LIST>
-            <PARENT>${escapeXML(customer.tallyGroup || "Sundry Debtors")}</PARENT>
+            <PARENT>${escapeXML(customer.customerGroup || "Sundry Debtors")}</PARENT>
             <ISBILLWISEON>Yes</ISBILLWISEON>
             <MAILINGNAME>${mailingName}</MAILINGNAME>
             ${addressXml}
@@ -187,7 +187,7 @@ export async function POST(request) {
       businessName: body.businessName?.trim() || name?.trim() || null,
       gstNumber: body.gstNumber?.trim() || null,
       category: body.category || "C",
-      tallyGroup: body.tallyGroup || "Sundry Debtors",
+      customerGroup: body.customerGroup || body.tallyGroup || "Sundry Debtors",
       poMandatory: Boolean(body.poMandatory),
       licenseImage: body.licenseImage || null,
       customerType: customerType ?? null,
@@ -280,6 +280,9 @@ export async function POST(request) {
 
     try {
       const xmlPayload = buildCustomerXML(newCustomer);
+      console.log(`[Tally Sync] Sending POST to Tally at URL: ${tallyUrl}`);
+      console.log(`[Tally Sync] Generated XML Payload:\n${xmlPayload}`);
+
       const tallyResponse = await fetch(tallyUrl, {
         method: 'POST',
         headers: {
@@ -289,9 +292,15 @@ export async function POST(request) {
         body: xmlPayload
       });
 
+      console.log(`[Tally Sync] Received response from Tally. Status: ${tallyResponse.status} ${tallyResponse.statusText}`);
+
       if (tallyResponse.ok) {
         const responseText = await tallyResponse.text();
+        console.log(`[Tally Sync] Raw Tally Response Text:\n${responseText}`);
+
         const parsed = parseTallyResponse(responseText);
+        console.log(`[Tally Sync] Parsed Response Success:`, parsed.success);
+
         if (parsed.success) {
           tallyCustomerSynced = true;
           console.log(`[Tally Sync] Customer synced successfully to Tally.`);

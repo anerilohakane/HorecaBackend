@@ -7,7 +7,7 @@ export async function GET(req) {
     <VERSION>1</VERSION>
     <TALLYREQUEST>EXPORT</TALLYREQUEST>
     <TYPE>COLLECTION</TYPE>
-    <ID>Group</ID>
+    <ID>CustomGroupsCollection</ID>
   </HEADER>
   <BODY>
     <DESC>
@@ -15,12 +15,20 @@ export async function GET(req) {
         <SVCURRENTCOMPANY>Unifoods</SVCURRENTCOMPANY>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
-      <FETCH>NAME,PARENT</FETCH>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="CustomGroupsCollection">
+            <TYPE>Group</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
     </DESC>
   </BODY>
 </ENVELOPE>`;
 
     const TALLY_ENDPOINT = process.env.TALLY_URL || "https://yummy-freebee-circular.ngrok-free.dev";
+    console.log("[Tally Groups API Backend] Querying Tally Prime Groups from:", TALLY_ENDPOINT);
 
     const response = await fetch(TALLY_ENDPOINT, {
       method: "POST",
@@ -34,28 +42,32 @@ export async function GET(req) {
     const xmlText = await response.text();
 
     if (response.ok) {
-      // Extract Group Names using regex for simple/fast parsing
-      const matches = [...xmlText.matchAll(/<GROUP[^>]*\sNAME="([^"]+)"/g)];
-      let groupNames = matches.map(m => m[1]);
-      
-      if (groupNames.length === 0) {
-        const nameMatches = [...xmlText.matchAll(/<NAME>([^<]+)<\/NAME>/g)];
-        groupNames = nameMatches.map(m => m[1]);
-      }
+      // Find all <GROUP ...> blocks in the XML response
+      const groupBlocks = xmlText.match(/<GROUP[\s\S]*?<\/GROUP>/g) || [];
+      console.log(`[Tally Groups API Backend] Found ${groupBlocks.length} total group blocks in Tally response.`);
 
-      groupNames = [...new Set(groupNames.map(g => g.trim()))];
+      const debtorGroups = ["Sundry Debtors"]; // Default/parent group is always available
 
-      if (groupNames.length === 0) {
-        groupNames = ["Sundry Debtors", "Sundry Creditors", "Duties & Taxes", "Bank Accounts", "Cash-in-hand"];
-      }
+      groupBlocks.forEach(block => {
+        const nameMatch = block.match(/<GROUP[^>]*\sNAME="([^"]+)"/);
+        const parentMatch = block.match(/<PARENT[^>]*>([^<]+)<\/PARENT>/);
+        const name = nameMatch ? nameMatch[1]?.trim() : null;
+        const parent = parentMatch ? parentMatch[1]?.trim() : null;
 
-      return NextResponse.json({ success: true, data: groupNames });
+        // Only include groups that are directly child sub-groups of Sundry Debtors
+        if (name && parent === "Sundry Debtors" && name !== "Sundry Debtors") {
+          debtorGroups.push(name);
+        }
+      });
+
+      console.log("[Tally Groups API Backend] Filtered Debtor Groups for UI dropdown:", debtorGroups);
+      return NextResponse.json({ success: true, data: debtorGroups });
     } else {
-      console.error("Tally API Error (GET Groups):", xmlText);
+      console.error("[Tally Groups API Backend] Error (GET Groups):", xmlText);
       return NextResponse.json({ success: false, error: "Failed to fetch Groups from Tally" }, { status: 500 });
     }
   } catch (error) {
-    console.error("API Error fetching groups:", error);
+    console.error("[Tally Groups API Backend] Error:", error);
     return NextResponse.json({ success: false, error: error.message || "Internal Server Error" }, { status: 500 });
   }
 }

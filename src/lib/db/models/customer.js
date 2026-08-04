@@ -117,7 +117,7 @@ const CustomerSchema = new mongoose.Schema(
       type: String,
       default: null
     },
-    tallyGroup: {
+    customerGroup: {
       type: String,
       default: "Sundry Debtors",
       trim: true
