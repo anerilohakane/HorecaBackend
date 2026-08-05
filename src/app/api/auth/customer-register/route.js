@@ -19,6 +19,17 @@ const escapeXML = (str) => {
     .replace(/'/g, "&apos;");
 };
 
+// Helper to format Date for Tally (YYYYMMDD)
+const formatTallyDate = (dateVal) => {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}`;
+};
+
 // Helper to build Customer XML for Tally
 function buildCustomerXML(customer) {
   const name = escapeXML(customer.name || customer.businessName || customer.phone || "Unknown Customer");
@@ -61,7 +72,7 @@ function buildCustomerXML(customer) {
               </NAME.LIST>
               <LANGUAGECODE> 1033</LANGUAGECODE>
             </LANGUAGENAME.LIST>
-            <PARENT>Sundry Debtors</PARENT>
+            <PARENT>${escapeXML(customer.customerGroup || "Sundry Debtors")}</PARENT>
             <ISBILLWISEON>Yes</ISBILLWISEON>
             <MAILINGNAME>${mailingName}</MAILINGNAME>
             ${addressXml}
@@ -72,6 +83,7 @@ function buildCustomerXML(customer) {
             ${email ? `<EMAIL>${email}</EMAIL>` : ''}
             <GSTREGISTRATIONTYPE>${gstNumber ? 'Regular' : 'Unregistered'}</GSTREGISTRATIONTYPE>
             ${gstNumber ? `<PARTYGSTIN>${gstNumber}</PARTYGSTIN>` : ''}
+            ${customer.gstEffectiveDate ? `<GSTAPPLICABLEDATE>${formatTallyDate(customer.gstEffectiveDate)}</GSTAPPLICABLEDATE>` : ''}
           </LEDGER>
         </TALLYMESSAGE>
       </REQUESTDATA>
@@ -257,12 +269,18 @@ export async function POST(req) {
       })) : [],
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
+      gstEffectiveDate: body.gstEffectiveDate || null,
+      gstDocUrl: body.gstDocUrl || null,
       panNumber: panNumber ? panNumber.trim().toUpperCase() : null,
       assignedRoute: assignedRoute || null,
       routeName: routeName || null,
       routeCode: routeCode || null,
       licenseImage,
       category,
+      customerGroup: body.customerGroup || body.tallyGroup || "Sundry Debtors",
+      advanceBalance: Number(body.advanceAmount || 0),
+      advancePaymentMode: body.advancePaymentMode || null,
+      advancePaymentProofUrl: body.advancePaymentProofUrl || null,
       customerType: customerType || null,
       department: department || null,
       poMandatory: poMandatory || false,
@@ -313,7 +331,8 @@ export async function POST(req) {
           password: finalPassword,
           gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
           creditTerm: Number(creditTerm || 0),
-          creditLimit: Number(creditLimit || 0)
+          creditLimit: Number(creditLimit || 0),
+          customerId: newUser._id.toString()
         });
 
         console.log(`[Email Notification Result] Success: ${mailResult?.success} | MessageId: ${mailResult?.messageId} | Error: ${mailResult?.error}`);
@@ -347,6 +366,9 @@ export async function POST(req) {
 
     try {
       const xmlPayload = buildCustomerXML(newUser);
+      console.log(`[Tally Sync Register] Sending POST to Tally at URL: ${tallyUrl}`);
+      console.log(`[Tally Sync Register] Generated XML Payload:\n${xmlPayload}`);
+
       const tallyResponse = await fetch(tallyUrl, {
         method: 'POST',
         headers: {
@@ -356,9 +378,15 @@ export async function POST(req) {
         body: xmlPayload
       });
 
+      console.log(`[Tally Sync Register] Received response from Tally. Status: ${tallyResponse.status} ${tallyResponse.statusText}`);
+
       if (tallyResponse.ok) {
         const responseText = await tallyResponse.text();
+        console.log(`[Tally Sync Register] Raw Tally Response Text:\n${responseText}`);
+
         const parsed = parseTallyResponse(responseText);
+        console.log(`[Tally Sync Register] Parsed Response Success:`, parsed.success);
+
         if (parsed.success) {
           tallyCustomerSynced = true;
           console.log(`[Tally Sync] Customer synced successfully to Tally.`);
