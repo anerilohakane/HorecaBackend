@@ -7,7 +7,7 @@ export async function PUT(req) {
 
   try {
     const body = await req.json();
-    const { id, name, email, address, city, state, pincode, lat, lng, advanceBalance, addAdvanceBalance, cnBalance, addCnBalance, isContractBased, contract } = body;
+    const { id, name, email, address, city, state, pincode, lat, lng, advanceBalance, addAdvanceBalance, cnBalance, addCnBalance, isContractBased, contract, customerType } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -23,6 +23,7 @@ export async function PUT(req) {
     if (city !== undefined) updateFields.city = city;
     if (state !== undefined) updateFields.state = state;
     if (pincode !== undefined) updateFields.pincode = pincode;
+    if (customerType !== undefined) updateFields.customerType = customerType;
     if (lat !== undefined) updateFields.lat = lat;
     if (lng !== undefined) updateFields.lng = lng;
     if (typeof advanceBalance === 'number') updateFields.advanceBalance = advanceBalance;

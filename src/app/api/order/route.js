@@ -625,6 +625,42 @@ export async function POST(request) {
       }, 404);
     }
 
+    // 1.5) License & FSSAI Expiry Validation Check for Customer Orders
+    if (userModel === "Customer" || identifiedUser?.fssaiExpiryDate || identifiedUser?.licenseExpiryDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Check FSSAI License Expiry
+      if (identifiedUser.hasFssai !== false && identifiedUser.fssaiExpiryDate) {
+        const fssaiExp = new Date(identifiedUser.fssaiExpiryDate);
+        fssaiExp.setHours(23, 59, 59, 999);
+        if (fssaiExp < today) {
+          const expDateStr = new Date(identifiedUser.fssaiExpiryDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          console.warn(`[ORDER BLOCKED] Customer ${identifiedUser._id} FSSAI License expired on ${expDateStr}`);
+          return json({
+            success: false,
+            code: "FSSAI_EXPIRED",
+            error: `Your FSSAI License expired on ${expDateStr}. Order creation and billing are suspended until updated FSSAI license details are provided.`
+          }, 400);
+        }
+      }
+
+      // Check Business / Trade License Expiry
+      if (identifiedUser.licenseExpiryDate) {
+        const tradeExp = new Date(identifiedUser.licenseExpiryDate);
+        tradeExp.setHours(23, 59, 59, 999);
+        if (tradeExp < today) {
+          const expDateStr = new Date(identifiedUser.licenseExpiryDate).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          console.warn(`[ORDER BLOCKED] Customer ${identifiedUser._id} Business License expired on ${expDateStr}`);
+          return json({
+            success: false,
+            code: "LICENSE_EXPIRED",
+            error: `Your Business License expired on ${expDateStr}. Order creation and billing are suspended until updated Business License details are provided.`
+          }, 400);
+        }
+      }
+    }
+
     // 2) items array or single-item shortcut
     let itemsInput = body.items;
     if (
@@ -881,6 +917,68 @@ export async function POST(request) {
     }
 
     const total = Number((grandTotalBeforeMOV + movDeliveryCharge).toFixed(2));
+
+    // 💳 CREDIT TERMS & CREDIT LIMIT VALIDATION (for Customers)
+    if (userModel === "Customer" && identifiedUser && identifiedUser._id) {
+      const customerDoc = await Customer.findById(identifiedUser._id).lean();
+      if (customerDoc) {
+        const creditTerm = Number(customerDoc.creditTerm || 0); // 0, 7, 15, 30, 45, 60 days
+        const creditLimit = Number(customerDoc.creditLimit || 0); // amount in ₹
+
+        // 1. Calculate Customer's Current Outstanding Balance (Unpaid / Pending orders)
+        const unpaidOrders = await Order.find({
+          user: identifiedUser._id,
+          status: { $nin: ["cancelled", "refunded"] },
+          "payment.status": { $in: ["pending", "partially_paid"] }
+        }).lean();
+
+        const outstandingBalance = unpaidOrders.reduce((sum, ord) => sum + Number(ord.total || 0), 0);
+
+        // 2. Validate Overdue Invoices / Orders against Credit Term
+        if (creditTerm > 0) {
+          const now = new Date();
+          const overdueOrders = unpaidOrders.filter(ord => {
+            const createdAt = new Date(ord.createdAt || ord.created_at || now);
+            const diffTime = Math.abs(now.getTime() - createdAt.getTime());
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            return diffDays > creditTerm;
+          });
+
+          if (overdueOrders.length > 0) {
+            const oldestOrderDate = new Date(Math.min(...overdueOrders.map(o => new Date(o.createdAt || now).getTime())));
+            const oldestDays = Math.ceil(Math.abs(now.getTime() - oldestOrderDate.getTime()) / (1000 * 60 * 60 * 24));
+
+            return json({
+              success: false,
+              error: "OVERDUE_INVOICES",
+              message: `Order blocked: You have ${overdueOrders.length} unpaid order(s) exceeding your credit term of ${creditTerm} days (oldest is ${oldestDays} days old). Please clear overdue invoices to place new orders.`,
+              creditTerm,
+              overdueCount: overdueOrders.length,
+              oldestDays,
+              outstandingBalance
+            }, 422);
+          }
+        }
+
+        // 3. Validate Outstanding + Current Order Amount against Credit Limit
+        if (creditLimit > 0) {
+          const totalExposure = outstandingBalance + total;
+          if (totalExposure > creditLimit) {
+            const excess = totalExposure - creditLimit;
+            return json({
+              success: false,
+              error: "CREDIT_LIMIT_EXCEEDED",
+              message: `Order blocked: Total exposure (₹${totalExposure.toLocaleString('en-IN')}) exceeds your approved credit limit of ₹${creditLimit.toLocaleString('en-IN')} by ₹${excess.toLocaleString('en-IN')}. Please clear outstanding dues (₹${outstandingBalance.toLocaleString('en-IN')}) or request credit limit increase.`,
+              creditLimit,
+              outstandingBalance,
+              currentOrderAmount: total,
+              totalExposure,
+              excessAmount: excess
+            }, 422);
+          }
+        }
+      }
+    }
 
     // Calculate aggregated GST percentage
     const orderGst = subtotal > 0 ? (gstAmount / subtotal) * 100 : 0;
@@ -2570,4 +2668,4 @@ export async function DELETE(request) {
     return json({ success: false, error: err.message || "Server error" }, 500);
   }
 }
-
+

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
 import { logger } from "@/lib/logger";
+import { sendCustomerWelcomeEmail } from "@/lib/mail";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -106,9 +107,10 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const {
-      username, password, email, phone, businessName, gstNumber,
-      licenseImage, name, locations, supplierId, category, poMandatory,
-      lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractExpiryDate, contractNotes
+      username, password, email, phone, businessName, gstNumber, panNumber,
+      licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
+      creditTerm, creditLimit, urcDocUrl, assignedRoute, routeName, routeCode,
+      lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
     if (!username || username.length < 3) {
@@ -119,8 +121,24 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Valid customer tier (A, B, C) is required" }, { status: 400 });
     }
 
-    if (!password || password.length < 8) {
-      return NextResponse.json({ success: false, error: "Password must be at least 8 characters" }, { status: 400 });
+    const generateSystemPassword = () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      let randomStr = "";
+      for (let i = 0; i < 6; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `Unifoods@${randomStr}`;
+    };
+
+    let finalPassword = password ? password.trim() : "";
+    let isSystemGenerated = false;
+
+    if (!finalPassword) {
+      finalPassword = generateSystemPassword();
+      isSystemGenerated = true;
+      console.log(`[Auto Password] System generated password for ${username}: ${finalPassword}`);
+    } else if (finalPassword.length < 8) {
+      return NextResponse.json({ success: false, error: "Password must be at least 8 characters if entered manually" }, { status: 400 });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -141,8 +159,9 @@ export async function POST(req) {
     }
 
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!gstNumber || !gstRegex.test(gstNumber.toUpperCase())) {
-      return NextResponse.json({ success: false, error: "Valid GST number is required" }, { status: 400 });
+    const isUrg = gstNumber === "URG" || gstNumber === "Unregistered" || body.isUrg === true;
+    if (!isUrg && (!gstNumber || !gstRegex.test(gstNumber.trim().toUpperCase()))) {
+      return NextResponse.json({ success: false, error: "Either a valid GST number or URG (Unregistered) selection is required" }, { status: 400 });
     }
 
     if (!locations || !Array.isArray(locations) || locations.length === 0) {
@@ -167,10 +186,13 @@ export async function POST(req) {
 
     // Ensure all locations are valid and structured
     const formattedLocations = locations.map((loc, index) => ({
+      outletName: loc.outletName?.trim() || (index === 0 ? "Main Branch" : null),
       address: loc.address?.trim() || "",
       city: loc.city?.trim() || "",
       state: loc.state?.trim() || "",
       pincode: loc.pincode?.trim() || "",
+      contactPerson: loc.contactPerson?.trim() || null,
+      contactPhone: loc.contactPhone?.trim() || null,
       lat: loc.lat != null ? loc.lat : (index === 0 && lat != null ? lat : null),
       lng: loc.lng != null ? loc.lng : (index === 0 && lng != null ? lng : null),
       isPrimary: index === 0
@@ -198,7 +220,7 @@ export async function POST(req) {
 
     // Hash password
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(finalPassword, salt);
 
     // Normalize Phone
     const numericPhone = phone.replace(/\D/g, "");
@@ -221,16 +243,44 @@ export async function POST(req) {
       lng: finalLng,
       location: finalLat != null && finalLng != null ? { type: "Point", coordinates: [finalLng, finalLat] } : undefined,
       locations: formattedLocations,
+      hasMultipleOutlets: Boolean(hasMultipleOutlets),
+      outlets: Array.isArray(outlets) ? outlets.map(o => ({
+        outletName: o.outletName?.trim() || "",
+        address: o.address?.trim() || "",
+        city: o.city?.trim() || "",
+        state: o.state?.trim() || "",
+        pincode: o.pincode?.trim() || "",
+        contactPerson: o.contactPerson?.trim() || null,
+        contactPhone: o.contactPhone?.trim() || null,
+        lat: o.lat != null ? o.lat : null,
+        lng: o.lng != null ? o.lng : null
+      })) : [],
       businessName: businessName.trim(),
       gstNumber: gstNumber || null,
+      panNumber: panNumber ? panNumber.trim().toUpperCase() : null,
+      assignedRoute: assignedRoute || null,
+      routeName: routeName || null,
+      routeCode: routeCode || null,
       licenseImage,
       category,
+      customerType: customerType || null,
+      department: department || null,
       poMandatory: poMandatory || false,
+      creditTerm: Number(creditTerm || 0),
+      creditLimit: Number(creditLimit || 0),
+      urcDocUrl: urcDocUrl || null,
+      hasFssai: body.hasFssai !== undefined ? Boolean(body.hasFssai) : true,
+      fssaiNumber: body.fssaiNumber ? body.fssaiNumber.trim() : null,
+      fssaiExpiryDate: body.fssaiExpiryDate ? new Date(body.fssaiExpiryDate) : null,
+      fssaiDocUrl: body.fssaiDocUrl || null,
+      fssaiUndertakingDocUrl: body.fssaiUndertakingDocUrl || null,
+      licenseExpiryDate: body.licenseExpiryDate ? new Date(body.licenseExpiryDate) : null,
       supplierId: supplierId || null,
       isContractBased: Boolean(isContractBased),
       contract: isContractBased ? {
-        contractType: contract?.contractType || contractType || "Annual Supply Agreement",
+        contractType: contract?.contractType || contractType || null,
         documentUrl: contract?.documentUrl || contractDocumentUrl || null,
+        startDate: contract?.startDate || contractStartDate ? new Date(contract?.startDate || contractStartDate) : null,
         expiryDate: contract?.expiryDate || contractExpiryDate ? new Date(contract?.expiryDate || contractExpiryDate) : null,
         notes: contract?.notes || contractNotes || null,
         uploadedAt: new Date()
@@ -247,6 +297,41 @@ export async function POST(req) {
       metadata: { username, email },
       req
     });
+
+    // 📧 Send Automated Welcome Email to Customer (Credentials, URG/GST Notice & Credit Terms)
+    let mailResult = null;
+    try {
+      if (email) {
+        const isUrgCustomer = body.isUrg || gstNumber === "URG" || gstNumber === "Unregistered" || !gstNumber;
+        console.log(`[Email Dispatcher] Attempting welcome email for ${email} (URG: ${isUrgCustomer})`);
+        
+        mailResult = await sendCustomerWelcomeEmail({
+          email: email.trim(),
+          name: name ? name.trim() : businessName.trim(),
+          businessName: businessName.trim(),
+          username: username.trim(),
+          password: finalPassword,
+          gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
+          creditTerm: Number(creditTerm || 0),
+          creditLimit: Number(creditLimit || 0)
+        });
+
+        console.log(`[Email Notification Result] Success: ${mailResult?.success} | MessageId: ${mailResult?.messageId} | Error: ${mailResult?.error}`);
+        
+        await logger({
+          level: mailResult?.success ? 'info' : 'error',
+          message: mailResult?.success ? `Welcome email sent to ${email}` : `Failed to send welcome email to ${email}: ${mailResult?.error}`,
+          action: 'CUSTOMER_WELCOME_EMAIL',
+          userId: newUser._id,
+          userModel: 'Customer',
+          metadata: { email, mailResult },
+          req
+        });
+      }
+    } catch (mailErr) {
+      console.error("[Email Notification Error] Failed to send welcome email:", mailErr);
+      mailResult = { success: false, error: mailErr.message || String(mailErr) };
+    }
 
     // Create JWT
     const token = jwt.sign(
@@ -346,6 +431,9 @@ export async function POST(req) {
         accessToken: token,
         tallyCustomerSynced,
         tallyCustomerError,
+        emailSent: mailResult?.success || false,
+        emailError: mailResult?.error || null,
+        emailMessageId: mailResult?.messageId || null,
         user: {
           id: newUser._id,
           username: newUser.username,

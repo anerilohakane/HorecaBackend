@@ -18,11 +18,21 @@ export async function POST(req) {
 
     await dbConnect();
 
-    // Find user by either username or email
+    // Normalize phone identifier lookup
+    const cleanPhone = identifier.replace(/\D/g, "");
+    const phoneVariants = [
+      identifier.trim(),
+      cleanPhone,
+      cleanPhone ? `+91${cleanPhone}` : null,
+      cleanPhone ? `+${cleanPhone}` : null
+    ].filter(Boolean);
+
+    // Find user by username, email, or phone
     const user = await Customer.findOne({
       $or: [
-        { username: identifier },
-        { email: identifier.toLowerCase() }
+        { username: identifier.trim() },
+        { email: identifier.trim().toLowerCase() },
+        { phone: { $in: phoneVariants } }
       ]
     });
 
@@ -35,8 +45,21 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Please use OTP to login or reset your password." }, { status: 401 });
     }
 
-    // Verify password
-    const isMatch = await bcrypt.compare(password, user.password);
+    // Verify password (supports bcrypt hash and plain text fallback with auto-hashing)
+    let isMatch = false;
+    if (user.password.startsWith("$2a$") || user.password.startsWith("$2b$")) {
+      isMatch = await bcrypt.compare(password, user.password);
+    } else {
+      isMatch = password === user.password;
+      if (isMatch) {
+        // Auto-upgrade plain text password to bcrypt hash
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        await user.save();
+        console.log(`[Password Auto-Upgrade] Auto-hashed plain password for user: ${user.username || user.email}`);
+      }
+    }
+
     if (!isMatch) {
       return NextResponse.json({ success: false, error: "Invalid credentials" }, { status: 401 });
     }
