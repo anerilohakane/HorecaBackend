@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import jwt from "jsonwebtoken";
 
 const getTransporter = () => {
   const user = process.env.EMAIL_USER || process.env.SMTP_USER || "gaikwadsameer422@gmail.com";
@@ -48,8 +49,9 @@ export const sendCustomerWelcomeEmail = async ({
   gstNumber,
   creditTerm,
   creditLimit,
+  customerId,
 }) => {
-  console.log(`📩 [Welcome Email Request] Received welcome email request for:`, { email, name, businessName, username, gstNumber });
+  console.log(`📩 [Welcome Email Request] Received welcome email request for:`, { email, name, businessName, username, gstNumber, customerId });
 
   if (!email || !email.trim()) {
     console.warn("⚠️ [Welcome Email Skipped] No valid email address provided.");
@@ -80,6 +82,31 @@ export const sendCustomerWelcomeEmail = async ({
         <p style="margin: 3px 0; color: #4a148c; font-size: 13px;">Approved Credit Limit: <strong>₹${Number(creditLimit || 0).toLocaleString('en-IN')}</strong></p>
        </div>`
     : '';
+
+  const JWT_SECRET = process.env.JWT_SECRET || "ae6vg43fnq6c36nx4qcn4g6rcq";
+  let changePasswordSectionHtml = "";
+  if (customerId) {
+    try {
+      const resetToken = jwt.sign({ customerId }, JWT_SECRET, { expiresIn: "7d" });
+      let frontendUrl = process.env.RESET_URL_BASE || "https://horeca-user-end.vercel.app";
+      if (!process.env.RESET_URL_BASE && (process.env.NODE_ENV === "development" || !process.env.VERCEL)) {
+        frontendUrl = "http://localhost:3002";
+      }
+      const changePasswordUrl = `${frontendUrl.replace(/\/$/, "")}/change-password?token=${resetToken}`;
+      
+      changePasswordSectionHtml = `
+        <div style="background-color: #fff3e0; border-left: 4px solid #ff9800; padding: 14px 18px; margin: 20px 0; border-radius: 6px;">
+          <strong style="color: #e65100; font-size: 14px; display: block; margin-bottom: 4px;">Security Notice:</strong>
+          <p style="margin: 0 0 10px 0; color: #e65100; font-size: 13px;">
+            We recommend setting a custom, secure password for your account. You can change or reset your password at any time using the link below:
+          </p>
+          <a href="${changePasswordUrl}" style="background-color: #ff9800; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; box-shadow: 0 2px 5px rgba(255, 152, 0, 0.2);">Change Your Password</a>
+        </div>
+      `;
+    } catch (jwtErr) {
+      console.error("Failed to generate password change token for welcome email:", jwtErr);
+    }
+  }
 
   const html = `
     <!DOCTYPE html>
@@ -127,6 +154,7 @@ export const sendCustomerWelcomeEmail = async ({
 
           ${gstSectionHtml}
           ${creditSectionHtml}
+          ${changePasswordSectionHtml}
 
           <div style="text-align: center; margin: 30px 0 20px 0;">
             <a href="https://horeca-user-end.vercel.app/login" style="background-color: #d97706; color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold; font-size: 14px; display: inline-block; box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3);">Login to Your Account</a>
