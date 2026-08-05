@@ -176,6 +176,18 @@ const CustomerSchema = new mongoose.Schema(
       default: 0
     },
 
+    advancePaymentMode: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
+    advancePaymentProofUrl: {
+      type: String,
+      default: null,
+      trim: true
+    },
+
     creditTerm: {
       type: Number,
       enum: [0, 7, 15, 30, 45, 60],
