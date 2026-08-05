@@ -328,7 +328,8 @@ export async function POST(req) {
           password: finalPassword,
           gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
           creditTerm: Number(creditTerm || 0),
-          creditLimit: Number(creditLimit || 0)
+          creditLimit: Number(creditLimit || 0),
+          customerId: newUser._id.toString()
         });
 
         console.log(`[Email Notification Result] Success: ${mailResult?.success} | MessageId: ${mailResult?.messageId} | Error: ${mailResult?.error}`);

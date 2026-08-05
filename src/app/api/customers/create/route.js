@@ -279,7 +279,8 @@ export async function POST(request) {
           password: rawPassword,
           gstNumber: isUrgCustomer ? "URG" : (newCustomer.gstNumber || "URG"),
           creditTerm: newCustomer.creditTerm || 0,
-          creditLimit: newCustomer.creditLimit || 0
+          creditLimit: newCustomer.creditLimit || 0,
+          customerId: newCustomer._id.toString()
         });
         console.log(`[Email Notification] Welcome email sent to ${newCustomer.email}`);
       }
