@@ -88,7 +88,10 @@ export const sendCustomerWelcomeEmail = async ({
   if (customerId) {
     try {
       const resetToken = jwt.sign({ customerId }, JWT_SECRET, { expiresIn: "7d" });
-      const frontendUrl = process.env.RESET_URL_BASE || "https://horeca-user-end-two.vercel.app" || "http://localhost:3002";
+      let frontendUrl = process.env.RESET_URL_BASE || "https://horeca-user-end-two.vercel.app";
+      if (!process.env.RESET_URL_BASE && (process.env.NODE_ENV === "development" || !process.env.VERCEL)) {
+        frontendUrl = "http://localhost:3002";
+      }
       const changePasswordUrl = `${frontendUrl.replace(/\/$/, "")}/change-password?token=${resetToken}`;
       
       changePasswordSectionHtml = `
