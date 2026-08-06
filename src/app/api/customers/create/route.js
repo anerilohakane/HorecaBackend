@@ -203,6 +203,7 @@ export async function POST(request) {
       category: body.category || "C",
       customerGroup: body.customerGroup || body.tallyGroup || "Sundry Debtors",
       advanceBalance: Number(body.advanceAmount || 0),
+      hasPaidAdvance: body.hasPaidAdvance !== undefined ? Boolean(body.hasPaidAdvance) : false,
       advancePaymentMode: body.advancePaymentMode || null,
       advancePaymentProofUrl: body.advancePaymentProofUrl || null,
       poMandatory: Boolean(body.poMandatory),

@@ -176,6 +176,11 @@ const CustomerSchema = new mongoose.Schema(
       default: 0
     },
 
+    hasPaidAdvance: {
+      type: Boolean,
+      default: false
+    },
+
     advancePaymentMode: {
       type: String,
       default: null,

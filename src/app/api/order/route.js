@@ -3608,6 +3608,7 @@ export async function POST(request) {
         status: paymentStatus,
         transactionId,
         paidAt,
+        meta: body.payment?.meta || undefined,
       },
 
       delivery: body.delivery || {},

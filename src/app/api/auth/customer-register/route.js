@@ -279,6 +279,7 @@ export async function POST(req) {
       category,
       customerGroup: body.customerGroup || body.tallyGroup || "Sundry Debtors",
       advanceBalance: Number(body.advanceAmount || 0),
+      hasPaidAdvance: body.hasPaidAdvance !== undefined ? Boolean(body.hasPaidAdvance) : false,
       advancePaymentMode: body.advancePaymentMode || null,
       advancePaymentProofUrl: body.advancePaymentProofUrl || null,
       customerType: customerType || null,
