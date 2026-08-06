@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
+import { sendEmail } from "@/lib/mail";
 import { logger } from "@/lib/logger";
-import { sendCustomerPasswordResetEmail } from "@/lib/mail";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -12,66 +12,69 @@ export async function POST(req) {
     const body = await req.json();
     const { email } = body;
 
-    if (!email) {
+    if (!email || !email.trim()) {
       return NextResponse.json({ success: false, error: "Email is required" }, { status: 400 });
     }
 
     if (!JWT_SECRET) {
-      console.error("JWT_SECRET is not configured");
       return NextResponse.json({ success: false, error: "Server configuration error" }, { status: 500 });
     }
 
     await dbConnect();
 
-    // Find customer by email (case-insensitive)
-    const customer = await Customer.findOne({ email: email.toLowerCase() });
-    
+    const customer = await Customer.findOne({ email: email.toLowerCase().trim() });
     if (!customer) {
-      return NextResponse.json({ 
-        success: false, 
-        error: "No account found with this email address. Please check and try again." 
-      }, { status: 404 });
+      return NextResponse.json({ success: false, error: "This email address is not registered in our system." }, { status: 404 });
     }
 
-    // Generate a reset token (valid for 7 days, matching the welcome email)
-    const resetToken = jwt.sign(
-      { customerId: customer._id },
+    // Generate JWT token valid for 1 hour
+    const token = jwt.sign(
+      { customerId: customer._id.toString() },
       JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "1h" }
     );
 
-    // Send the password reset email
-    let mailResult = null;
-    try {
-      mailResult = await sendCustomerPasswordResetEmail({
-        email: customer.email,
-        name: customer.name,
-        businessName: customer.businessName,
-        resetToken: resetToken,
-      });
-
-      console.log(`[Forgot Password Email Result] Success: ${mailResult?.success} | Error: ${mailResult?.error}`);
-    } catch (mailErr) {
-      console.error("[Email Notification Error] Failed to send forgot password email:", mailErr);
-      return NextResponse.json({ success: false, error: "Failed to send reset email. Please try again later." }, { status: 500 });
+    const origin = req.headers.get("origin") || req.headers.get("referer");
+    let frontendUrl = "https://horeca-user-end.vercel.app";
+    if (origin) {
+      try {
+        frontendUrl = new URL(origin).origin;
+      } catch (e) {}
     }
 
+    const resetLink = `${frontendUrl.replace(/\/$/, "")}/change-password?token=${token}`;
+
+    // Send password reset email
+    const mailHtml = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+        <h2 style="color: #0f172a;">Reset Your Unifoods Password</h2>
+        <p style="color: #475569; line-height: 1.5;">You recently requested to reset your password for your Unifoods B2B account. Click the button below to set a new password:</p>
+        <div style="margin: 24px 0; text-align: center;">
+          <a href="${resetLink}" style="background-color: #d97706; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; display: inline-block;">Reset Password</a>
+        </div>
+        <p style="color: #64748b; font-size: 12px; margin-top: 32px;">This link will expire in 1 hour. If you did not request a password reset, please ignore this email.</p>
+      </div>
+    `;
+
+    await sendEmail({
+      to: customer.email,
+      subject: "Reset Your Unifoods Account Password",
+      html: mailHtml,
+      text: `Reset your password by visiting this link: ${resetLink}`
+    });
+
     await logger({
-      level: 'info',
-      message: `Password reset requested for customer: ${customer.username || customer.email}`,
-      action: 'CUSTOMER_PASSWORD_RESET_REQUESTED',
+      level: "info",
+      message: `Password reset link requested for customer: ${customer.email}`,
+      action: "CUSTOMER_PASSWORD_RESET_REQUESTED",
       userId: customer._id,
-      userModel: 'Customer',
+      userModel: "Customer",
       req
     });
 
-    return NextResponse.json({ 
-      success: true, 
-      message: "If an account exists with this email, a password reset link has been sent." 
-    });
-
+    return NextResponse.json({ success: true, message: "Password reset email sent successfully." });
   } catch (err) {
-    console.error("Error in customer forgot password:", err);
-    return NextResponse.json({ success: false, error: err.message || "Internal Server Error" }, { status: 500 });
+    console.error("Error in customer-forgot-password:", err);
+    return NextResponse.json({ success: false, error: err.message || "Failed to process request" }, { status: 500 });
   }
 }

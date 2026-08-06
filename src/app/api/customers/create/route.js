@@ -178,7 +178,7 @@ export async function POST(request) {
     };
 
     const rawPassword = body.password ? body.password.trim() : generateSystemPassword();
-    const generatedUsername = body.username ? body.username.trim() : (name ? name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) : numericPhone);
+    const generatedUsername = email ? email.toLowerCase().trim() : (body.username ? body.username.trim() : (name ? name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) : numericPhone));
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(rawPassword, salt);

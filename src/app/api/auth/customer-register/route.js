@@ -119,15 +119,18 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const {
-      username, password, email, phone, businessName, gstNumber, panNumber,
+      password, email, phone, businessName, gstNumber, panNumber,
       licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
       creditTerm, creditLimit, urcDocUrl, assignedRoute, routeName, routeCode,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
-    if (!username || username.length < 3) {
-      return NextResponse.json({ success: false, error: "Username must be at least 3 characters" }, { status: 400 });
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      return NextResponse.json({ success: false, error: "Invalid email address" }, { status: 400 });
     }
+
+    const username = email.toLowerCase().trim();
 
     if (!category || !['A', 'B', 'C'].includes(category)) {
       return NextResponse.json({ success: false, error: "Valid customer tier (A, B, C) is required" }, { status: 400 });
@@ -153,10 +156,6 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Password must be at least 8 characters if entered manually" }, { status: 400 });
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) {
-      return NextResponse.json({ success: false, error: "Invalid email address" }, { status: 400 });
-    }
 
     if (!phone || phone.replace(/\D/g, "").length < 10) {
       return NextResponse.json({ success: false, error: "Invalid phone number" }, { status: 400 });
@@ -242,6 +241,7 @@ export async function POST(req) {
 
     // Create user
     const newUser = await Customer.create({
+      isVerified: !!(body.preApproved || body.isVerified),
       username,
       password: hashedPassword,
       email: email.toLowerCase(),
@@ -316,40 +316,44 @@ export async function POST(req) {
       req
     });
 
-    // 📧 Send Automated Welcome Email to Customer (Credentials, URG/GST Notice & Credit Terms)
+    // 📧 Send Automated Welcome Email to Customer if Pre-Approved (SCM onboarding)
     let mailResult = null;
-    try {
-      if (email) {
-        const isUrgCustomer = body.isUrg || gstNumber === "URG" || gstNumber === "Unregistered" || !gstNumber;
-        console.log(`[Email Dispatcher] Attempting welcome email for ${email} (URG: ${isUrgCustomer})`);
-        
-        mailResult = await sendCustomerWelcomeEmail({
-          email: email.trim(),
-          name: name ? name.trim() : businessName.trim(),
-          businessName: businessName.trim(),
-          username: username.trim(),
-          password: finalPassword,
-          gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
-          creditTerm: Number(creditTerm || 0),
-          creditLimit: Number(creditLimit || 0),
-          customerId: newUser._id.toString()
-        });
+    if (newUser.isVerified) {
+      try {
+        if (email) {
+          const isUrgCustomer = body.isUrg || gstNumber === "URG" || gstNumber === "Unregistered" || !gstNumber;
+          console.log(`[Email Dispatcher] Attempting welcome email for ${email} (URG: ${isUrgCustomer})`);
+          
+          mailResult = await sendCustomerWelcomeEmail({
+            email: email.trim(),
+            name: name ? name.trim() : businessName.trim(),
+            businessName: businessName.trim(),
+            username: username.trim(),
+            password: finalPassword,
+            gstNumber: isUrgCustomer ? "URG" : (gstNumber ? gstNumber.trim().toUpperCase() : "URG"),
+            creditTerm: Number(creditTerm || 0),
+            creditLimit: Number(creditLimit || 0),
+            customerId: newUser._id.toString()
+          });
 
-        console.log(`[Email Notification Result] Success: ${mailResult?.success} | MessageId: ${mailResult?.messageId} | Error: ${mailResult?.error}`);
-        
-        await logger({
-          level: mailResult?.success ? 'info' : 'error',
-          message: mailResult?.success ? `Welcome email sent to ${email}` : `Failed to send welcome email to ${email}: ${mailResult?.error}`,
-          action: 'CUSTOMER_WELCOME_EMAIL',
-          userId: newUser._id,
-          userModel: 'Customer',
-          metadata: { email, mailResult },
-          req
-        });
+          console.log(`[Email Notification Result] Success: ${mailResult?.success} | MessageId: ${mailResult?.messageId} | Error: ${mailResult?.error}`);
+          
+          await logger({
+            level: mailResult?.success ? 'info' : 'error',
+            message: mailResult?.success ? `Welcome email sent to ${email}` : `Failed to send welcome email to ${email}: ${mailResult?.error}`,
+            action: 'CUSTOMER_WELCOME_EMAIL',
+            userId: newUser._id,
+            userModel: 'Customer',
+            metadata: { email, mailResult },
+            req
+          });
+        }
+      } catch (mailErr) {
+        console.error("[Email Notification Error] Failed to send welcome email:", mailErr);
+        mailResult = { success: false, error: mailErr.message || String(mailErr) };
       }
-    } catch (mailErr) {
-      console.error("[Email Notification Error] Failed to send welcome email:", mailErr);
-      mailResult = { success: false, error: mailErr.message || String(mailErr) };
+    } else {
+      console.log(`[Email Dispatcher] Welcome email skipped for ${email} (Awaiting CCT approval)`);
     }
 
     // Create JWT
