@@ -34,15 +34,8 @@ export async function POST(req) {
       { expiresIn: "1h" }
     );
 
-    const origin = req.headers.get("origin") || req.headers.get("referer");
-    let frontendUrl = "https://horeca-user-end.vercel.app";
-    if (origin) {
-      try {
-        frontendUrl = new URL(origin).origin;
-      } catch (e) {}
-    }
-
-    const resetLink = `${frontendUrl.replace(/\/$/, "")}/change-password?token=${token}`;
+    const frontendUrl = "https://horeca-user-end.vercel.app";
+    const resetLink = `${frontendUrl}/change-password?token=${token}`;
 
     // Send password reset email
     const mailHtml = `
