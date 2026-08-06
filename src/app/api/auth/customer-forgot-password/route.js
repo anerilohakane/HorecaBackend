@@ -24,7 +24,7 @@ export async function POST(req) {
 
     const customer = await Customer.findOne({ email: email.toLowerCase().trim() });
     if (!customer) {
-      return NextResponse.json({ success: true, message: "If this email is registered, a password reset link has been sent." });
+      return NextResponse.json({ success: false, error: "This email address is not registered in our system." }, { status: 404 });
     }
 
     // Generate JWT token valid for 1 hour
