@@ -149,6 +149,8 @@ const productSchema = new Schema({
   price: { type: Number, default: 0, min: [0, "Price cannot be negative"] },
   gst: { type: Number, default: 0, min: [0, "GST cannot be negative"], max: [100, "GST cannot exceed 100%"] },
   stockQuantity: { type: Number, default: 0, min: [0, "Stock quantity cannot be negative"] },
+  moq: { type: Number, default: 0 },
+  mov: { type: Number, default: 0 },
   unit: { type: String, enum: ["kg", "g", "liters", "ml", "pcs", "box", "dozen", "pack", "ton", "Kg", "Gram", "Liter", "Ml", "Piece", "Box", "Dozen", "Pack", "Ton", "Nos", "Ltr"], default: "Kg" },
   images: {
     type: [imageSubSchema],
