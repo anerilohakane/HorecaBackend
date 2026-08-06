@@ -51,13 +51,13 @@ export async function POST(req) {
 
     // Verify password (supports bcrypt hash and plain text fallback with auto-hashing)
     let isMatch = false;
-    const isBcryptHash = /^\$[2ayb]\$[0-9]{2}\$[./A-Za-z0-9]{53}$/.test(user.password);
-    if (isBcryptHash) {
+    try {
       isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch && password !== password.trim()) {
         isMatch = await bcrypt.compare(password.trim(), user.password);
       }
-    } else {
+    } catch (err) {
+      // Stored password is not a valid bcrypt hash, fallback to plain text comparison
       const cleanPass = password.trim();
       isMatch = password === user.password || cleanPass === user.password;
       if (isMatch) {
@@ -68,6 +68,8 @@ export async function POST(req) {
         console.log(`[Password Auto-Upgrade] Auto-hashed plain password for user: ${user.username || user.email}`);
       }
     }
+
+    console.log("Login Debug - user:", user.email, "isMatch:", isMatch);
 
     if (!isMatch) {
       return NextResponse.json({ success: false, error: "Invalid credentials" }, { status: 401 });
