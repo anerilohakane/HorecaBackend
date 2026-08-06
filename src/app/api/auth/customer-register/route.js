@@ -119,15 +119,18 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const {
-      username, password, email, phone, businessName, gstNumber, panNumber,
+      password, email, phone, businessName, gstNumber, panNumber,
       licenseImage, name, locations, hasMultipleOutlets, outlets, supplierId, category, customerType, department, poMandatory,
       creditTerm, creditLimit, urcDocUrl, assignedRoute, routeName, routeCode,
       lat, lng, isContractBased, contract, contractType, contractDocumentUrl, contractStartDate, contractExpiryDate, contractNotes
     } = body;
 
-    if (!username || username.length < 3) {
-      return NextResponse.json({ success: false, error: "Username must be at least 3 characters" }, { status: 400 });
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      return NextResponse.json({ success: false, error: "Invalid email address" }, { status: 400 });
     }
+
+    const username = email.toLowerCase().trim();
 
     if (!category || !['A', 'B', 'C'].includes(category)) {
       return NextResponse.json({ success: false, error: "Valid customer tier (A, B, C) is required" }, { status: 400 });
@@ -153,10 +156,6 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Password must be at least 8 characters if entered manually" }, { status: 400 });
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) {
-      return NextResponse.json({ success: false, error: "Invalid email address" }, { status: 400 });
-    }
 
     if (!phone || phone.replace(/\D/g, "").length < 10) {
       return NextResponse.json({ success: false, error: "Invalid phone number" }, { status: 400 });
