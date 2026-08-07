@@ -217,6 +217,34 @@ export async function POST(request) {
       creditTerm: Number(body.creditTerm || 0),
       creditLimit: Number(body.creditLimit || 0),
       hasMultipleOutlets: Boolean(hasMultipleOutlets),
+      source: body.source || "SCM Onboarding",
+      departmentContacts: {
+        art: {
+          name: body.departmentContacts?.art?.name?.trim() || null,
+          phone: body.departmentContacts?.art?.phone?.trim() || null,
+          email: body.departmentContacts?.art?.email?.trim() || null
+        },
+        act: {
+          name: body.departmentContacts?.act?.name?.trim() || null,
+          phone: body.departmentContacts?.act?.phone?.trim() || null,
+          email: body.departmentContacts?.act?.email?.trim() || null
+        },
+        odt: {
+          name: body.departmentContacts?.odt?.name?.trim() || null,
+          phone: body.departmentContacts?.odt?.phone?.trim() || null,
+          email: body.departmentContacts?.odt?.email?.trim() || null
+        },
+        scm: {
+          name: body.departmentContacts?.scm?.name?.trim() || null,
+          phone: body.departmentContacts?.scm?.phone?.trim() || null,
+          email: body.departmentContacts?.scm?.email?.trim() || null
+        },
+        routePlanner: {
+          name: body.departmentContacts?.routePlanner?.name?.trim() || null,
+          phone: body.departmentContacts?.routePlanner?.phone?.trim() || null,
+          email: body.departmentContacts?.routePlanner?.email?.trim() || null
+        }
+      },
       outlets: Array.isArray(outlets) ? outlets.map(o => ({
         outletName: o.outletName?.trim() || "",
         address: o.address?.trim() || "",
@@ -225,6 +253,10 @@ export async function POST(request) {
         pincode: o.pincode?.trim() || "",
         contactPerson: o.contactPerson?.trim() || null,
         contactPhone: o.contactPhone?.trim() || null,
+        contactEmail: o.contactEmail?.trim() || null,
+        assignedRoute: o.assignedRoute || null,
+        routeName: o.routeName || null,
+        routeCode: o.routeCode || null,
         lat: o.lat != null ? o.lat : null,
         lng: o.lng != null ? o.lng : null
       })) : [],
@@ -235,6 +267,12 @@ export async function POST(request) {
           city: city?.trim() || "",
           state: state?.trim() || "",
           pincode: pincode?.trim() || "",
+          contactPerson: body.locations?.[0]?.contactPerson?.trim() || name?.trim() || null,
+          contactPhone: body.locations?.[0]?.contactPhone?.trim() || phone?.trim() || null,
+          contactEmail: body.locations?.[0]?.contactEmail?.trim() || email?.trim() || null,
+          assignedRoute: body.locations?.[0]?.assignedRoute || body.assignedRoute || null,
+          routeName: body.locations?.[0]?.routeName || body.routeName || null,
+          routeCode: body.locations?.[0]?.routeCode || body.routeCode || null,
           lat: lat ?? null,
           lng: lng ?? null,
           isPrimary: true
@@ -247,6 +285,10 @@ export async function POST(request) {
           pincode: o.pincode?.trim() || "",
           contactPerson: o.contactPerson?.trim() || null,
           contactPhone: o.contactPhone?.trim() || null,
+          contactEmail: o.contactEmail?.trim() || null,
+          assignedRoute: o.assignedRoute || null,
+          routeName: o.routeName || null,
+          routeCode: o.routeCode || null,
           isPrimary: false
         })) : [])
       ],
