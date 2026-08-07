@@ -4,6 +4,25 @@ import dbConnect from "@/lib/db/connect";
 import Customer from "@/lib/db/models/customer";
 import { sendCustomerWelcomeEmail } from "@/lib/mail";
 
+// Helper to geocode address to lat/lng using Nominatim OSM
+async function geocodeAddress(addressStr) {
+  if (!addressStr || addressStr.trim().length < 5) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressStr)}&format=json&addressdetails=1&countrycodes=in&limit=1`;
+    const res = await fetch(url, { headers: { "User-Agent": "SCM-Logistics-App/1.0" } });
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon)
+      };
+    }
+  } catch (err) {
+    console.error("[geocodeAddress] Geocoding fallback error:", err);
+  }
+  return null;
+}
+
 // Helper to escape XML entities
 const escapeXML = (str) => {
   if (!str) return "";
@@ -183,6 +202,50 @@ export async function POST(request) {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(rawPassword, salt);
 
+    // Geocode additional outlets and primary address if coordinates are missing
+    let finalLat = lat ?? null;
+    let finalLng = lng ?? null;
+    if (finalLat == null || finalLng == null) {
+      const fullAddr = `${address || ""}, ${city || ""}, ${state || ""}, ${pincode || ""}`;
+      const coords = await geocodeAddress(fullAddr);
+      if (coords) {
+        finalLat = coords.lat;
+        finalLng = coords.lng;
+      }
+    }
+
+    const formattedOutlets = [];
+    if (Array.isArray(outlets)) {
+      for (let i = 0; i < outlets.length; i++) {
+        const o = outlets[i];
+        let oLat = o.lat != null ? o.lat : null;
+        let oLng = o.lng != null ? o.lng : null;
+        if (oLat == null || oLng == null) {
+          const fullAddr = `${o.address || ""}, ${o.city || ""}, ${o.state || ""}, ${o.pincode || ""}`;
+          const coords = await geocodeAddress(fullAddr);
+          if (coords) {
+            oLat = coords.lat;
+            oLng = coords.lng;
+          }
+        }
+        formattedOutlets.push({
+          outletName: o.outletName?.trim() || "",
+          address: o.address?.trim() || "",
+          city: o.city?.trim() || "",
+          state: o.state?.trim() || "",
+          pincode: o.pincode?.trim() || "",
+          contactPerson: o.contactPerson?.trim() || null,
+          contactPhone: o.contactPhone?.trim() || null,
+          contactEmail: o.contactEmail?.trim() || null,
+          assignedRoute: o.assignedRoute || null,
+          routeName: o.routeName || null,
+          routeCode: o.routeCode || null,
+          lat: oLat,
+          lng: oLng
+        });
+      }
+    }
+
     const newCustomer = await Customer.create({
       username: generatedUsername,
       password: hashedPassword,
@@ -193,9 +256,9 @@ export async function POST(request) {
       city: city ?? null,
       state: state ?? null,
       pincode: pincode ?? null,
-      lat: lat ?? null,
-      lng: lng ?? null,
-      location: lat != null && lng != null ? { type: "Point", coordinates: [lng, lat] } : undefined,
+      lat: finalLat,
+      lng: finalLng,
+      location: finalLat != null && finalLng != null ? { type: "Point", coordinates: [finalLng, finalLat] } : undefined,
       businessName: body.businessName?.trim() || name?.trim() || null,
       gstNumber: body.gstNumber?.trim() || null,
       gstEffectiveDate: body.gstEffectiveDate || null,
@@ -245,21 +308,7 @@ export async function POST(request) {
           email: body.departmentContacts?.routePlanner?.email?.trim() || null
         }
       },
-      outlets: Array.isArray(outlets) ? outlets.map(o => ({
-        outletName: o.outletName?.trim() || "",
-        address: o.address?.trim() || "",
-        city: o.city?.trim() || "",
-        state: o.state?.trim() || "",
-        pincode: o.pincode?.trim() || "",
-        contactPerson: o.contactPerson?.trim() || null,
-        contactPhone: o.contactPhone?.trim() || null,
-        contactEmail: o.contactEmail?.trim() || null,
-        assignedRoute: o.assignedRoute || null,
-        routeName: o.routeName || null,
-        routeCode: o.routeCode || null,
-        lat: o.lat != null ? o.lat : null,
-        lng: o.lng != null ? o.lng : null
-      })) : [],
+      outlets: formattedOutlets,
       locations: [
         {
           outletName: "Main Branch",
@@ -273,24 +322,26 @@ export async function POST(request) {
           assignedRoute: body.locations?.[0]?.assignedRoute || body.assignedRoute || null,
           routeName: body.locations?.[0]?.routeName || body.routeName || null,
           routeCode: body.locations?.[0]?.routeCode || body.routeCode || null,
-          lat: lat ?? null,
-          lng: lng ?? null,
+          lat: finalLat,
+          lng: finalLng,
           isPrimary: true
         },
-        ...(Array.isArray(outlets) ? outlets.map(o => ({
-          outletName: o.outletName?.trim() || "",
-          address: o.address?.trim() || "",
-          city: o.city?.trim() || "",
-          state: o.state?.trim() || "",
-          pincode: o.pincode?.trim() || "",
-          contactPerson: o.contactPerson?.trim() || null,
-          contactPhone: o.contactPhone?.trim() || null,
-          contactEmail: o.contactEmail?.trim() || null,
-          assignedRoute: o.assignedRoute || null,
-          routeName: o.routeName || null,
-          routeCode: o.routeCode || null,
+        ...formattedOutlets.map(o => ({
+          outletName: o.outletName,
+          address: o.address,
+          city: o.city,
+          state: o.state,
+          pincode: o.pincode,
+          contactPerson: o.contactPerson,
+          contactPhone: o.contactPhone,
+          contactEmail: o.contactEmail,
+          assignedRoute: o.assignedRoute,
+          routeName: o.routeName,
+          routeCode: o.routeCode,
+          lat: o.lat,
+          lng: o.lng,
           isPrimary: false
-        })) : [])
+        }))
       ],
       urcDocUrl: body.urcDocUrl || null,
       hasFssai: body.hasFssai !== undefined ? Boolean(body.hasFssai) : true,
