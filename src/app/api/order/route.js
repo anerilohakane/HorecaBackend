@@ -285,8 +285,8 @@ function parseTallyResponse(xmlString) {
   return { success: false, error: "Failed to parse Tally response", raw: xmlString };
 }
 
-// Helper to fetch all Debtors from Tally
-async function fetchTallyDebtors(tallyUrl, companyName) {
+// Helper to fetch all Debtors from Tally (including custom customerGroup parents)
+async function fetchTallyDebtors(tallyUrl, companyName, customerGroup) {
   const payload = `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -308,7 +308,7 @@ async function fetchTallyDebtors(tallyUrl, companyName) {
             <FILTER>DebtorsFilter</FILTER>
           </COLLECTION>
           <SYSTEM TYPE="Formulae" NAME="DebtorsFilter">
-            $Parent = "Sundry Debtors"
+            $Parent = "Sundry Debtors"${customerGroup ? ` or $Parent = "${escapeXML(customerGroup)}"` : ""}
           </SYSTEM>
         </TDLMESSAGE>
       </TDL>
@@ -384,7 +384,8 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
     computedTotal += itemTotal;
 
     // Resolve unit
-    const productDoc = productMap[item.product.toString()];
+    const productIdStr = (item.product?._id || item.product || "").toString();
+    const productDoc = productMap[productIdStr];
     const tallyUnit = escapeXML(mapMongooseUnitToTally(productDoc?.unit || 'pcs'));
 
     // Just send the number without the unit string. Tally will automatically use the base unit configured for the item.
@@ -392,6 +393,11 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
     const qtyStr = `${qty}`;
     const rateStr = `${unitPrice}`;
     const amountStr = itemTotal.toFixed(2); // Positive for Sales
+
+    // Resolve godown (warehouse) name from locationPath
+    const rootWarehouse = productDoc?.locationPath 
+      ? productDoc.locationPath.split(' > ')[0] 
+      : 'Unifoods Warehouse';
 
     return `<ALLINVENTORYENTRIES.LIST>
        <STOCKITEMNAME>${itemName}</STOCKITEMNAME>
@@ -402,7 +408,7 @@ function buildTallySalesVoucherXML(order, productMap, companyName, userObject, p
        <BILLEDQTY>${qtyStr}</BILLEDQTY>
 
        <BATCHALLOCATIONS.LIST>
-        <GODOWNNAME>Unifoods Warehouse</GODOWNNAME>
+        <GODOWNNAME>${escapeXML(rootWarehouse)}</GODOWNNAME>
         <BATCHNAME>Batch1</BATCHNAME>
         <AMOUNT>${amountStr}</AMOUNT>
         <ACTUALQTY>${qtyStr}</ACTUALQTY>
@@ -2507,6 +2513,80 @@ export async function PATCH(request) {
     const finalState = await Order.findById(idParam).lean();
     if (!finalState) return json({ success: false, error: "Order lost" }, 404);
 
+    // --- TALLY INTEGRATION FOR ART APPROVAL ---
+    // Trigger Tally sync only when ART approves the order (status transitions to "Packaging")
+    // and only if it hasn't been successfully synced already.
+    const normalizedStatus = (body.status || "").toLowerCase();
+    const combinedNotes = `${body.departmentNotes || ""} ${body.notes || ""}`;
+    const isArtApproval = combinedNotes.includes("Order moved to SCM for Packaging") ||
+      combinedNotes.includes("Order approved by ART") ||
+      combinedNotes.includes("moved to SCM for Packaging") ||
+      combinedNotes.includes("approved by ART");
+
+    console.log(`[Tally Sync - Condition Check] status="${body.status}", normalizedStatus="${normalizedStatus}", isArtApproval=${isArtApproval}, tallySynced=${finalState.tallySynced}, departmentNotes="${(body.departmentNotes || "").substring(0, 100)}", notes="${(body.notes || "").substring(0, 100)}"`);
+
+    if (normalizedStatus === "packaging" && isArtApproval && finalState.tallySynced !== true) {
+      try {
+        const tallyUrl = process.env.TALLY_URL || 'https://yummy-freebee-circular.ngrok-free.dev';
+        const tallyCompany = process.env.TALLY_SALES_COMPANY || 'Unifoods';
+
+        const CustomerModel = (await import("@/lib/db/models/customer")).default;
+        const identifiedUser = await CustomerModel.findById(finalState.user).lean();
+
+        let partyLedgerName = null;
+        if (identifiedUser) {
+          try {
+            const tallyDebtors = await fetchTallyDebtors(tallyUrl, tallyCompany, identifiedUser?.customerGroup);
+            partyLedgerName = findMatchingTallyLedger(tallyDebtors, identifiedUser, finalState);
+            console.log(`[Tally Sync] Resolved Customer party ledger: "${partyLedgerName}"`);
+          } catch (matchErr) {
+            console.warn("[Tally Sync] Dynamic customer matching warning:", matchErr.message);
+          }
+        }
+
+        const productIds = finalState.items.map(it => it.product?._id || it.product);
+        const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
+        const productMap = {};
+        productDocs.forEach(p => { productMap[p._id.toString()] = p; });
+
+        const xmlPayload = buildTallySalesVoucherXML(finalState, productMap, tallyCompany, identifiedUser || {}, partyLedgerName);
+        console.log(`[Tally Sync - ART] Syncing Sales Voucher for Order "${finalState.orderNumber}" to Tally`);
+        
+        const tallyResponse = await fetch(tallyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: xmlPayload
+        });
+
+        if (tallyResponse.ok) {
+          const responseText = await tallyResponse.text();
+          const parsed = parseTallyResponse(responseText);
+          if (parsed.success) {
+            console.log(`[Tally Sync - ART] Sales Voucher "${finalState.orderNumber}" synced successfully to Tally.`);
+            await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: true, tallyError: null } });
+            finalState.tallySynced = true; // update memory state
+          } else {
+            console.error(`[Tally Sync - ART] Tally error:`, parsed.error);
+            await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: false, tallyError: parsed.error } });
+          }
+        } else {
+          const tallyError = `Tally server responded with status ${tallyResponse.status}`;
+          console.error(`[Tally Sync - ART] HTTP error:`, tallyError);
+          await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: false, tallyError } });
+        }
+      } catch (tallyErr) {
+        console.error(`[Tally Sync - ART] Exception:`, tallyErr.message);
+        try {
+          await Order.updateOne({ _id: finalState._id }, { $set: { tallySynced: false, tallyError: tallyErr.message } });
+        } catch (dbErr) {
+          console.error("[Tally Sync - ART] Failed to update Tally error:", dbErr);
+        }
+      }
+    }
+
     const isDelivered = (finalState.status || "").toLowerCase() === "delivered" || (finalState.delivery?.status || "").toLowerCase() === "delivered";
     const isPaid = (finalState.payment?.status || "").toLowerCase() === "paid";
 
@@ -2640,7 +2720,9 @@ export async function PATCH(request) {
       return json({
         success: true,
         message: "Order updated and settlement processed",
-        data: finalStatePopulated || finalState
+        data: finalStatePopulated || finalState,
+        tallySynced: (finalStatePopulated || finalState)?.tallySynced || false,
+        tallyError: (finalStatePopulated || finalState)?.tallyError || null
       });
     } catch (finalErr) {
       console.error("[PATCH] Final population error:", finalErr);
